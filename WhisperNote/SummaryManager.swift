@@ -5,7 +5,7 @@ import SwiftUI
 class SummaryManager: ObservableObject {
     @Published var summaries: [Summary] = []
     @AppStorage("openrouterApiKey") private var apiKey = ""
-    @AppStorage("defaultLLMModel") private var defaultModel = "gpt-4"
+    @AppStorage("defaultLLMModel") private var defaultModel = "openai/gpt-4.1-mini"
 
     private let directoryManager = DirectoryManager.shared
 
@@ -57,7 +57,7 @@ class SummaryManager: ObservableObject {
         request.addValue("WhisperNote/1.0.0", forHTTPHeaderField: "HTTP-Referer")
 
         // Create the request body
-        let fullPrompt = "\(prompt)\n\nTranscript:\n\(transcript.content)"
+        let fullPrompt = "\(prompt)\n\nTRANSCRIPT=\n\(transcript.content)"
 
         let requestBody: [String: Any] = [
             "model": defaultModel,
@@ -121,14 +121,40 @@ class SummaryManager: ObservableObject {
         }
     }
 
-    func getDefaultPrompt() -> String {
-        return """
-        Please provide a comprehensive summary of the following meeting transcript. Include:
+    func getDefaultPrompt(meetingType: String = "meeting", audience: String = "all participants") -> String {
+        let meetingTypeText = meetingType.isEmpty ? "meeting" : meetingType
+        let audienceText = audience.isEmpty ? "all participants" : audience
 
-        1. Key discussion points
-        2. Decisions made
-        3. Action items with assigned owners (if mentioned)
-        4. Follow-up tasks and deadlines
+        return """
+        Review the provided transcript of the \(meetingTypeText). Identify the main participants and their roles. Note the overall structure and flow of the meeting.
+
+        Extract the key discussion points, decisions made, and action items from the transcript. Organize these into a logical structure.
+
+        Summarize the main objectives of the meeting as discussed in the transcript. Highlight how these objectives were addressed during the meeting.
+
+        Identify any critical insights, innovative ideas, or important data points mentioned in the transcript. Ensure these are prominently featured in the final document.
+
+        Create an executive summary that concisely captures the essence of the meeting, its outcomes, and next steps. Tailor this summary to the needs of \(audienceText).
+
+        Develop a detailed list of action items, including responsible parties and deadlines, based on the discussions in the transcript.
+
+        Extract any relevant metrics, KPIs, or quantitative data mentioned in the transcript. Present this information in a clear, visual format (e.g., bullet points, tables).
+
+        Identify any risks, challenges, or concerns raised during the meeting. Summarize these along with any proposed mitigation strategies discussed.
+
+        Compile a list of any resources, tools, or additional information mentioned or requested during the meeting.
+
+        Create a section highlighting key decisions made and the rationale behind them, as discussed in the transcript.
+
+        Develop a 'Next Steps' section that outlines the immediate actions to be taken following the meeting, based on the transcript content.
+
+        If applicable, create a section that tracks progress on ongoing projects or initiatives discussed in the meeting.
+
+        Review the document for clarity, coherence, and relevance to \(audienceText). Ensure all confidential or sensitive information is appropriately handled.
+
+        Generate a table of contents for easy navigation of the final document.
+
+        Provide a final summary of the valuable document created from the transcript, highlighting its key features and how it serves the needs of \(audienceText).
 
         Format the summary using Markdown syntax with:
         - # for main headings
@@ -139,6 +165,7 @@ class SummaryManager: ObservableObject {
         - [text](link) for any links
 
         Make sure to use proper Markdown formatting to create a well-structured, readable summary.
+        The summary should be in the same language as the transcript.
         """
     }
 

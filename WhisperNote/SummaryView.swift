@@ -14,7 +14,13 @@ struct SummaryView: View {
     @State private var summaryToDelete: Summary?
     @State private var isShowingExportDialog = false
     @State private var isShowingExportOptions = false
-    @State private var exportFormat: UTType = TextDocument.markdownUTType
+    @State private var showingSummaryParamsDialog = false
+    @State private var meetingType: String = ""
+    @State private var audience: String = ""
+    // Define the export format separately to avoid complex expressions
+    @State private var exportFormat: UTType = .plainText
+
+    // Initialize with markdown format in onAppear
 
     var body: some View {
         VStack {
@@ -126,8 +132,10 @@ struct SummaryView: View {
                                 }
 
                                 Button(action: {
-                                    customPrompt = summaryManager.getDefaultPrompt()
-                                    showingPromptEditor = true
+                                    // Show parameters dialog for regenerating summary
+                                    meetingType = ""
+                                    audience = ""
+                                    showingSummaryParamsDialog = true
                                 }) {
                                     Label("Regenerate", systemImage: "arrow.clockwise")
                                 }
@@ -180,6 +188,10 @@ struct SummaryView: View {
             }
         }
         .padding()
+        .onAppear {
+            // Set the markdown format on appear to avoid complex expression in property initialization
+            exportFormat = TextDocument.markdownUTType
+        }
         .alert(isPresented: $showingError) {
             Alert(
                 title: Text("Summary Generation Error"),
@@ -279,6 +291,78 @@ struct SummaryView: View {
                 errorMessage = "Export failed: \(error.localizedDescription)"
                 showingError = true
             }
+        }
+        .sheet(isPresented: $showingSummaryParamsDialog) {
+            VStack(spacing: 20) {
+                Text("Summary Parameters")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Meeting Type:")
+                    TextField("e.g., Team Meeting, Client Call, Interview", text: $meetingType)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                    Text("Target Audience:")
+                    TextField("e.g., Team Members, Management, Clients", text: $audience)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                .padding()
+
+                HStack {
+                    Button("Cancel") {
+                        showingSummaryParamsDialog = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Show Advanced") {
+                        // Generate custom prompt with meeting type and audience
+                        customPrompt = summaryManager.getDefaultPrompt(meetingType: meetingType, audience: audience)
+                        showingSummaryParamsDialog = false
+                        showingPromptEditor = true
+                    }
+
+                    Button("Generate Summary") {
+                        if let selectedSummary = selectedSummary {
+                            showingSummaryParamsDialog = false
+
+                            // Generate custom prompt with meeting type and audience
+                            let customPrompt = summaryManager.getDefaultPrompt(meetingType: meetingType, audience: audience)
+
+                            // Find the transcript for this summary
+                            Task {
+                                do {
+                                    isGenerating = true
+
+                                    // Delete the existing summary
+                                    if let summaryId = selectedSummary.id {
+                                        summaryManager.deleteSummary(id: summaryId)
+                                    }
+
+                                    // Find the transcript for this summary
+                                    let transcriptionManager = TranscriptionManager()
+                                    if let transcriptId = selectedSummary.transcriptId,
+                                       let transcript = transcriptionManager.transcripts.first(where: { $0.id == transcriptId }) {
+                                        // Generate a new summary with the custom prompt
+                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                    } else {
+                                        throw NSError(domain: "SummaryView", code: 1,
+                                                     userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                    }
+                                    isGenerating = false
+                                } catch {
+                                    isGenerating = false
+                                    errorMessage = error.localizedDescription
+                                    showingError = true
+                                }
+                            }
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding()
+            }
+            .frame(width: 500, height: 300)
+            .padding()
         }
     }
 }
