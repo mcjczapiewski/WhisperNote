@@ -11,6 +11,8 @@ struct SettingsView: View {
 
     @State private var isShowingDirectoryPicker = false
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
+    @State private var showAlert = false
+    @State private var alertMessage = ""
 
     private let llmModels = ["gpt-4", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet", "mistral-large", "llama-3"]
     private let audioFormats = ["wav", "mp3"]
@@ -120,12 +122,30 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Recordings Location")
                             .font(.subheadline)
+                            .fontWeight(.medium)
+
+                        Text("Choose where to save your recordings and transcripts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
                         HStack {
-                            Text(selectedDirectoryDisplayName)
-                                .truncationMode(.middle)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading) {
+                                Text(selectedDirectoryDisplayName)
+                                    .fontWeight(.medium)
+
+                                if !recordingsDirectory.isEmpty {
+                                    Text(recordingsDirectory)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .truncationMode(.middle)
+                                        .lineLimit(1)
+                                } else {
+                                    Text("Using default Documents directory")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                             Button("Change...") {
                                 isShowingDirectoryPicker = true
@@ -133,6 +153,17 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                         }
                         .padding(.vertical, 5)
+
+                        if !recordingsDirectory.isEmpty {
+                            Button("Reset to Default") {
+                                // Clear the custom directory settings
+                                UserDefaults.standard.removeObject(forKey: "recordingsDirectoryBookmark")
+                                recordingsDirectory = ""
+                                selectedDirectoryDisplayName = "Default (Documents)"
+                            }
+                            .font(.caption)
+                            .padding(.top, 5)
+                        }
                     }
                 }
                 .padding()
@@ -144,14 +175,32 @@ struct SettingsView: View {
                 allowsMultipleSelection: false
             ) { result in
                 do {
-                    let selectedURL = try result.get().first!
+                    guard let selectedURL = try? result.get().first else {
+                        print("No directory selected or selection was cancelled")
+                        return
+                    }
 
                     // Verify we have access to this directory
                     let canAccess = selectedURL.startAccessingSecurityScopedResource()
+                    if !canAccess {
+                        alertMessage = "Unable to access the selected directory. Please choose a different location."
+                        showAlert = true
+                        print("Unable to access the selected directory: \(selectedURL.path)")
+                        return
+                    }
+
                     defer {
-                        if canAccess {
-                            selectedURL.stopAccessingSecurityScopedResource()
-                        }
+                        selectedURL.stopAccessingSecurityScopedResource()
+                    }
+
+                    // Verify it's a directory
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: selectedURL.path, isDirectory: &isDirectory),
+                          isDirectory.boolValue else {
+                        alertMessage = "Selected path is not a valid directory. Please choose a different location."
+                        showAlert = true
+                        print("Selected path is not a directory: \(selectedURL.path)")
+                        return
                     }
 
                     // Store the bookmark data for persistent access
@@ -169,7 +218,27 @@ struct SettingsView: View {
 
                     // Update the display name
                     selectedDirectoryDisplayName = selectedURL.lastPathComponent
+
+                    // Create a test file to verify write access
+                    let testFilePath = selectedURL.appendingPathComponent(".write_test")
+                    do {
+                        try "Test write access".write(to: testFilePath, atomically: true, encoding: .utf8)
+                        try FileManager.default.removeItem(at: testFilePath)
+                        print("Successfully verified write access to: \(selectedURL.path)")
+                    } catch {
+                        alertMessage = "Cannot write to the selected directory. Please choose a location with write permissions."
+                        showAlert = true
+                        print("Warning: Cannot write to selected directory: \(error.localizedDescription)")
+
+                        // Revert the changes since we can't use this directory
+                        UserDefaults.standard.removeObject(forKey: "recordingsDirectoryBookmark")
+                        recordingsDirectory = ""
+                        selectedDirectoryDisplayName = "Default (Documents)"
+                        return
+                    }
                 } catch {
+                    alertMessage = "Error selecting directory: \(error.localizedDescription)"
+                    showAlert = true
                     print("Error selecting directory: \(error.localizedDescription)")
                 }
             }
@@ -192,5 +261,12 @@ struct SettingsView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .alert(isPresented: $showAlert) {
+            Alert(
+                title: Text("Directory Error"),
+                message: Text(alertMessage),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 }

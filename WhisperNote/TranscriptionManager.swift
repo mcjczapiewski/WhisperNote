@@ -17,6 +17,12 @@ class TranscriptionManager: ObservableObject {
             throw TranscriptionError.missingApiKey
         }
 
+        // Verify the file exists before proceeding
+        guard FileManager.default.fileExists(atPath: recording.filePath.path) else {
+            print("Audio file not found at path: \(recording.filePath.path)")
+            throw TranscriptionError.fileReadError
+        }
+
         // Create a pending transcript
         let pendingTranscript = Transcript(
             name: recording.name,
@@ -52,15 +58,20 @@ class TranscriptionManager: ObservableObject {
         // Print the API key for debugging (remove in production)
         print("Using API key: \(apiKey)")
 
-        // Create form data
-        let boundary = UUID().uuidString
+        // Create URLSession with a longer timeout
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120 // 2 minutes
+        let session = URLSession(configuration: config)
+
+        // Create multipart form data
+        let boundary = "Boundary-\(UUID().uuidString)"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var data = Data()
 
         // Add audio file to form data
         data.append("--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
 
         // Set the correct content type based on the file extension
         let fileExtension = recording.filePath.pathExtension.lowercased()
@@ -78,10 +89,13 @@ class TranscriptionManager: ObservableObject {
         data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
 
         do {
+            print("Loading audio file from: \(recording.filePath.path)")
             let audioData = try Data(contentsOf: recording.filePath)
+            print("Audio file size: \(ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))")
             data.append(audioData)
             data.append("\r\n".data(using: .utf8)!)
         } catch {
+            print("Error reading audio file: \(error.localizedDescription)")
             throw TranscriptionError.fileReadError
         }
 
@@ -95,12 +109,16 @@ class TranscriptionManager: ObservableObject {
         data.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
         data.append("en\r\n".data(using: .utf8)!)
 
+        // Finalize the form data
         data.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
+        // Set the content length
+        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
         request.httpBody = data
 
         do {
-            let (responseData, response) = try await URLSession.shared.data(for: request)
+            // Use our custom session with longer timeout
+            let (responseData, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw TranscriptionError.invalidResponse
