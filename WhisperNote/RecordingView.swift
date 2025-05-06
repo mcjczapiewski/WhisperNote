@@ -228,7 +228,7 @@ struct RecordingView: View {
                             Button(action: {
                                 // Show language selector before starting transcription
                                 recordingToTranscribe = recording
-                                selectedLanguage = "en" // Reset to default
+                                selectedLanguage = "eng" // Reset to default
                                 showingLanguageSelector = true
                             }) {
                                 HStack {

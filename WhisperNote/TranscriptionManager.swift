@@ -12,7 +12,7 @@ class TranscriptionManager: ObservableObject {
         loadTranscripts()
     }
 
-    func transcribeRecording(_ recording: Recording, language: String = "en") async throws -> Transcript {
+    func transcribeRecording(_ recording: Recording, language: String = "eng") async throws -> Transcript {
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
         }
