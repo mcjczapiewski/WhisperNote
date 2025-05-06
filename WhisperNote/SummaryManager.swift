@@ -130,7 +130,15 @@ class SummaryManager: ObservableObject {
         3. Action items with assigned owners (if mentioned)
         4. Follow-up tasks and deadlines
 
-        Format the summary in a clear, organized manner with appropriate headings.
+        Format the summary using Markdown syntax with:
+        - # for main headings
+        - ## for subheadings
+        - **bold** for important points
+        - - or * for bullet points
+        - 1. 2. 3. for numbered lists
+        - [text](link) for any links
+
+        Make sure to use proper Markdown formatting to create a well-structured, readable summary.
         """
     }
 

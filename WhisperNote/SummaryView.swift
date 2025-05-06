@@ -12,6 +12,8 @@ struct SummaryView: View {
     @State private var showingDeleteConfirmation = false
     @State private var summaryToDelete: Summary?
     @State private var isShowingExportDialog = false
+    @State private var isShowingExportOptions = false
+    @State private var exportFormat: UTType = .markdown
 
     var body: some View {
         VStack {
@@ -100,12 +102,27 @@ struct SummaryView: View {
 
                                 Button(action: {
                                     if selectedSummary.status == .completed {
-                                        isShowingExportDialog = true
+                                        isShowingExportOptions = true
                                     }
                                 }) {
                                     Label("Export", systemImage: "square.and.arrow.up")
                                 }
                                 .disabled(selectedSummary.status != .completed)
+                                .confirmationDialog("Export Format", isPresented: $isShowingExportOptions) {
+                                    Button("Markdown (.md)") {
+                                        exportFormat = .markdown
+                                        isShowingExportDialog = true
+                                    }
+
+                                    Button("Plain Text (.txt)") {
+                                        exportFormat = .plainText
+                                        isShowingExportDialog = true
+                                    }
+
+                                    Button("Cancel", role: .cancel) { }
+                                } message: {
+                                    Text("Choose export format")
+                                }
 
                                 Button(action: {
                                     customPrompt = summaryManager.getDefaultPrompt()
@@ -129,7 +146,8 @@ struct SummaryView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else if selectedSummary.status == .completed {
                                 ScrollView {
-                                    Text(selectedSummary.content)
+                                    Text(LocalizedStringKey(selectedSummary.content))
+                                        .textSelection(.enabled)
                                         .padding()
                                 }
                             } else if selectedSummary.status == .failed {
@@ -249,9 +267,9 @@ struct SummaryView: View {
         }
         .fileExporter(
             isPresented: $isShowingExportDialog,
-            document: selectedSummary != nil ? TextDocument(initialText: selectedSummary!.content) : TextDocument(initialText: ""),
-            contentType: .plainText,
-            defaultFilename: selectedSummary != nil ? "\(selectedSummary!.name)_summary.txt" : "summary.txt"
+            document: createExportDocument(),
+            contentType: exportFormat,
+            defaultFilename: createExportFilename()
         ) { result in
             switch result {
             case .success(let url):
@@ -264,4 +282,23 @@ struct SummaryView: View {
     }
 }
 
+extension SummaryView {
+    // Helper method to create the export document
+    private func createExportDocument() -> TextDocument {
+        if let summary = selectedSummary {
+            return TextDocument(initialText: summary.content, contentType: exportFormat)
+        } else {
+            return TextDocument(initialText: "", contentType: exportFormat)
+        }
+    }
 
+    // Helper method to create the export filename
+    private func createExportFilename() -> String {
+        let fileExtension = exportFormat == .markdown ? ".md" : ".txt"
+        if let summary = selectedSummary {
+            return "\(summary.name)_summary\(fileExtension)"
+        } else {
+            return "summary\(fileExtension)"
+        }
+    }
+}
