@@ -18,6 +18,7 @@
 		3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */; };
 		3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */; };
 		3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */; };
+		3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,7 @@
 		4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
 		4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryManager.swift; sourceTree = "<group>"; };
 		4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioCapture.swift; sourceTree = "<group>"; };
+		4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryManager.swift; sourceTree = "<group>"; };
 		5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -75,6 +77,7 @@
 				4A4A4A4A4A4A4A4A4A4A4A4A /* Models.swift */,
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
+				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */,
 				4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */,
 				5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */,
@@ -161,6 +164,7 @@
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
+				3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

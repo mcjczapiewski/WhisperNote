@@ -15,6 +15,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
 
+    @AppStorage("audioFormat") private var audioFormat = "wav"
+    @AppStorage("audioQuality") private var audioQuality = "high"
+
+    private let directoryManager = DirectoryManager.shared
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
     override init() {
@@ -26,15 +30,35 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // macOS doesn't use AVAudioSession like iOS does
         // Instead, we'll directly configure the audio recorder
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        // Configure audio settings based on user preferences
+        var settings: [String: Any] = [
             AVSampleRateKey: 44100,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            AVNumberOfChannelsKey: 2
         ]
 
-        let fileName = "\(UUID().uuidString).m4a"
-        let fileURL = documentsDirectory.appendingPathComponent(fileName)
+        // Set format based on user preference
+        if audioFormat == "wav" {
+            settings[AVFormatIDKey] = Int(kAudioFormatLinearPCM)
+            settings[AVLinearPCMBitDepthKey] = 16
+            settings[AVLinearPCMIsBigEndianKey] = false
+            settings[AVLinearPCMIsFloatKey] = false
+        } else {
+            // Default to mp3/m4a
+            settings[AVFormatIDKey] = Int(kAudioFormatMPEG4AAC)
+        }
+
+        // Set quality based on user preference
+        switch audioQuality {
+        case "low":
+            settings[AVEncoderAudioQualityKey] = AVAudioQuality.low.rawValue
+        case "medium":
+            settings[AVEncoderAudioQualityKey] = AVAudioQuality.medium.rawValue
+        default:
+            settings[AVEncoderAudioQualityKey] = AVAudioQuality.high.rawValue
+        }
+
+        // Get the file URL from the directory manager
+        let fileURL = directoryManager.getURLForNewRecording(name: name, format: audioFormat)
 
         do {
             // Request microphone permission if needed
@@ -163,7 +187,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private func saveRecordings() {
         do {
             let data = try JSONEncoder().encode(recordings)
-            let url = documentsDirectory.appendingPathComponent("recordings.json")
+            let directory = directoryManager.getRecordingsDirectory()
+            let url = directory.appendingPathComponent("recordings.json")
             try data.write(to: url)
         } catch {
             print("Failed to save recordings: \(error)")
@@ -171,14 +196,28 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     private func loadRecordings() {
-        let url = documentsDirectory.appendingPathComponent("recordings.json")
+        // Try to load from custom directory first
+        let customDirectory = directoryManager.getRecordingsDirectory()
+        let customUrl = customDirectory.appendingPathComponent("recordings.json")
 
-        if FileManager.default.fileExists(atPath: url.path) {
+        if FileManager.default.fileExists(atPath: customUrl.path) {
             do {
-                let data = try Data(contentsOf: url)
+                let data = try Data(contentsOf: customUrl)
+                recordings = try JSONDecoder().decode([Recording].self, from: data)
+                return
+            } catch {
+                print("Failed to load recordings from custom directory: \(error)")
+            }
+        }
+
+        // Fall back to default directory if needed
+        let defaultUrl = documentsDirectory.appendingPathComponent("recordings.json")
+        if FileManager.default.fileExists(atPath: defaultUrl.path) {
+            do {
+                let data = try Data(contentsOf: defaultUrl)
                 recordings = try JSONDecoder().decode([Recording].self, from: data)
             } catch {
-                print("Failed to load recordings: \(error)")
+                print("Failed to load recordings from default directory: \(error)")
             }
         }
     }

@@ -6,5 +6,13 @@
     <string>WhisperNote needs access to your microphone to record audio for transcription.</string>
     <key>NSCameraUsageDescription</key>
     <string>WhisperNote does not use the camera but may request this permission for audio capture.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>WhisperNote needs access to save recordings to your selected folder.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>WhisperNote needs access to save recordings to your selected folder.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>WhisperNote needs access to save recordings to your selected folder.</string>
+    <key>NSFileProviderDomainUsageDescription</key>
+    <string>WhisperNote needs access to save recordings to your selected folder.</string>
 </dict>
 </plist>
