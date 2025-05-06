@@ -224,19 +224,18 @@ struct SummaryView: View {
                                     showingPromptEditor = false
 
                                     // Delete the existing summary
-                                    if let summaryId = selectedSummary?.id {
-                                        summaryManager.deleteSummary(id: summaryId)
-                                    }
+                                    if let selectedSummary = selectedSummary {
+                                        summaryManager.deleteSummary(id: selectedSummary.id)
 
-                                    // Find the transcript for this summary
-                                    let transcriptionManager = TranscriptionManager()
-                                    if let transcriptId = selectedSummary?.transcriptId,
-                                       let transcript = transcriptionManager.transcripts.first(where: { $0.id == transcriptId }) {
-                                        // Generate a new summary with the custom prompt
-                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
-                                    } else {
-                                        throw NSError(domain: "SummaryView", code: 1,
-                                                     userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                        // Find the transcript for this summary
+                                        let transcriptionManager = TranscriptionManager()
+                                        if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
+                                            // Generate a new summary with the custom prompt
+                                            _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                        } else {
+                                            throw NSError(domain: "SummaryView", code: 1,
+                                                         userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                        }
                                     }
                                     isGenerating = false
                                 } catch {
@@ -334,14 +333,11 @@ struct SummaryView: View {
                                     isGenerating = true
 
                                     // Delete the existing summary
-                                    if let summaryId = selectedSummary.id {
-                                        summaryManager.deleteSummary(id: summaryId)
-                                    }
+                                    summaryManager.deleteSummary(id: selectedSummary.id)
 
                                     // Find the transcript for this summary
                                     let transcriptionManager = TranscriptionManager()
-                                    if let transcriptId = selectedSummary.transcriptId,
-                                       let transcript = transcriptionManager.transcripts.first(where: { $0.id == transcriptId }) {
+                                    if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
                                         // Generate a new summary with the custom prompt
                                         _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
                                     } else {
