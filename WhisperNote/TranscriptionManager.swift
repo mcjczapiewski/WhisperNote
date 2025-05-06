@@ -118,6 +118,16 @@ class TranscriptionManager: ObservableObject {
         bodyData.append("Content-Disposition: form-data; name=\"timestamps_granularity\"\r\n\r\n".data(using: .utf8)!)
         bodyData.append("word\r\n".data(using: .utf8)!)
 
+        // Add tag_audio_events parameter (optional)
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"tag_audio_events\"\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("false\r\n".data(using: .utf8)!)
+
+        // Add diarize parameter (optional)
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"diarize\"\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("true\r\n".data(using: .utf8)!)
+
         // Finalize the form data
         bodyData.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
@@ -168,9 +178,17 @@ class TranscriptionManager: ObservableObject {
                 }
             }
 
+            // Save the JSON response to a file
+            let jsonFilePath = try self.saveJSONResponse(responseData, recording: recording)
+
+            // Format the transcript content based on speaker IDs and sentences
+            let formattedContent = formatTranscriptContent(transcriptionResponse)
+
             // Create completed transcript
             var completedTranscript = inProgressTranscript
             completedTranscript.content = transcriptionResponse.text
+            completedTranscript.formattedContent = formattedContent
+            completedTranscript.jsonFilePath = jsonFilePath
             completedTranscript.status = .completed
 
             DispatchQueue.main.async {
@@ -228,6 +246,16 @@ class TranscriptionManager: ObservableObject {
         saveTranscripts()
     }
 
+    // Update transcript content
+    func updateTranscriptContent(id: UUID, newContent: String) {
+        if let index = transcripts.firstIndex(where: { $0.id == id }) {
+            var updatedTranscript = transcripts[index]
+            updatedTranscript.formattedContent = newContent
+            transcripts[index] = updatedTranscript
+            saveTranscripts()
+        }
+    }
+
     private func loadTranscripts() {
         // Try to load from the new directory structure
         let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
@@ -281,6 +309,95 @@ class TranscriptionManager: ObservableObject {
                 print("Failed to load transcripts from old default directory: \(error)")
             }
         }
+    }
+
+    // MARK: - JSON Response Handling
+
+    /// Save the JSON response from ElevenLabs API to a file
+    private func saveJSONResponse(_ responseData: Data, recording: Recording) throws -> URL {
+        let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
+
+        // Create a unique filename with recording name and timestamp
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let dateString = dateFormatter.string(from: Date())
+
+        // Sanitize the recording name
+        let sanitizedName = recording.name.replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
+        let filename = "\(sanitizedName)_\(dateString)_json.json"
+
+        let fileURL = transcriptsDirectory.appendingPathComponent(filename)
+
+        do {
+            try responseData.write(to: fileURL)
+            print("Saved JSON response to: \(fileURL.path)")
+            return fileURL
+        } catch {
+            print("Error saving JSON response: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    /// Format transcript content based on speaker IDs and sentences
+    private func formatTranscriptContent(_ response: ElevenLabsTranscriptionResponse) -> String {
+        guard let words = response.words, !words.isEmpty else {
+            return response.text // Return original text if no words data
+        }
+
+        var formattedContent = ""
+        var currentSpeakerId: String?
+        var currentSentence = ""
+
+        for (index, word) in words.enumerated() {
+            // Check if this is a new speaker
+            if let speakerId = word.speaker_id, speakerId != currentSpeakerId {
+                // If we have content from previous speaker, add it to formatted content
+                if !currentSentence.isEmpty {
+                    formattedContent += "\n\n"
+                }
+
+                // Add speaker ID header
+                formattedContent += "[SPEAKER \(speakerId)]\n"
+                currentSpeakerId = speakerId
+                currentSentence = ""
+            }
+
+            // Add word to current sentence
+            currentSentence += word.text
+
+            // Add space if not punctuation and not the last word
+            let isPunctuation = word.text.trimmingCharacters(in: .letters).count == word.text.count
+            let isLastWord = index == words.count - 1
+
+            if !isPunctuation && !isLastWord {
+                currentSentence += " "
+            }
+
+            // Check if this word ends a sentence (period, question mark, exclamation mark)
+            let endsSentence = word.text.last?.isEndOfSentence ?? false
+
+            // If end of sentence or last word, add the sentence to formatted content
+            if endsSentence || isLastWord {
+                formattedContent += currentSentence
+
+                // Only add a new line if not the last word
+                if !isLastWord {
+                    formattedContent += "\n"
+                }
+
+                currentSentence = ""
+            }
+        }
+
+        return formattedContent
+    }
+}
+
+// MARK: - Extensions
+
+extension Character {
+    var isEndOfSentence: Bool {
+        return self == "." || self == "?" || self == "!"
     }
 }
 

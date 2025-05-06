@@ -11,6 +11,14 @@ struct TranscriptView: View {
     @State private var showingDeleteConfirmation = false
     @State private var transcriptToDelete: Transcript?
     @State private var isShowingExportDialog = false
+    @State private var isEditingTranscript = false
+    @State private var editedContent: String = ""
+    @State private var showingFindReplaceDialog = false
+    @State private var findText: String = ""
+    @State private var replaceText: String = ""
+    @State private var showingSummaryParamsDialog = false
+    @State private var meetingType: String = ""
+    @State private var audience: String = ""
 
     var body: some View {
         VStack {
@@ -52,6 +60,16 @@ struct TranscriptView: View {
                                 }
 
                                 Spacer()
+
+                                Button(action: {
+                                    transcriptToDelete = transcript
+                                    showingDeleteConfirmation = true
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(.horizontal, 5)
 
                                 if transcript.status == .inProgress {
                                     ProgressView()
@@ -112,15 +130,8 @@ struct TranscriptView: View {
                                 .disabled(selectedTranscript.status != .completed)
 
                                 Button(action: {
-                                    // Generate summary
-                                    Task {
-                                        do {
-                                            _ = try await summaryManager.generateSummary(for: selectedTranscript)
-                                        } catch {
-                                            errorMessage = error.localizedDescription
-                                            showingError = true
-                                        }
-                                    }
+                                    // Generate summary with parameters
+                                    showingSummaryParamsDialog = true
                                 }) {
                                     Label("Generate Summary", systemImage: "list.bullet.clipboard")
                                 }
@@ -128,12 +139,19 @@ struct TranscriptView: View {
                                           summaryManager.summaries.contains(where: { $0.transcriptId == selectedTranscript.id }))
 
                                 Button(action: {
-                                    transcriptToDelete = selectedTranscript
-                                    showingDeleteConfirmation = true
+                                    if !isEditingTranscript {
+                                        // Start editing
+                                        editedContent = selectedTranscript.formattedContent ?? selectedTranscript.content
+                                        isEditingTranscript = true
+                                    } else {
+                                        // Save changes
+                                        transcriptionManager.updateTranscriptContent(id: selectedTranscript.id, newContent: editedContent)
+                                        isEditingTranscript = false
+                                    }
                                 }) {
-                                    Label("Delete", systemImage: "trash")
-                                        .foregroundColor(.red)
+                                    Label(isEditingTranscript ? "Save" : "Edit", systemImage: isEditingTranscript ? "checkmark" : "pencil")
                                 }
+                                .disabled(selectedTranscript.status != .completed)
                             }
                             .padding()
 
@@ -149,9 +167,36 @@ struct TranscriptView: View {
                                 }
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else if selectedTranscript.status == .completed {
-                                ScrollView {
-                                    Text(selectedTranscript.content)
-                                        .padding()
+                                VStack {
+                                    if isEditingTranscript {
+                                        HStack {
+                                            Button(action: {
+                                                showingFindReplaceDialog = true
+                                            }) {
+                                                Label("Find & Replace", systemImage: "magnifyingglass")
+                                            }
+
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal)
+
+                                        TextEditor(text: $editedContent)
+                                            .font(.body)
+                                            .padding()
+                                            .border(Color.gray.opacity(0.2))
+                                    } else {
+                                        ScrollView {
+                                            if let formattedContent = selectedTranscript.formattedContent, !formattedContent.isEmpty {
+                                                Text(formattedContent)
+                                                    .padding()
+                                                    .textSelection(.enabled)
+                                            } else {
+                                                Text(selectedTranscript.content)
+                                                    .padding()
+                                                    .textSelection(.enabled)
+                                            }
+                                        }
+                                    }
                                 }
                             } else if selectedTranscript.status == .failed {
                                 VStack {
@@ -238,7 +283,9 @@ struct TranscriptView: View {
         }
         .fileExporter(
             isPresented: $isShowingExportDialog,
-            document: selectedTranscript != nil ? TextDocument(initialText: selectedTranscript!.content) : TextDocument(initialText: ""),
+            document: selectedTranscript != nil ?
+                TextDocument(initialText: selectedTranscript!.formattedContent ?? selectedTranscript!.content) :
+                TextDocument(initialText: ""),
             contentType: .plainText,
             defaultFilename: selectedTranscript != nil ? "\(selectedTranscript!.name).txt" : "transcript.txt"
         ) { result in
@@ -250,6 +297,117 @@ struct TranscriptView: View {
                 showingError = true
             }
         }
+        .sheet(isPresented: $showingFindReplaceDialog) {
+            VStack(spacing: 20) {
+                Text("Find and Replace")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Find:")
+                    TextField("Text to find", text: $findText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                    Text("Replace with:")
+                    TextField("Replacement text", text: $replaceText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                .padding()
+
+                HStack {
+                    Button("Cancel") {
+                        showingFindReplaceDialog = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Replace All") {
+                        if !findText.isEmpty {
+                            editedContent = editedContent.replacingOccurrences(of: findText, with: replaceText)
+                            showingFindReplaceDialog = false
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(findText.isEmpty)
+                }
+                .padding()
+            }
+            .frame(width: 400, height: 250)
+            .padding()
+        }
+        .sheet(isPresented: $showingSummaryParamsDialog) {
+            VStack(spacing: 20) {
+                Text("Summary Parameters")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Meeting Type:")
+                    TextField("e.g., Team Meeting, Client Call, Interview", text: $meetingType)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                    Text("Target Audience:")
+                    TextField("e.g., Team Members, Management, Clients", text: $audience)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                }
+                .padding()
+
+                HStack {
+                    Button("Cancel") {
+                        showingSummaryParamsDialog = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Generate Summary") {
+                        if let selectedTranscript = selectedTranscript {
+                            showingSummaryParamsDialog = false
+
+                            // Generate custom prompt with meeting type and audience
+                            let customPrompt = generateCustomPrompt(meetingType: meetingType, audience: audience)
+
+                            // Generate summary
+                            Task {
+                                do {
+                                    _ = try await summaryManager.generateSummary(for: selectedTranscript, with: customPrompt)
+                                } catch {
+                                    errorMessage = error.localizedDescription
+                                    showingError = true
+                                }
+                            }
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding()
+            }
+            .frame(width: 500, height: 300)
+            .padding()
+        }
+    }
+
+    // Helper method to generate a custom prompt with meeting type and audience
+    private func generateCustomPrompt(meetingType: String, audience: String) -> String {
+        let meetingTypeText = meetingType.isEmpty ? "meeting" : meetingType
+        let audienceText = audience.isEmpty ? "all participants" : audience
+
+        return """
+        Please provide a comprehensive summary of the following \(meetingTypeText) transcript.
+        This summary is intended for \(audienceText).
+
+        Include:
+        1. Key discussion points
+        2. Decisions made
+        3. Action items with assigned owners (if mentioned)
+        4. Follow-up tasks and deadlines
+
+        Format the summary using Markdown syntax with:
+        - # for main headings
+        - ## for subheadings
+        - **bold** for important points
+        - - or * for bullet points
+        - 1. 2. 3. for numbered lists
+        - [text](link) for any links
+
+        Make sure to use proper Markdown formatting to create a well-structured, readable summary.
+        The summary should be in the same language as the transcript.
+        """
     }
 }
 
