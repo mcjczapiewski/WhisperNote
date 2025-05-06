@@ -250,13 +250,18 @@ struct RecordingView: View {
                 Text("Select Transcription Language")
                     .font(.headline)
 
-                Picker("Language", selection: $selectedLanguage) {
-                    ForEach(languages, id: \.0) { language in
-                        Text(language.1).tag(language.0)
+                HStack {
+                    Text("Language:")
+                        .fontWeight(.medium)
+
+                    Picker("Language", selection: $selectedLanguage) {
+                        ForEach(languages, id: \.0) { language in
+                            Text(language.1).tag(language.0)
+                        }
                     }
+                    .pickerStyle(MenuPickerStyle())
+                    .labelsHidden()
                 }
-                .pickerStyle(WheelPickerStyle())
-                .frame(height: 150)
                 .padding()
 
                 HStack {
@@ -288,7 +293,7 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            .frame(width: 300, height: 300)
+            .frame(width: 400, height: 200)
             .padding()
         }
     }
