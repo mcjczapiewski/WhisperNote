@@ -97,8 +97,8 @@ struct TranscriptView: View {
                                 }) {
                                     Label("Generate Summary", systemImage: "list.bullet.clipboard")
                                 }
-                                .disabled(selectedTranscript?.status != .completed ||
-                                          summaryManager.summaries.contains(where: { $0.transcriptId == selectedTranscript?.id }))
+                                .disabled(selectedTranscript.status != .completed ||
+                                          summaryManager.summaries.contains(where: { $0.transcriptId == selectedTranscript.id }))
                             }
                             .padding()
 
