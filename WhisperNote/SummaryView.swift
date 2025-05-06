@@ -13,7 +13,7 @@ struct SummaryView: View {
     @State private var summaryToDelete: Summary?
     @State private var isShowingExportDialog = false
     @State private var isShowingExportOptions = false
-    @State private var exportFormat: UTType = .markdown
+    @State private var exportFormat: UTType = TextDocument.markdownUTType
 
     var body: some View {
         VStack {
@@ -110,7 +110,7 @@ struct SummaryView: View {
                                 .disabled(selectedSummary.status != .completed)
                                 .confirmationDialog("Export Format", isPresented: $isShowingExportOptions) {
                                     Button("Markdown (.md)") {
-                                        exportFormat = .markdown
+                                        exportFormat = TextDocument.markdownUTType
                                         isShowingExportDialog = true
                                     }
 
@@ -294,7 +294,7 @@ extension SummaryView {
 
     // Helper method to create the export filename
     private func createExportFilename() -> String {
-        let fileExtension = exportFormat == .markdown ? ".md" : ".txt"
+        let fileExtension = exportFormat == TextDocument.markdownUTType ? ".md" : ".txt"
         if let summary = selectedSummary {
             return "\(summary.name)_summary\(fileExtension)"
         } else {

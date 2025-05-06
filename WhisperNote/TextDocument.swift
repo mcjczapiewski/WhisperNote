@@ -1,16 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// Extension to UTType for markdown
-extension UTType {
-    static var markdown: UTType {
-        UTType(exportedAs: "public.markdown")
-    }
-}
-
 // Document class for exporting text files
 struct TextDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.plainText, .markdown] }
+    // Define UTType for markdown
+    static let markdownUTType = UTType(exportedAs: "public.markdown")
+
+    static var readableContentTypes: [UTType] { [.plainText, markdownUTType] }
 
     var text: String
     var contentType: UTType
