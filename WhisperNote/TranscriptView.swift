@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TranscriptView: View {
     @EnvironmentObject var transcriptionManager: TranscriptionManager
@@ -9,6 +10,7 @@ struct TranscriptView: View {
     @State private var errorMessage = ""
     @State private var showingDeleteConfirmation = false
     @State private var transcriptToDelete: Transcript?
+    @State private var isShowingExportDialog = false
 
     var body: some View {
         VStack {
@@ -101,10 +103,13 @@ struct TranscriptView: View {
                                 Spacer()
 
                                 Button(action: {
-                                    // Export transcript
+                                    if selectedTranscript.status == .completed {
+                                        isShowingExportDialog = true
+                                    }
                                 }) {
                                     Label("Export", systemImage: "square.and.arrow.up")
                                 }
+                                .disabled(selectedTranscript.status != .completed)
 
                                 Button(action: {
                                     // Generate summary
@@ -231,5 +236,43 @@ struct TranscriptView: View {
                 Text("Are you sure you want to delete this transcript? This action cannot be undone.")
             }
         }
+        .fileExporter(
+            isPresented: $isShowingExportDialog,
+            document: selectedTranscript != nil ? TextDocument(initialText: selectedTranscript!.content) : TextDocument(initialText: ""),
+            contentType: .plainText,
+            defaultFilename: selectedTranscript != nil ? "\(selectedTranscript!.name).txt" : "transcript.txt"
+        ) { result in
+            switch result {
+            case .success(let url):
+                print("Transcript successfully exported to \(url.path)")
+            case .failure(let error):
+                errorMessage = "Export failed: \(error.localizedDescription)"
+                showingError = true
+            }
+        }
+    }
+}
+
+// Document class for exporting text files
+struct TextDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+
+    var text: String
+
+    init(initialText: String = "") {
+        text = initialText
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        if let data = configuration.file.regularFileContents {
+            text = String(data: data, encoding: .utf8) ?? ""
+        } else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let data = text.data(using: .utf8)!
+        return FileWrapper(regularFileWithContents: data)
     }
 }

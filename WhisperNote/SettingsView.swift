@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
     @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
-    @AppStorage("defaultLLMModel") private var defaultLLMModel = "gpt-4"
+    @AppStorage("defaultLLMModel") private var defaultLLMModel = "openai/gpt-4.1-mini"
     @AppStorage("audioFormat") private var audioFormat = "wav"
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
@@ -14,7 +14,7 @@ struct SettingsView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
 
-    private let llmModels = ["gpt-4", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet", "mistral-large", "llama-3"]
+    private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
     private let audioFormats = ["wav", "mp3"]
     private let audioQualities = ["low", "medium", "high"]
 
@@ -28,11 +28,12 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 30) {
-            Text("Settings")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-                .padding(.bottom, 20)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Settings")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .padding(.bottom, 20)
 
             // API Keys Section
             GroupBox(label: Text("API Keys").font(.headline)) {
@@ -258,9 +259,10 @@ struct SettingsView: View {
                 .padding(.vertical, 5)
             }
             .padding(.horizontal)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .alert(isPresented: $showAlert) {
             Alert(
                 title: Text("Directory Error"),

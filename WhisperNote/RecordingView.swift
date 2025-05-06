@@ -8,6 +8,8 @@ struct RecordingView: View {
     @State private var showingNamePrompt = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var showingDeleteConfirmation = false
+    @State private var recordingToDelete: Recording?
 
     var body: some View {
         VStack {
@@ -109,6 +111,16 @@ struct RecordingView: View {
                             Spacer()
 
                             Button(action: {
+                                recordingToDelete = recording
+                                showingDeleteConfirmation = true
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.horizontal, 5)
+
+                            Button(action: {
                                 // Start transcription process
                                 Task {
                                     do {
@@ -142,6 +154,16 @@ struct RecordingView: View {
                                 .cornerRadius(5)
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .disabled(
+                                // Disable if there's a completed transcript for this recording
+                                transcriptionManager.transcripts.contains(where: {
+                                    $0.recordingId == recording.id && $0.status == .completed
+                                }) ||
+                                // Or if transcription is in progress
+                                transcriptionManager.transcripts.contains(where: {
+                                    $0.recordingId == recording.id && $0.status == .inProgress
+                                })
+                            )
                         }
                         .padding(.vertical, 5)
                     }
@@ -193,6 +215,24 @@ struct RecordingView: View {
             }
             .frame(width: 300, height: 200)
             .padding()
+        }
+        .alert("Delete Recording", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                recordingToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let recording = recordingToDelete {
+                    // Delete the recording
+                    audioRecorder.deleteRecording(id: recording.id)
+                    recordingToDelete = nil
+                }
+            }
+        } message: {
+            if let recording = recordingToDelete {
+                Text("Are you sure you want to delete the recording \"\(recording.name)\"? This action cannot be undone.")
+            } else {
+                Text("Are you sure you want to delete this recording? This action cannot be undone.")
+            }
         }
     }
 

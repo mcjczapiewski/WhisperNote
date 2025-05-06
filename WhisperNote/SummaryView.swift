@@ -36,31 +36,38 @@ struct SummaryView: View {
             } else {
                 HStack(spacing: 0) {
                     // Sidebar with summary list
-                    List(summaryManager.summaries, selection: $selectedSummary) { summary in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(summary.name)
-                                    .font(.headline)
+                    List {
+                        ForEach(summaryManager.summaries) { summary in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(summary.name)
+                                        .font(.headline)
 
-                                Text(summary.date, style: .date)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    Text(summary.date, style: .date)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if summary.status == .inProgress {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                } else if summary.status == .completed {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                } else if summary.status == .failed {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundColor(.red)
+                                }
                             }
-
-                            Spacer()
-
-                            if summary.status == .inProgress {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            } else if summary.status == .completed {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            } else if summary.status == .failed {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundColor(.red)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedSummary = summary
                             }
+                            .background(selectedSummary?.id == summary.id ? Color.blue.opacity(0.1) : Color.clear)
                         }
-                        .padding(.vertical, 5)
                     }
                     .frame(width: 250)
                     .listStyle(SidebarListStyle())

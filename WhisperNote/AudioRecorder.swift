@@ -195,6 +195,25 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
     }
 
+    // Delete a recording by ID
+    func deleteRecording(id: UUID) {
+        if let index = recordings.firstIndex(where: { $0.id == id }) {
+            let recording = recordings[index]
+
+            // Delete the audio file
+            do {
+                try FileManager.default.removeItem(at: recording.filePath)
+                print("Deleted audio file at: \(recording.filePath.path)")
+            } catch {
+                print("Error deleting audio file: \(error.localizedDescription)")
+            }
+
+            // Remove from recordings array
+            recordings.remove(at: index)
+            saveRecordings()
+        }
+    }
+
     private func loadRecordings() {
         // Try to load from custom directory first
         let customDirectory = directoryManager.getRecordingsDirectory()
