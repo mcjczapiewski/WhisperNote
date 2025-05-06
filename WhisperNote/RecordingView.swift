@@ -10,6 +10,25 @@ struct RecordingView: View {
     @State private var alertMessage = ""
     @State private var showingDeleteConfirmation = false
     @State private var recordingToDelete: Recording?
+    @State private var showingLanguageSelector = false
+    @State private var recordingToTranscribe: Recording?
+    @State private var selectedLanguage = "en"
+
+    private let languages = [
+        ("en", "English"),
+        ("es", "Spanish"),
+        ("fr", "French"),
+        ("de", "German"),
+        ("it", "Italian"),
+        ("pt", "Portuguese"),
+        ("nl", "Dutch"),
+        ("ja", "Japanese"),
+        ("zh", "Chinese"),
+        ("ru", "Russian"),
+        ("ar", "Arabic"),
+        ("hi", "Hindi"),
+        ("ko", "Korean")
+    ]
 
     var body: some View {
         VStack {
@@ -121,18 +140,10 @@ struct RecordingView: View {
                             .padding(.horizontal, 5)
 
                             Button(action: {
-                                // Start transcription process
-                                Task {
-                                    do {
-                                        // Create a local variable for this specific transcription task
-                                        // This allows multiple transcription tasks to run concurrently
-                                        let transcriptionTask = try await transcriptionManager.transcribeRecording(recording)
-                                        print("Transcription completed: \(transcriptionTask.id)")
-                                    } catch {
-                                        alertMessage = error.localizedDescription
-                                        showingAlert = true
-                                    }
-                                }
+                                // Show language selector before starting transcription
+                                recordingToTranscribe = recording
+                                selectedLanguage = "en" // Reset to default
+                                showingLanguageSelector = true
                             }) {
                                 HStack {
                                     Text("Transcribe")
@@ -233,6 +244,52 @@ struct RecordingView: View {
             } else {
                 Text("Are you sure you want to delete this recording? This action cannot be undone.")
             }
+        }
+        .sheet(isPresented: $showingLanguageSelector) {
+            VStack(spacing: 20) {
+                Text("Select Transcription Language")
+                    .font(.headline)
+
+                Picker("Language", selection: $selectedLanguage) {
+                    ForEach(languages, id: \.0) { language in
+                        Text(language.1).tag(language.0)
+                    }
+                }
+                .pickerStyle(WheelPickerStyle())
+                .frame(height: 150)
+                .padding()
+
+                HStack {
+                    Button("Cancel") {
+                        recordingToTranscribe = nil
+                        showingLanguageSelector = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Start Transcription") {
+                        if let recording = recordingToTranscribe {
+                            showingLanguageSelector = false
+
+                            // Start transcription process with selected language
+                            Task {
+                                do {
+                                    // Create a local variable for this specific transcription task
+                                    // This allows multiple transcription tasks to run concurrently
+                                    let transcriptionTask = try await transcriptionManager.transcribeRecording(recording, language: selectedLanguage)
+                                    print("Transcription completed: \(transcriptionTask.id)")
+                                } catch {
+                                    alertMessage = error.localizedDescription
+                                    showingAlert = true
+                                }
+                            }
+                        }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding()
+            }
+            .frame(width: 300, height: 300)
+            .padding()
         }
     }
 

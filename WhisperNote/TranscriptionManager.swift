@@ -12,7 +12,7 @@ class TranscriptionManager: ObservableObject {
         loadTranscripts()
     }
 
-    func transcribeRecording(_ recording: Recording) async throws -> Transcript {
+    func transcribeRecording(_ recording: Recording, language: String = "en") async throws -> Transcript {
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
         }
@@ -22,6 +22,8 @@ class TranscriptionManager: ObservableObject {
             print("Audio file not found at path: \(recording.filePath.path)")
             throw TranscriptionError.fileReadError
         }
+
+        print("Transcribing with language: \(language)")
 
         // Create a pending transcript
         let pendingTranscript = Transcript(
@@ -109,7 +111,7 @@ class TranscriptionManager: ObservableObject {
         // Add language_code parameter (optional)
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
         bodyData.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("en\r\n".data(using: .utf8)!)
+        bodyData.append("\(language)\r\n".data(using: .utf8)!)
 
         // Add timestamps_granularity parameter (optional)
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)

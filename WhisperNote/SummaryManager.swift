@@ -146,6 +146,14 @@ class SummaryManager: ObservableObject {
         }
     }
 
+    // Delete a summary by ID
+    func deleteSummary(id: UUID) {
+        if let index = summaries.firstIndex(where: { $0.id == id }) {
+            summaries.remove(at: index)
+            saveSummaries()
+        }
+    }
+
     private func loadSummaries() {
         let url = documentsDirectory.appendingPathComponent("summaries.json")
 

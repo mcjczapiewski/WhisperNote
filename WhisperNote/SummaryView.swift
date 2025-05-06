@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SummaryView: View {
     @EnvironmentObject var summaryManager: SummaryManager
@@ -8,6 +9,9 @@ struct SummaryView: View {
     @State private var errorMessage = ""
     @State private var customPrompt = ""
     @State private var showingPromptEditor = false
+    @State private var showingDeleteConfirmation = false
+    @State private var summaryToDelete: Summary?
+    @State private var isShowingExportDialog = false
 
     var body: some View {
         VStack {
@@ -50,6 +54,16 @@ struct SummaryView: View {
 
                                 Spacer()
 
+                                Button(action: {
+                                    summaryToDelete = summary
+                                    showingDeleteConfirmation = true
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(.horizontal, 5)
+
                                 if summary.status == .inProgress {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle())
@@ -85,10 +99,13 @@ struct SummaryView: View {
                                 Spacer()
 
                                 Button(action: {
-                                    // Export summary
+                                    if selectedSummary.status == .completed {
+                                        isShowingExportDialog = true
+                                    }
                                 }) {
                                     Label("Export", systemImage: "square.and.arrow.up")
                                 }
+                                .disabled(selectedSummary.status != .completed)
 
                                 Button(action: {
                                     customPrompt = summaryManager.getDefaultPrompt()
@@ -168,9 +185,35 @@ struct SummaryView: View {
                     .keyboardShortcut(.cancelAction)
 
                     Button("Generate Summary") {
-                        if !customPrompt.isEmpty {
-                            // Generate summary with custom prompt
-                            showingPromptEditor = false
+                        if !customPrompt.isEmpty && selectedSummary != nil {
+                            // Find the transcript for this summary
+                            Task {
+                                do {
+                                    isGenerating = true
+                                    showingPromptEditor = false
+
+                                    // Delete the existing summary
+                                    if let summaryId = selectedSummary?.id {
+                                        summaryManager.deleteSummary(id: summaryId)
+                                    }
+
+                                    // Find the transcript for this summary
+                                    let transcriptionManager = TranscriptionManager()
+                                    if let transcriptId = selectedSummary?.transcriptId,
+                                       let transcript = transcriptionManager.transcripts.first(where: { $0.id == transcriptId }) {
+                                        // Generate a new summary with the custom prompt
+                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                    } else {
+                                        throw NSError(domain: "SummaryView", code: 1,
+                                                     userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                    }
+                                    isGenerating = false
+                                } catch {
+                                    isGenerating = false
+                                    errorMessage = error.localizedDescription
+                                    showingError = true
+                                }
+                            }
                         }
                     }
                     .keyboardShortcut(.defaultAction)
@@ -181,5 +224,66 @@ struct SummaryView: View {
             .frame(width: 500, height: 400)
             .padding()
         }
+        .alert("Delete Summary", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                summaryToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let summary = summaryToDelete {
+                    // If the summary being deleted is the selected one, deselect it
+                    if selectedSummary?.id == summary.id {
+                        selectedSummary = nil
+                    }
+
+                    // Delete the summary
+                    summaryManager.deleteSummary(id: summary.id)
+                    summaryToDelete = nil
+                }
+            }
+        } message: {
+            if let summary = summaryToDelete {
+                Text("Are you sure you want to delete the summary \"\(summary.name)\"? This action cannot be undone.")
+            } else {
+                Text("Are you sure you want to delete this summary? This action cannot be undone.")
+            }
+        }
+        .fileExporter(
+            isPresented: $isShowingExportDialog,
+            document: selectedSummary != nil ? TextDocument(initialText: selectedSummary!.content) : TextDocument(initialText: ""),
+            contentType: .plainText,
+            defaultFilename: selectedSummary != nil ? "\(selectedSummary!.name)_summary.txt" : "summary.txt"
+        ) { result in
+            switch result {
+            case .success(let url):
+                print("Summary successfully exported to \(url.path)")
+            case .failure(let error):
+                errorMessage = "Export failed: \(error.localizedDescription)"
+                showingError = true
+            }
+        }
+    }
+}
+
+// Document class for exporting text files
+struct TextDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+
+    var text: String
+
+    init(initialText: String = "") {
+        text = initialText
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        if let data = configuration.file.regularFileContents {
+            text = String(data: data, encoding: .utf8) ?? ""
+        } else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let data = text.data(using: .utf8)!
+        return FileWrapper(regularFileWithContents: data)
     }
 }
