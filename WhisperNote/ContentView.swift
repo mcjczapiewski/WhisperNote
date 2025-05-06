@@ -32,6 +32,8 @@ struct ContentView: View {
                 .tag(2)
 
             SettingsView()
+                .environmentObject(transcriptionManager)
+                .environmentObject(summaryManager)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }

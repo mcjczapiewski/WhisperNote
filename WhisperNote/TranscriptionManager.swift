@@ -44,10 +44,13 @@ class TranscriptionManager: ObservableObject {
         }
 
         // Prepare the request
-        let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text/convert")!
+        let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue(apiKey, forHTTPHeaderField: "xi-api-key")
+
+        // Print the API key for debugging (remove in production)
+        print("Using API key: \(apiKey)")
 
         // Create form data
         let boundary = UUID().uuidString
@@ -57,8 +60,22 @@ class TranscriptionManager: ObservableObject {
 
         // Add audio file to form data
         data.append("--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
-        data.append("Content-Type: audio/mpeg\r\n\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"audio\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
+
+        // Set the correct content type based on the file extension
+        let fileExtension = recording.filePath.pathExtension.lowercased()
+        let contentType: String
+        if fileExtension == "wav" {
+            contentType = "audio/wav"
+        } else if fileExtension == "mp3" {
+            contentType = "audio/mpeg"
+        } else if fileExtension == "m4a" {
+            contentType = "audio/m4a"
+        } else {
+            contentType = "application/octet-stream"
+        }
+
+        data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
 
         do {
             let audioData = try Data(contentsOf: recording.filePath)
@@ -67,6 +84,16 @@ class TranscriptionManager: ObservableObject {
         } catch {
             throw TranscriptionError.fileReadError
         }
+
+        // Add model parameter (optional)
+        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n".data(using: .utf8)!)
+        data.append("whisper-1\r\n".data(using: .utf8)!)
+
+        // Add language parameter (optional)
+        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
+        data.append("en\r\n".data(using: .utf8)!)
 
         data.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
@@ -80,12 +107,39 @@ class TranscriptionManager: ObservableObject {
             }
 
             guard httpResponse.statusCode == 200 else {
+                // Print response body for debugging
+                let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
+                print("API Error Response: \(responseString)")
                 throw TranscriptionError.apiError(statusCode: httpResponse.statusCode)
             }
 
+            // Print the response for debugging
+            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
+            print("API Success Response: \(responseString)")
+
             // Parse the response
             let decoder = JSONDecoder()
-            let transcriptionResponse = try decoder.decode(ElevenLabsTranscriptionResponse.self, from: responseData)
+
+            // Try to decode with our expected format
+            let transcriptionResponse: ElevenLabsTranscriptionResponse
+            do {
+                transcriptionResponse = try decoder.decode(ElevenLabsTranscriptionResponse.self, from: responseData)
+            } catch {
+                print("Error decoding response: \(error)")
+
+                // Try alternative format (simple string)
+                if let simpleResponse = try? decoder.decode([String: String].self, from: responseData),
+                   let text = simpleResponse["text"] {
+                    transcriptionResponse = ElevenLabsTranscriptionResponse(
+                        text: text,
+                        language: nil,
+                        confidence: nil,
+                        words: nil
+                    )
+                } else {
+                    throw error
+                }
+            }
 
             // Create completed transcript
             var completedTranscript = inProgressTranscript
