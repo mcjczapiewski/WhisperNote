@@ -75,16 +75,12 @@ class SystemAudioCapture: NSObject {
 
     // Helper method to check if a virtual audio device is available
     static func hasVirtualAudioDevice() -> Bool {
-        // Get the available input devices using AVCaptureDeviceDiscoverySession
-        let discoverySession = AVCaptureDeviceDiscoverySession(
+        // Get the available input devices
+        let devices = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInMicrophone, .externalUnknown],
             mediaType: .audio,
             position: .unspecified
-        )
-
-        guard let devices = discoverySession?.devices else {
-            return false
-        }
+        ).devices
 
         // Check if any of the devices might be a virtual audio device
         // This is a simplistic check - in a real app, you'd want to be more specific
@@ -101,15 +97,12 @@ class SystemAudioCapture: NSObject {
 
     // Helper method to get a list of available audio devices
     static func getAvailableAudioDevices() -> [String] {
-        let discoverySession = AVCaptureDeviceDiscoverySession(
+        // Get the available input devices
+        let devices = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInMicrophone, .externalUnknown],
             mediaType: .audio,
             position: .unspecified
-        )
-
-        guard let devices = discoverySession?.devices else {
-            return []
-        }
+        ).devices
 
         return devices.map { $0.localizedName }
     }
