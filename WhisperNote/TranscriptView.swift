@@ -84,14 +84,12 @@ struct TranscriptView: View {
 
                                 Button(action: {
                                     // Generate summary
-                                    if let transcript = selectedTranscript {
-                                        Task {
-                                            do {
-                                                _ = try await summaryManager.generateSummary(for: transcript)
-                                            } catch {
-                                                errorMessage = error.localizedDescription
-                                                showingError = true
-                                            }
+                                    Task {
+                                        do {
+                                            _ = try await summaryManager.generateSummary(for: selectedTranscript)
+                                        } catch {
+                                            errorMessage = error.localizedDescription
+                                            showingError = true
                                         }
                                     }
                                 }) {
@@ -131,29 +129,27 @@ struct TranscriptView: View {
 
                                     Button("Retry") {
                                         // Retry transcription
-                                        if let transcript = selectedTranscript {
-                                            Task {
-                                                do {
-                                                    isTranscribing = true
-                                                    // Find the original recording
-                                                    let audioRecorder = AudioRecorder()
-                                                    let recordings = audioRecorder.recordings
-                                                    if let recording = recordings.first(where: { $0.id == transcript.recordingId }) {
-                                                        // Remove the failed transcript
-                                                        transcriptionManager.transcripts.removeAll(where: { $0.id == transcript.id })
+                                        Task {
+                                            do {
+                                                isTranscribing = true
+                                                // Find the original recording
+                                                let audioRecorder = AudioRecorder()
+                                                let recordings = audioRecorder.recordings
+                                                if let recording = recordings.first(where: { $0.id == selectedTranscript.recordingId }) {
+                                                    // Remove the failed transcript
+                                                    transcriptionManager.transcripts.removeAll(where: { $0.id == selectedTranscript.id })
 
-                                                        // Create a new transcription
-                                                        _ = try await transcriptionManager.transcribeRecording(recording)
-                                                    } else {
-                                                        throw NSError(domain: "TranscriptView", code: 1,
-                                                                     userInfo: [NSLocalizedDescriptionKey: "Original recording not found"])
-                                                    }
-                                                    isTranscribing = false
-                                                } catch {
-                                                    isTranscribing = false
-                                                    errorMessage = error.localizedDescription
-                                                    showingError = true
+                                                    // Create a new transcription
+                                                    _ = try await transcriptionManager.transcribeRecording(recording)
+                                                } else {
+                                                    throw NSError(domain: "TranscriptView", code: 1,
+                                                                 userInfo: [NSLocalizedDescriptionKey: "Original recording not found"])
                                                 }
+                                                isTranscribing = false
+                                            } catch {
+                                                isTranscribing = false
+                                                errorMessage = error.localizedDescription
+                                                showingError = true
                                             }
                                         }
                                     }
