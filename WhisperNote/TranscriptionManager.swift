@@ -206,7 +206,7 @@ class TranscriptionManager: ObservableObject {
     private func saveTranscripts() {
         do {
             let data = try JSONEncoder().encode(transcripts)
-            let directory = directoryManager.getRecordingsDirectory()
+            let directory = directoryManager.getTranscriptsDirectory()
             let url = directory.appendingPathComponent("transcripts.json")
             try data.write(to: url)
         } catch {
@@ -229,29 +229,56 @@ class TranscriptionManager: ObservableObject {
     }
 
     private func loadTranscripts() {
-        // Try to load from custom directory first
-        let customDirectory = directoryManager.getRecordingsDirectory()
-        let customUrl = customDirectory.appendingPathComponent("transcripts.json")
+        // Try to load from the new directory structure
+        let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
+        let transcriptsUrl = transcriptsDirectory.appendingPathComponent("transcripts.json")
 
-        if FileManager.default.fileExists(atPath: customUrl.path) {
+        if FileManager.default.fileExists(atPath: transcriptsUrl.path) {
             do {
-                let data = try Data(contentsOf: customUrl)
+                let data = try Data(contentsOf: transcriptsUrl)
                 transcripts = try JSONDecoder().decode([Transcript].self, from: data)
                 return
             } catch {
-                print("Failed to load transcripts from custom directory: \(error)")
+                print("Failed to load transcripts from transcripts directory: \(error)")
             }
         }
 
-        // Fall back to default directory if needed
+        // Try to load from old custom directory (for backward compatibility)
+        let oldCustomDirectory = directoryManager.getRecordingsDirectory()
+        let oldCustomUrl = oldCustomDirectory.appendingPathComponent("transcripts.json")
+
+        if FileManager.default.fileExists(atPath: oldCustomUrl.path) {
+            do {
+                let data = try Data(contentsOf: oldCustomUrl)
+                transcripts = try JSONDecoder().decode([Transcript].self, from: data)
+
+                // Save to the new location for future use
+                saveTranscripts()
+
+                // Optionally, remove the old file
+                try? FileManager.default.removeItem(at: oldCustomUrl)
+
+                return
+            } catch {
+                print("Failed to load transcripts from old custom directory: \(error)")
+            }
+        }
+
+        // Fall back to old default directory if needed (for backward compatibility)
         let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let defaultUrl = defaultDirectory.appendingPathComponent("transcripts.json")
         if FileManager.default.fileExists(atPath: defaultUrl.path) {
             do {
                 let data = try Data(contentsOf: defaultUrl)
                 transcripts = try JSONDecoder().decode([Transcript].self, from: data)
+
+                // Save to the new location for future use
+                saveTranscripts()
+
+                // Optionally, remove the old file
+                try? FileManager.default.removeItem(at: defaultUrl)
             } catch {
-                print("Failed to load transcripts from default directory: \(error)")
+                print("Failed to load transcripts from old default directory: \(error)")
             }
         }
     }

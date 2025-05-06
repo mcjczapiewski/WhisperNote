@@ -7,7 +7,7 @@ class SummaryManager: ObservableObject {
     @AppStorage("openrouterApiKey") private var apiKey = ""
     @AppStorage("defaultLLMModel") private var defaultModel = "gpt-4"
 
-    private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private let directoryManager = DirectoryManager.shared
 
     init() {
         loadSummaries()
@@ -139,7 +139,8 @@ class SummaryManager: ObservableObject {
     private func saveSummaries() {
         do {
             let data = try JSONEncoder().encode(summaries)
-            let url = documentsDirectory.appendingPathComponent("summaries.json")
+            let directory = directoryManager.getSummariesDirectory()
+            let url = directory.appendingPathComponent("summaries.json")
             try data.write(to: url)
         } catch {
             print("Failed to save summaries: \(error)")
@@ -155,14 +156,35 @@ class SummaryManager: ObservableObject {
     }
 
     private func loadSummaries() {
-        let url = documentsDirectory.appendingPathComponent("summaries.json")
+        // Try to load from the new directory structure
+        let summariesDirectory = directoryManager.getSummariesDirectory()
+        let summariesUrl = summariesDirectory.appendingPathComponent("summaries.json")
 
-        if FileManager.default.fileExists(atPath: url.path) {
+        if FileManager.default.fileExists(atPath: summariesUrl.path) {
             do {
-                let data = try Data(contentsOf: url)
+                let data = try Data(contentsOf: summariesUrl)
                 summaries = try JSONDecoder().decode([Summary].self, from: data)
+                return
             } catch {
-                print("Failed to load summaries: \(error)")
+                print("Failed to load summaries from summaries directory: \(error)")
+            }
+        }
+
+        // Fall back to old directory if needed (for backward compatibility)
+        let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let defaultUrl = defaultDirectory.appendingPathComponent("summaries.json")
+        if FileManager.default.fileExists(atPath: defaultUrl.path) {
+            do {
+                let data = try Data(contentsOf: defaultUrl)
+                summaries = try JSONDecoder().decode([Summary].self, from: data)
+
+                // Save to the new location for future use
+                saveSummaries()
+
+                // Optionally, remove the old file
+                try? FileManager.default.removeItem(at: defaultUrl)
+            } catch {
+                print("Failed to load summaries from old directory: \(error)")
             }
         }
     }

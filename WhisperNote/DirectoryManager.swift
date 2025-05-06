@@ -3,21 +3,72 @@ import Foundation
 class DirectoryManager {
     static let shared = DirectoryManager()
 
-    private init() {}
+    // Base directory for all files
+    private let baseDirectoryName = "WhisperNote/Files"
 
-    /// Get the directory URL for saving recordings
-    func getRecordingsDirectory() -> URL {
+    // Subdirectories
+    private let recordingsDirectoryName = "Recordings"
+    private let transcriptsDirectoryName = "Transcripts"
+    private let summariesDirectoryName = "Summaries"
+
+    private init() {
+        // Create base directories on initialization
+        createBaseDirectories()
+    }
+
+    private func createBaseDirectories() {
+        let baseDir = getBaseDirectory()
+        ensureDirectoryExists(at: baseDir)
+
+        let recordingsDir = baseDir.appendingPathComponent(recordingsDirectoryName)
+        ensureDirectoryExists(at: recordingsDir)
+
+        let transcriptsDir = baseDir.appendingPathComponent(transcriptsDirectoryName)
+        ensureDirectoryExists(at: transcriptsDir)
+
+        let summariesDir = baseDir.appendingPathComponent(summariesDirectoryName)
+        ensureDirectoryExists(at: summariesDir)
+    }
+
+    /// Get the base directory for all WhisperNote files
+    func getBaseDirectory() -> URL {
         // Check if user has selected a custom directory
         if let customDirectory = resolveBookmarkedDirectory() {
-            // Ensure the directory exists
-            ensureDirectoryExists(at: customDirectory)
-            return customDirectory
+            // Use the custom directory as the base
+            let baseDir = customDirectory.appendingPathComponent(baseDirectoryName, isDirectory: true)
+            ensureDirectoryExists(at: baseDir)
+            return baseDir
         }
 
         // Fall back to the default Documents directory
         let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        ensureDirectoryExists(at: documentsDirectory)
-        return documentsDirectory
+        let baseDir = documentsDirectory.appendingPathComponent(baseDirectoryName, isDirectory: true)
+        ensureDirectoryExists(at: baseDir)
+        return baseDir
+    }
+
+    /// Get the directory URL for saving recordings
+    func getRecordingsDirectory() -> URL {
+        let baseDir = getBaseDirectory()
+        let recordingsDir = baseDir.appendingPathComponent(recordingsDirectoryName, isDirectory: true)
+        ensureDirectoryExists(at: recordingsDir)
+        return recordingsDir
+    }
+
+    /// Get the directory URL for saving transcripts
+    func getTranscriptsDirectory() -> URL {
+        let baseDir = getBaseDirectory()
+        let transcriptsDir = baseDir.appendingPathComponent(transcriptsDirectoryName, isDirectory: true)
+        ensureDirectoryExists(at: transcriptsDir)
+        return transcriptsDir
+    }
+
+    /// Get the directory URL for saving summaries
+    func getSummariesDirectory() -> URL {
+        let baseDir = getBaseDirectory()
+        let summariesDir = baseDir.appendingPathComponent(summariesDirectoryName, isDirectory: true)
+        ensureDirectoryExists(at: summariesDir)
+        return summariesDir
     }
 
     /// Ensure that a directory exists, creating it if necessary
