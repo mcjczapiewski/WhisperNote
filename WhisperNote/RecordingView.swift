@@ -12,22 +12,108 @@ struct RecordingView: View {
     @State private var recordingToDelete: Recording?
     @State private var showingLanguageSelector = false
     @State private var recordingToTranscribe: Recording?
-    @State private var selectedLanguage = "en"
+    @State private var selectedLanguage = "eng"
 
     private let languages = [
-        ("en", "English"),
-        ("es", "Spanish"),
-        ("fr", "French"),
-        ("de", "German"),
-        ("it", "Italian"),
-        ("pt", "Portuguese"),
-        ("nl", "Dutch"),
-        ("ja", "Japanese"),
-        ("zh", "Chinese"),
-        ("ru", "Russian"),
-        ("ar", "Arabic"),
-        ("hi", "Hindi"),
-        ("ko", "Korean")
+        ("afr", "Afrikaans"),
+        ("amh", "Amharic"),
+        ("ara", "Arabic"),
+        ("hye", "Armenian"),
+        ("asm", "Assamese"),
+        ("ast", "Asturian"),
+        ("aze", "Azerbaijani"),
+        ("bel", "Belarusian"),
+        ("ben", "Bengali"),
+        ("bos", "Bosnian"),
+        ("bul", "Bulgarian"),
+        ("mya", "Burmese"),
+        ("yue", "Cantonese"),
+        ("cat", "Catalan"),
+        ("ceb", "Cebuano"),
+        ("nya", "Chichewa"),
+        ("hrv", "Croatian"),
+        ("ces", "Czech"),
+        ("dan", "Danish"),
+        ("nld", "Dutch"),
+        ("eng", "English"),
+        ("est", "Estonian"),
+        ("fil", "Filipino"),
+        ("fin", "Finnish"),
+        ("fra", "French"),
+        ("ful", "Fulah"),
+        ("glg", "Galician"),
+        ("lug", "Ganda"),
+        ("kat", "Georgian"),
+        ("deu", "German"),
+        ("ell", "Greek"),
+        ("guj", "Gujarati"),
+        ("hau", "Hausa"),
+        ("heb", "Hebrew"),
+        ("hin", "Hindi"),
+        ("hun", "Hungarian"),
+        ("isl", "Icelandic"),
+        ("ibo", "Igbo"),
+        ("ind", "Indonesian"),
+        ("gle", "Irish"),
+        ("ita", "Italian"),
+        ("jpn", "Japanese"),
+        ("jav", "Javanese"),
+        ("kea", "Kabuverdianu"),
+        ("kan", "Kannada"),
+        ("kaz", "Kazakh"),
+        ("khm", "Khmer"),
+        ("kor", "Korean"),
+        ("kur", "Kurdish"),
+        ("kir", "Kyrgyz"),
+        ("lao", "Lao"),
+        ("lav", "Latvian"),
+        ("lin", "Lingala"),
+        ("lit", "Lithuanian"),
+        ("luo", "Luo"),
+        ("ltz", "Luxembourgish"),
+        ("mkd", "Macedonian"),
+        ("msa", "Malay"),
+        ("mal", "Malayalam"),
+        ("mlt", "Maltese"),
+        ("cmn", "Mandarin Chinese"),
+        ("mri", "Māori"),
+        ("mar", "Marathi"),
+        ("mon", "Mongolian"),
+        ("nep", "Nepali"),
+        ("nso", "Northern Sotho"),
+        ("nor", "Norwegian"),
+        ("oci", "Occitan"),
+        ("ori", "Odia"),
+        ("pus", "Pashto"),
+        ("fas", "Persian"),
+        ("pol", "Polish"),
+        ("por", "Portuguese"),
+        ("pan", "Punjabi"),
+        ("ron", "Romanian"),
+        ("rus", "Russian"),
+        ("srp", "Serbian"),
+        ("sna", "Shona"),
+        ("snd", "Sindhi"),
+        ("slk", "Slovak"),
+        ("slv", "Slovenian"),
+        ("som", "Somali"),
+        ("spa", "Spanish"),
+        ("swa", "Swahili"),
+        ("swe", "Swedish"),
+        ("tam", "Tamil"),
+        ("tgk", "Tajik"),
+        ("tel", "Telugu"),
+        ("tha", "Thai"),
+        ("tur", "Turkish"),
+        ("ukr", "Ukrainian"),
+        ("umb", "Umbundu"),
+        ("urd", "Urdu"),
+        ("uzb", "Uzbek"),
+        ("vie", "Vietnamese"),
+        ("cym", "Welsh"),
+        ("wol", "Wolof"),
+        ("xho", "Xhosa"),
+        ("zul", "Zulu")
     ]
 
     var body: some View {
@@ -250,8 +336,8 @@ struct RecordingView: View {
                 Text("Select Transcription Language")
                     .font(.headline)
 
-                HStack {
-                    Text("Language:")
+                VStack(alignment: .leading) {
+                    Text("Select a language:")
                         .fontWeight(.medium)
 
                     Picker("Language", selection: $selectedLanguage) {
@@ -260,7 +346,11 @@ struct RecordingView: View {
                         }
                     }
                     .pickerStyle(MenuPickerStyle())
-                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+
+                    Text("Current: \(languages.first(where: { $0.0 == selectedLanguage })?.1 ?? "English")")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .padding()
 
@@ -293,7 +383,7 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            .frame(width: 400, height: 200)
+            .frame(width: 450, height: 220)
             .padding()
         }
     }
