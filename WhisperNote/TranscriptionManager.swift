@@ -212,6 +212,20 @@ class TranscriptionManager: ObservableObject {
         }
     }
 
+    // Delete a transcript by ID
+    func deleteTranscript(id: UUID) {
+        if let index = transcripts.firstIndex(where: { $0.id == id }) {
+            transcripts.remove(at: index)
+            saveTranscripts()
+        }
+    }
+
+    // Delete multiple transcripts by ID
+    func deleteTranscripts(ids: [UUID]) {
+        transcripts.removeAll(where: { ids.contains($0.id) })
+        saveTranscripts()
+    }
+
     private func loadTranscripts() {
         // Try to load from custom directory first
         let customDirectory = directoryManager.getRecordingsDirectory()

@@ -7,6 +7,8 @@ struct TranscriptView: View {
     @State private var isTranscribing = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var showingDeleteConfirmation = false
+    @State private var transcriptToDelete: Transcript?
 
     var body: some View {
         VStack {
@@ -35,31 +37,53 @@ struct TranscriptView: View {
             } else {
                 HStack(spacing: 0) {
                     // Sidebar with transcript list
-                    List(transcriptionManager.transcripts, selection: $selectedTranscript) { transcript in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(transcript.name)
-                                    .font(.headline)
+                    List {
+                        ForEach(transcriptionManager.transcripts) { transcript in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(transcript.name)
+                                        .font(.headline)
 
-                                Text(transcript.date, style: .date)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    Text(transcript.date, style: .date)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                if transcript.status == .inProgress {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle())
+                                } else if transcript.status == .completed {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                } else if transcript.status == .failed {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundColor(.red)
+                                }
                             }
-
-                            Spacer()
-
-                            if transcript.status == .inProgress {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            } else if transcript.status == .completed {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                            } else if transcript.status == .failed {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundColor(.red)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedTranscript = transcript
+                            }
+                            .contextMenu {
+                                Button(action: {
+                                    transcriptToDelete = transcript
+                                    showingDeleteConfirmation = true
+                                }) {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .background(selectedTranscript?.id == transcript.id ? Color.blue.opacity(0.1) : Color.clear)
+                        }
+                        .onDelete { indexSet in
+                            let transcriptsToDelete = indexSet.map { transcriptionManager.transcripts[$0] }
+                            if let firstTranscript = transcriptsToDelete.first {
+                                transcriptToDelete = firstTranscript
+                                showingDeleteConfirmation = true
                             }
                         }
-                        .padding(.vertical, 5)
                     }
                     .frame(width: 250)
                     .listStyle(SidebarListStyle())
@@ -97,6 +121,14 @@ struct TranscriptView: View {
                                 }
                                 .disabled(selectedTranscript.status != .completed ||
                                           summaryManager.summaries.contains(where: { $0.transcriptId == selectedTranscript.id }))
+
+                                Button(action: {
+                                    transcriptToDelete = selectedTranscript
+                                    showingDeleteConfirmation = true
+                                }) {
+                                    Label("Delete", systemImage: "trash")
+                                        .foregroundColor(.red)
+                                }
                             }
                             .padding()
 
@@ -175,6 +207,29 @@ struct TranscriptView: View {
                 message: Text(errorMessage),
                 dismissButton: .default(Text("OK"))
             )
+        }
+        .alert("Delete Transcript", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                transcriptToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let transcript = transcriptToDelete {
+                    // If the transcript being deleted is the selected one, deselect it
+                    if selectedTranscript?.id == transcript.id {
+                        selectedTranscript = nil
+                    }
+
+                    // Delete the transcript
+                    transcriptionManager.deleteTranscript(id: transcript.id)
+                    transcriptToDelete = nil
+                }
+            }
+        } message: {
+            if let transcript = transcriptToDelete {
+                Text("Are you sure you want to delete the transcript \"\(transcript.name)\"? This action cannot be undone.")
+            } else {
+                Text("Are you sure you want to delete this transcript? This action cannot be undone.")
+            }
         }
     }
 }

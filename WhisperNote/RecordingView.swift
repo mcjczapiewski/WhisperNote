@@ -8,7 +8,6 @@ struct RecordingView: View {
     @State private var showingNamePrompt = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    @State private var isTranscribing = false
 
     var body: some View {
         VStack {
@@ -113,36 +112,36 @@ struct RecordingView: View {
                                 // Start transcription process
                                 Task {
                                     do {
-                                        isTranscribing = true
-                                        _ = try await transcriptionManager.transcribeRecording(recording)
-                                        isTranscribing = false
+                                        // Create a local variable for this specific transcription task
+                                        // This allows multiple transcription tasks to run concurrently
+                                        let transcriptionTask = try await transcriptionManager.transcribeRecording(recording)
+                                        print("Transcription completed: \(transcriptionTask.id)")
                                     } catch {
-                                        isTranscribing = false
                                         alertMessage = error.localizedDescription
                                         showingAlert = true
                                     }
                                 }
                             }) {
-                                if isTranscribing {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .frame(width: 16, height: 16)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Color.blue)
-                                        .cornerRadius(5)
-                                } else {
+                                HStack {
                                     Text("Transcribe")
                                         .font(.caption)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Color.blue)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(5)
+
+                                    // Show a small indicator if any transcription is in progress for this recording
+                                    if transcriptionManager.transcripts.contains(where: {
+                                        $0.recordingId == recording.id && $0.status == .inProgress
+                                    }) {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .frame(width: 10, height: 10)
+                                    }
                                 }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(5)
                             }
                             .buttonStyle(PlainButtonStyle())
-                            .disabled(isTranscribing || transcriptionManager.transcripts.contains(where: { $0.recordingId == recording.id }))
                         }
                         .padding(.vertical, 5)
                     }
