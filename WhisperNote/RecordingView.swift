@@ -2,28 +2,30 @@ import SwiftUI
 import AVFoundation
 
 struct RecordingView: View {
-    @StateObject private var audioRecorder = AudioRecorder()
+    @EnvironmentObject var audioRecorder: AudioRecorder
+    @EnvironmentObject var transcriptionManager: TranscriptionManager
     @State private var recordingName = ""
     @State private var showingNamePrompt = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
-    
+    @State private var isTranscribing = false
+
     var body: some View {
         VStack {
             Text("WhisperNote")
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .padding(.bottom, 20)
-            
+
             if let currentRecording = audioRecorder.currentRecording {
                 Text("Recording: \(currentRecording.name)")
                     .font(.headline)
                     .padding(.bottom, 10)
-                
+
                 Text(formatDuration(audioRecorder.recordingDuration))
                     .font(.system(size: 48, weight: .medium, design: .monospaced))
                     .padding()
-                
+
                 HStack(spacing: 30) {
                     Button(action: {
                         if audioRecorder.isRecording {
@@ -38,7 +40,7 @@ struct RecordingView: View {
                             .foregroundColor(audioRecorder.isRecording ? .orange : .green)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    
+
                     Button(action: {
                         audioRecorder.stopRecording()
                     }) {
@@ -56,16 +58,16 @@ struct RecordingView: View {
                         .resizable()
                         .frame(width: 100, height: 100)
                         .foregroundColor(.blue)
-                    
+
                     Text("Ready to Record")
                         .font(.title)
-                    
+
                     Text("Click the button below to start recording your meeting")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
-                    
+
                     Button(action: {
                         showingNamePrompt = true
                     }) {
@@ -81,44 +83,66 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            
+
             Spacer()
-            
+
             if !audioRecorder.recordings.isEmpty {
                 Text("Recent Recordings")
                     .font(.headline)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading)
-                
+
                 List {
                     ForEach(audioRecorder.recordings) { recording in
                         HStack {
                             Image(systemName: "waveform")
                                 .foregroundColor(.blue)
-                            
+
                             VStack(alignment: .leading) {
                                 Text(recording.name)
                                     .font(.headline)
-                                
+
                                 Text(recording.date, style: .date)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
-                            
+
                             Spacer()
-                            
+
                             Button(action: {
-                                // Transcribe action
+                                // Start transcription process
+                                Task {
+                                    do {
+                                        isTranscribing = true
+                                        _ = try await transcriptionManager.transcribeRecording(recording)
+                                        isTranscribing = false
+                                    } catch {
+                                        isTranscribing = false
+                                        alertMessage = error.localizedDescription
+                                        showingAlert = true
+                                    }
+                                }
                             }) {
-                                Text("Transcribe")
-                                    .font(.caption)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(5)
+                                if isTranscribing {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .frame(width: 16, height: 16)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.blue)
+                                        .cornerRadius(5)
+                                } else {
+                                    Text("Transcribe")
+                                        .font(.caption)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Color.blue)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(5)
+                                }
                             }
                             .buttonStyle(PlainButtonStyle())
+                            .disabled(isTranscribing || transcriptionManager.transcripts.contains(where: { $0.recordingId == recording.id }))
                         }
                         .padding(.vertical, 5)
                     }
@@ -138,18 +162,18 @@ struct RecordingView: View {
             VStack(spacing: 20) {
                 Text("Name Your Recording")
                     .font(.headline)
-                
+
                 TextField("Recording Name", text: $recordingName)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
-                
+
                 HStack {
                     Button("Cancel") {
                         recordingName = ""
                         showingNamePrompt = false
                     }
                     .keyboardShortcut(.cancelAction)
-                    
+
                     Button("Start Recording") {
                         if !recordingName.isEmpty {
                             do {
@@ -172,12 +196,12 @@ struct RecordingView: View {
             .padding()
         }
     }
-    
+
     private func formatDuration(_ duration: TimeInterval) -> String {
         let hours = Int(duration) / 3600
         let minutes = Int(duration) / 60 % 60
         let seconds = Int(duration) % 60
-        
+
         if hours > 0 {
             return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
         } else {

@@ -1,31 +1,31 @@
 import SwiftUI
 
 struct SummaryView: View {
-    @StateObject private var summaryManager = SummaryManager()
+    @EnvironmentObject var summaryManager: SummaryManager
     @State private var selectedSummary: Summary?
     @State private var isGenerating = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var customPrompt = ""
     @State private var showingPromptEditor = false
-    
+
     var body: some View {
         VStack {
             Text("Summaries")
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .padding(.bottom, 20)
-            
+
             if summaryManager.summaries.isEmpty {
                 VStack(spacing: 20) {
                     Image(systemName: "list.bullet.clipboard")
                         .resizable()
                         .frame(width: 80, height: 100)
                         .foregroundColor(.blue)
-                    
+
                     Text("No Summaries Yet")
                         .font(.title)
-                    
+
                     Text("Generate a summary from a transcript to get started")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
@@ -41,14 +41,14 @@ struct SummaryView: View {
                             VStack(alignment: .leading) {
                                 Text(summary.name)
                                     .font(.headline)
-                                
+
                                 Text(summary.date, style: .date)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
-                            
+
                             Spacer()
-                            
+
                             if summary.status == .inProgress {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle())
@@ -64,25 +64,25 @@ struct SummaryView: View {
                     }
                     .frame(width: 250)
                     .listStyle(SidebarListStyle())
-                    
+
                     // Divider
                     Divider()
-                    
+
                     // Summary content
                     if let selectedSummary = selectedSummary {
                         VStack {
                             HStack {
                                 Text(selectedSummary.name)
                                     .font(.headline)
-                                
+
                                 Spacer()
-                                
+
                                 Button(action: {
                                     // Export summary
                                 }) {
                                     Label("Export", systemImage: "square.and.arrow.up")
                                 }
-                                
+
                                 Button(action: {
                                     customPrompt = summaryManager.getDefaultPrompt()
                                     showingPromptEditor = true
@@ -91,13 +91,13 @@ struct SummaryView: View {
                                 }
                             }
                             .padding()
-                            
+
                             if selectedSummary.status == .inProgress {
                                 VStack {
                                     ProgressView()
                                         .progressViewStyle(CircularProgressViewStyle())
                                         .scaleEffect(2)
-                                    
+
                                     Text("Generating Summary...")
                                         .font(.headline)
                                         .padding(.top, 20)
@@ -114,11 +114,11 @@ struct SummaryView: View {
                                         .resizable()
                                         .frame(width: 50, height: 50)
                                         .foregroundColor(.red)
-                                    
+
                                     Text("Summary Generation Failed")
                                         .font(.headline)
                                         .padding(.top, 10)
-                                    
+
                                     Button("Retry") {
                                         // Retry summary generation
                                     }
@@ -148,18 +148,18 @@ struct SummaryView: View {
             VStack(spacing: 20) {
                 Text("Customize Summary Prompt")
                     .font(.headline)
-                
+
                 TextEditor(text: $customPrompt)
                     .frame(minHeight: 200)
                     .border(Color.gray.opacity(0.2))
                     .padding()
-                
+
                 HStack {
                     Button("Cancel") {
                         showingPromptEditor = false
                     }
                     .keyboardShortcut(.cancelAction)
-                    
+
                     Button("Generate Summary") {
                         if !customPrompt.isEmpty {
                             // Generate summary with custom prompt

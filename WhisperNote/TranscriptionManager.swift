@@ -6,7 +6,7 @@ class TranscriptionManager: ObservableObject {
     @Published var transcripts: [Transcript] = []
     @AppStorage("elevenlabsApiKey") private var apiKey = ""
 
-    private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private let directoryManager = DirectoryManager.shared
 
     init() {
         loadTranscripts()
@@ -125,7 +125,8 @@ class TranscriptionManager: ObservableObject {
     private func saveTranscripts() {
         do {
             let data = try JSONEncoder().encode(transcripts)
-            let url = documentsDirectory.appendingPathComponent("transcripts.json")
+            let directory = directoryManager.getRecordingsDirectory()
+            let url = directory.appendingPathComponent("transcripts.json")
             try data.write(to: url)
         } catch {
             print("Failed to save transcripts: \(error)")
@@ -133,14 +134,29 @@ class TranscriptionManager: ObservableObject {
     }
 
     private func loadTranscripts() {
-        let url = documentsDirectory.appendingPathComponent("transcripts.json")
+        // Try to load from custom directory first
+        let customDirectory = directoryManager.getRecordingsDirectory()
+        let customUrl = customDirectory.appendingPathComponent("transcripts.json")
 
-        if FileManager.default.fileExists(atPath: url.path) {
+        if FileManager.default.fileExists(atPath: customUrl.path) {
             do {
-                let data = try Data(contentsOf: url)
+                let data = try Data(contentsOf: customUrl)
+                transcripts = try JSONDecoder().decode([Transcript].self, from: data)
+                return
+            } catch {
+                print("Failed to load transcripts from custom directory: \(error)")
+            }
+        }
+
+        // Fall back to default directory if needed
+        let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let defaultUrl = defaultDirectory.appendingPathComponent("transcripts.json")
+        if FileManager.default.fileExists(atPath: defaultUrl.path) {
+            do {
+                let data = try Data(contentsOf: defaultUrl)
                 transcripts = try JSONDecoder().decode([Transcript].self, from: data)
             } catch {
-                print("Failed to load transcripts: \(error)")
+                print("Failed to load transcripts from default directory: \(error)")
             }
         }
     }
