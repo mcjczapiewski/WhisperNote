@@ -4,5 +4,7 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>WhisperNote needs access to your microphone to record audio for transcription.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>WhisperNote does not use the camera but may request this permission for audio capture.</string>
 </dict>
 </plist>

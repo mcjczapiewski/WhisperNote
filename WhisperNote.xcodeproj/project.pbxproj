@@ -17,6 +17,7 @@
 		3B3B3B3B3B3B3B3B3B3B3B3B /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */; };
 		3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */; };
 		3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */; };
+		3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 		4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
 		4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryManager.swift; sourceTree = "<group>"; };
+		4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioCapture.swift; sourceTree = "<group>"; };
 		5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -72,6 +74,7 @@
 				2F2F2F2F2F2F2F2F2F2F2F2F /* SettingsView.swift */,
 				4A4A4A4A4A4A4A4A4A4A4A4A /* Models.swift */,
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
+				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */,
 				4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */,
 				5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */,
@@ -157,6 +160,7 @@
 				3B3B3B3B3B3B3B3B3B3B3B3B /* AudioRecorder.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
+				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

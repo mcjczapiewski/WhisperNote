@@ -2,6 +2,13 @@
 
 WhisperNote is a native macOS app that allows users to record meetings in real-time—capturing both microphone and system audio—without requiring bots or meeting invites. After recording, it transcribes the audio using ElevenLabs' Speech-to-Text API and allows the user to generate a summary using a language model of their choice via OpenRouter.
 
+## Latest Updates
+
+- Fixed audio recording compatibility issues for macOS
+- Added proper permission handling for microphone access
+- Implemented SystemAudioCapture class for system audio recording
+- Updated project configuration for macOS compatibility
+
 ## Features
 
 - **Audio Recording**
