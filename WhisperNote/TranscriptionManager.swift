@@ -157,8 +157,8 @@ class TranscriptionManager: ObservableObject {
                    let text = simpleResponse["text"] {
                     transcriptionResponse = ElevenLabsTranscriptionResponse(
                         text: text,
-                        language: nil,
-                        confidence: nil,
+                        language_code: nil,
+                        language_probability: nil,
                         words: nil
                     )
                 } else {
