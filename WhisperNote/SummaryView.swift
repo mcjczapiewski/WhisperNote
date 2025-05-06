@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import MarkdownUI
 
 struct SummaryView: View {
     @EnvironmentObject var summaryManager: SummaryManager
@@ -146,7 +147,7 @@ struct SummaryView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else if selectedSummary.status == .completed {
                                 ScrollView {
-                                    Text(LocalizedStringKey(selectedSummary.content))
+                                    Markdown(selectedSummary.content)
                                         .textSelection(.enabled)
                                         .padding()
                                 }
