@@ -19,10 +19,12 @@
 		3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */; };
 		3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */; };
 		3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */; };
+		7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04391e39b44d41c58a6485d9 /* TextDocument.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0A0A0A0A0A0A0A0A0A0A0A0A /* WhisperNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WhisperNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		04391e39b44d41c58a6485d9 /* TextDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDocument.swift; sourceTree = "<group>"; };
 		2A2A2A2A2A2A2A2A2A2A2A2A /* WhisperNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperNoteApp.swift; sourceTree = "<group>"; };
 		2B2B2B2B2B2B2B2B2B2B2B2B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2C2C2C2C2C2C2C2C2C2C2C2C /* RecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingView.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 				2E2E2E2E2E2E2E2E2E2E2E2E /* SummaryView.swift */,
 				2F2F2F2F2F2F2F2F2F2F2F2F /* SettingsView.swift */,
 				4A4A4A4A4A4A4A4A4A4A4A4A /* Models.swift */,
+				04391e39b44d41c58a6485d9 /* TextDocument.swift */,
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
@@ -165,6 +168,7 @@
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
 				3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */,
+				7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
