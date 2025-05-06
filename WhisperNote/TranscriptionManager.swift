@@ -60,18 +60,23 @@ class TranscriptionManager: ObservableObject {
 
         // Create URLSession with a longer timeout
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120 // 2 minutes
+        config.timeoutIntervalForRequest = 300 // 5 minutes for large files
         let session = URLSession(configuration: config)
 
         // Create multipart form data
-        let boundary = "Boundary-\(UUID().uuidString)"
+        let boundary = "---011000010111000001101001" // Use a fixed boundary as in the example
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        var data = Data()
+        var bodyData = Data()
 
-        // Add audio file to form data
-        data.append("--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
+        // Add model_id parameter
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("scribe_v1\r\n".data(using: .utf8)!) // Use the correct model ID from the docs
+
+        // Add file parameter
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
 
         // Set the correct content type based on the file extension
         let fileExtension = recording.filePath.pathExtension.lowercased()
@@ -86,35 +91,37 @@ class TranscriptionManager: ObservableObject {
             contentType = "application/octet-stream"
         }
 
-        data.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
 
         do {
             print("Loading audio file from: \(recording.filePath.path)")
             let audioData = try Data(contentsOf: recording.filePath)
             print("Audio file size: \(ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))")
-            data.append(audioData)
-            data.append("\r\n".data(using: .utf8)!)
+            bodyData.append(audioData)
+            bodyData.append("\r\n".data(using: .utf8)!)
         } catch {
             print("Error reading audio file: \(error.localizedDescription)")
             throw TranscriptionError.fileReadError
         }
 
-        // Add model parameter (optional)
-        data.append("--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n".data(using: .utf8)!)
-        data.append("whisper-1\r\n".data(using: .utf8)!)
+        // Optional parameters
 
-        // Add language parameter (optional)
-        data.append("--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
-        data.append("en\r\n".data(using: .utf8)!)
+        // Add language_code parameter (optional)
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("en\r\n".data(using: .utf8)!)
+
+        // Add timestamps_granularity parameter (optional)
+        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        bodyData.append("Content-Disposition: form-data; name=\"timestamps_granularity\"\r\n\r\n".data(using: .utf8)!)
+        bodyData.append("word\r\n".data(using: .utf8)!)
 
         // Finalize the form data
-        data.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        bodyData.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // Set the content length
-        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
-        request.httpBody = data
+        request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
+        request.httpBody = bodyData
 
         do {
             // Use our custom session with longer timeout
@@ -238,15 +245,41 @@ class TranscriptionManager: ObservableObject {
 
 struct ElevenLabsTranscriptionResponse: Codable {
     let text: String
-    let language: String?
-    let confidence: Double?
+    let language_code: String?
+    let language_probability: Double?
     let words: [ElevenLabsWord]?
 
+    // For backward compatibility
+    var language: String? {
+        return language_code
+    }
+
+    var confidence: Double? {
+        return language_probability
+    }
+
     struct ElevenLabsWord: Codable {
-        let word: String
+        let text: String
         let start: Double
         let end: Double
-        let confidence: Double
+        let type: String?
+        let speaker_id: String?
+        let characters: [ElevenLabsCharacter]?
+
+        // For backward compatibility
+        var word: String {
+            return text
+        }
+
+        var confidence: Double {
+            return 1.0 // Default confidence since it's not provided in the new API
+        }
+    }
+
+    struct ElevenLabsCharacter: Codable {
+        let text: String
+        let start: Double
+        let end: Double
     }
 }
 
