@@ -69,15 +69,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let outputDirectory = directoryManager.getRecordingsDirectory()
 
-        // Create a unique filename
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let dateString = dateFormatter.string(from: Date())
-        let filename = "\(name)_\(dateString)"
-
-        // Create the output URL
-        let outputURL = outputDirectory.appendingPathComponent(filename)
-        self.rkRecordingURL = outputURL
+        // RecordKit will create a unique filename for us
+        // We'll just store the name for our records
+        self.rkRecordingURL = outputDirectory.appendingPathComponent("\(name).m4a")
 
         // Start a Task to handle the async RecordKit operations
         Task {
@@ -93,11 +87,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 // Add system audio recording
                 sources.append(.systemAudio())
 
-                // Create the recorder with sources
-                rkRecorder = RKRecorder(sources)
-
-                // Set the output file path
-                rkRecorder?.outputURL = outputURL
+                // Create the recorder with sources and output directory
+                rkRecorder = RKRecorder(sources, outputDirectory: outputDirectory)
 
                 // Prepare the recorder (this will trigger permission requests)
                 try await rkRecorder?.prepare()
@@ -201,11 +192,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             do {
                 // Stop the recording
                 if let recorder = rkRecorder {
-                    try await recorder.stop()
+                    let result = try await recorder.stop()
                     print("Recording stopped")
 
-                    // Get the final URL
-                    let finalURL = self.rkRecordingURL
+                    // Get the final URL from the result
+                    let finalURL = result.outputURL
 
                     await MainActor.run {
                         // Update state
