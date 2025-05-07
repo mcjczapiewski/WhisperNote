@@ -6,8 +6,6 @@ import CoreAudio
 import RecordKit
 
 class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
-    // RecordKit manager for handling recording
-    private let recordKitManager = RecordKitManager()
     @Published var recordings: [Recording] = []
     @Published var isRecording = false
     @Published var isPaused = false
@@ -28,10 +26,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private let directoryManager = DirectoryManager.shared
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
+    // RecordKit manager instance
+    private let recordKitManager = RecordKitManager()
+
     override init() {
         super.init()
         loadRecordings()
         updateMicrophoneMuteState()
+
+        // Set up a timer to periodically check microphone state
+        microphoneStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateMicrophoneMuteState()
+        }
     }
 
     deinit {
@@ -344,14 +350,17 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     // Public methods for controlling microphone mute
 
     func toggleMicrophoneMute() {
-        // Use RecordKit to toggle microphone mute
-        recordKitManager.toggleMicrophoneMute()
+        // Toggle the mute state
+        let newMuteState = !isMicrophoneMuted
 
-        // Sync our state with RecordKit
-        isMicrophoneMuted = recordKitManager.isMicrophoneMuted
+        // Update RecordKit's state
+        recordKitManager.setMicrophoneMute(muted: newMuteState)
+
+        // Update our state
+        isMicrophoneMuted = newMuteState
         print("Microphone mute toggled: \(isMicrophoneMuted)")
 
-        // Also update system-wide mute as a fallback
+        // Also update system-wide mute
         do {
             try setMicrophoneMuteSystem(muted: isMicrophoneMuted)
         } catch {
@@ -361,8 +370,15 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func setMicrophoneMute(muted: Bool) {
         do {
+            // Set system-wide mute
             try setMicrophoneMuteSystem(muted: muted)
+
+            // Update our state
             isMicrophoneMuted = muted
+
+            // Update RecordKit's state
+            recordKitManager.setMicrophoneMute(muted: muted)
+
             print("Microphone mute set to: \(isMicrophoneMuted)")
         } catch {
             print("Failed to set microphone mute state: \(error.localizedDescription)")
@@ -371,7 +387,19 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func updateMicrophoneMuteState() {
         do {
-            isMicrophoneMuted = try isMicrophoneMutedSystem()
+            // Get the system microphone mute state
+            let systemMuted = try isMicrophoneMutedSystem()
+
+            // If we're recording, sync our state with RecordKit
+            if isRecording {
+                isMicrophoneMuted = recordKitManager.isMicrophoneMuted
+            } else {
+                // Otherwise use the system state
+                isMicrophoneMuted = systemMuted
+
+                // Also update RecordKit's state to match
+                recordKitManager.setMicrophoneMute(muted: systemMuted)
+            }
         } catch {
             // Silently fail - don't log every time
         }
@@ -391,25 +419,28 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return (false, recordKitManager.errorMessage)
         }
 
-        // Check if we have system audio sources available
+        // Check if we have microphones available
         let hasMicrophones = !recordKitManager.availableMicrophones.isEmpty
-
         if !hasMicrophones {
             return (false, "No microphones detected. Please check your audio devices.")
         }
 
-        // Check if a virtual audio device is available (fallback to our old method)
-        if !SystemAudioCapture.hasVirtualAudioDevice() {
-            return (false, "No virtual audio device detected. Please install BlackHole, Loopback, or another virtual audio device to capture system audio.")
-        }
+        // RecordKit can capture system audio directly, but we'll still check for virtual audio device
+        // as a diagnostic step to help users understand their setup
+        let hasVirtualDevice = SystemAudioCapture.hasVirtualAudioDevice()
 
         // Check if Bluetooth headphones are connected
-        if SystemAudioCapture.isBluetoothHeadphonesConnected() {
-            return (true, "Bluetooth headphones detected. Make sure your system audio is routed through a virtual audio device for proper recording.")
+        let hasBluetoothHeadphones = SystemAudioCapture.isBluetoothHeadphonesConnected()
+
+        if !hasVirtualDevice {
+            // RecordKit can still work without a virtual device, but we'll warn the user
+            return (true, "RecordKit is ready to record, but no virtual audio device was detected. For best results with system audio, consider installing BlackHole, Loopback, or another virtual audio device.")
+        } else if hasBluetoothHeadphones {
+            return (true, "RecordKit is ready to record. Bluetooth headphones detected - make sure your system audio is routed through a virtual audio device for best results.")
         }
 
-        // If we get here, basic checks passed
-        return (true, "System audio capture appears to be properly configured. RecordKit is ready to record.")
+        // If we get here, everything looks good
+        return (true, "System audio capture is properly configured. RecordKit is ready to record both microphone and system audio.")
     }
 }
 

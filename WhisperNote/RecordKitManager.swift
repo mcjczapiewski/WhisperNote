@@ -199,6 +199,18 @@ class RecordKitManager: ObservableObject {
         }
     }
 
+    /// Set microphone mute state directly
+    func setMicrophoneMute(muted: Bool) {
+        if isMicrophoneMuted != muted {
+            isMicrophoneMuted = muted
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.statusMessage = self.isMicrophoneMuted ? "Microphone muted" : "Microphone unmuted"
+            }
+        }
+    }
+
     // MARK: - Private methods
 
     private func startTimer() {
