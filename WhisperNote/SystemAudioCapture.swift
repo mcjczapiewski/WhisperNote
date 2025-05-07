@@ -6,6 +6,7 @@ class SystemAudioCapture: NSObject {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var isCapturing = false
+    private var isPaused = false
 
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
@@ -51,8 +52,34 @@ class SystemAudioCapture: NSObject {
         }
     }
 
+    func pauseCapturing() {
+        guard let audioEngine = audioEngine, isCapturing, !isPaused else {
+            return
+        }
+
+        // Pause the audio engine
+        audioEngine.pause()
+        isPaused = true
+        isCapturing = false
+    }
+
+    func resumeCapturing() {
+        guard let audioEngine = audioEngine, !isCapturing, isPaused else {
+            return
+        }
+
+        do {
+            // Resume the audio engine
+            try audioEngine.start()
+            isCapturing = true
+            isPaused = false
+        } catch {
+            print("Error resuming system audio capture: \(error.localizedDescription)")
+        }
+    }
+
     func stopCapturing() -> URL? {
-        guard let audioEngine = audioEngine, isCapturing else {
+        guard let audioEngine = audioEngine, (isCapturing || isPaused) else {
             return nil
         }
 
@@ -69,6 +96,7 @@ class SystemAudioCapture: NSObject {
         audioFile = nil
         self.audioEngine = nil
         isCapturing = false
+        isPaused = false
 
         return fileURL
     }

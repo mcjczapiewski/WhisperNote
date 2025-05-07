@@ -13,6 +13,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isMicrophoneMuted = false
 
     private var audioRecorder: AVAudioRecorder?
+    private var systemAudioCapture = SystemAudioCapture()
     private var durationTimer: Timer?
     private var microphoneStateTimer: Timer?
     private var startTime: Date?
@@ -68,6 +69,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let fileURL = directoryManager.getURLForNewRecording(name: name, format: audioFormat)
 
+        // Create a separate file URL for system audio
+        let systemAudioFileURL = fileURL.deletingPathExtension().appendingPathExtension("system.\(audioFormat)")
+
         do {
             // Request microphone permission if needed
             if #available(macOS 10.14, *) {
@@ -84,9 +88,19 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 }
             }
 
+            // Start recording microphone audio
             audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
             audioRecorder?.delegate = self
             audioRecorder?.record()
+
+            // Start capturing system audio
+            do {
+                try systemAudioCapture.startCapturing(to: systemAudioFileURL)
+                print("System audio capture started")
+            } catch {
+                print("Failed to start system audio capture: \(error.localizedDescription)")
+                // Continue with microphone recording even if system audio fails
+            }
 
             isRecording = true
             isPaused = false
@@ -98,7 +112,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 name: name,
                 date: Date(),
                 duration: 0,
-                filePath: fileURL
+                filePath: fileURL,
+                systemAudioFilePath: systemAudioFileURL
             )
 
             currentRecording = newRecording
@@ -119,7 +134,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func pauseRecording() {
         guard isRecording, !isPaused, let startTime = startTime else { return }
 
+        // Pause microphone recording
         audioRecorder?.pause()
+
+        // Pause system audio capture
+        systemAudioCapture.pauseCapturing()
+
         isRecording = false
         isPaused = true
 
@@ -131,7 +151,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func resumeRecording() {
         guard !isRecording, isPaused else { return }
 
+        // Resume microphone recording
         audioRecorder?.record()
+
+        // Resume system audio capture
+        systemAudioCapture.resumeCapturing()
+
         isRecording = true
         isPaused = false
         startTime = Date()
@@ -149,7 +174,14 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func stopRecording() {
         guard let currentRecording = currentRecording else { return }
 
+        // Stop microphone recording
         audioRecorder?.stop()
+
+        // Stop system audio capture
+        if let systemAudioURL = systemAudioCapture.stopCapturing() {
+            print("System audio capture stopped, file saved at: \(systemAudioURL.path)")
+        }
+
         isRecording = false
         isPaused = false
         durationTimer?.invalidate()
@@ -165,7 +197,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             name: currentRecording.name,
             date: currentRecording.date,
             duration: accumulatedTime,
-            filePath: currentRecording.filePath
+            filePath: currentRecording.filePath,
+            systemAudioFilePath: currentRecording.systemAudioFilePath
         )
 
         // Add to recordings array
@@ -208,12 +241,22 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             let recording = recordings[index]
 
-            // Delete the audio file
+            // Delete the microphone audio file
             do {
                 try FileManager.default.removeItem(at: recording.filePath)
                 print("Deleted audio file at: \(recording.filePath.path)")
             } catch {
                 print("Error deleting audio file: \(error.localizedDescription)")
+            }
+
+            // Delete the system audio file if it exists
+            if let systemAudioFilePath = recording.systemAudioFilePath {
+                do {
+                    try FileManager.default.removeItem(at: systemAudioFilePath)
+                    print("Deleted system audio file at: \(systemAudioFilePath.path)")
+                } catch {
+                    print("Error deleting system audio file: \(error.localizedDescription)")
+                }
             }
 
             // Remove from recordings array

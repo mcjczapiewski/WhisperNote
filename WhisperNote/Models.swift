@@ -7,9 +7,10 @@ struct Recording: Identifiable, Codable, Sendable {
     var date: Date
     var duration: TimeInterval
     var filePath: URL
+    var systemAudioFilePath: URL?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, date, duration, filePath
+        case id, name, date, duration, filePath, systemAudioFilePath
     }
 }
 
@@ -19,11 +20,13 @@ struct Transcript: Identifiable, Codable, Hashable, Sendable {
     var name: String
     var date: Date
     var content: String
+    var formattedContent: String?
     var recordingId: UUID
     var status: ProcessingStatus
+    var jsonFilePath: URL?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, date, content, recordingId, status
+        case id, name, date, content, formattedContent, recordingId, status, jsonFilePath
     }
 
     static func == (lhs: Transcript, rhs: Transcript) -> Bool {
