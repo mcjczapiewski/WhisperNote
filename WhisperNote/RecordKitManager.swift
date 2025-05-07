@@ -4,14 +4,15 @@ import AVFoundation
 import RecordKit
 
 /// A manager class for handling recording using RecordKit
-class RecordKitManager: ObservableObject {
+public class RecordKitManager: ObservableObject {
     /// Shared instance for use across the app
-    static let shared = RecordKitManager()
-    @Published var isRecording = false
-    @Published var isPaused = false
-    @Published var recordingDuration: TimeInterval = 0
-    @Published var recordingName: String = ""
-    @Published var isMicrophoneMuted = false
+    public static let shared = RecordKitManager()
+
+    @Published public var isRecording = false
+    @Published public var isPaused = false
+    @Published public var recordingDuration: TimeInterval = 0
+    @Published public var recordingName: String = ""
+    @Published public var isMicrophoneMuted = false
 
     private var recorder: RKRecorder?
     private var recordingStartTime: Date?
@@ -19,24 +20,24 @@ class RecordKitManager: ObservableObject {
     private var recordingURL: URL?
 
     // Status messages
-    @Published var statusMessage: String = ""
-    @Published var hasError = false
-    @Published var errorMessage: String = ""
+    @Published public var statusMessage: String = ""
+    @Published public var hasError = false
+    @Published public var errorMessage: String = ""
 
     // Available devices
-    @Published var availableWindows: [RKWindow] = []
-    @Published var availableCameras: [RKCamera] = []
-    @Published var availableMicrophones: [RKMicrophone] = []
-    @Published var availableAppleDevices: [RKAppleDevice] = []
+    @Published public var availableWindows: [RKWindow] = []
+    @Published public var availableCameras: [RKCamera] = []
+    @Published public var availableMicrophones: [RKMicrophone] = []
+    @Published public var availableAppleDevices: [RKAppleDevice] = []
 
-    init() {
+    public init() {
         Task {
             await refreshDevices()
         }
     }
 
     /// Refresh the list of available devices
-    func refreshDevices() async {
+    public func refreshDevices() async {
         do {
             // Use the updated API methods based on the documentation
             availableWindows = try await RKRecorder.getWindows()
@@ -59,7 +60,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Start recording with RecordKit
-    func startRecording(name: String, outputDirectory: URL) async throws {
+    public func startRecording(name: String, outputDirectory: URL) async throws {
         guard !isRecording else {
             print("Already recording")
             return
@@ -120,7 +121,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Stop the current recording
-    func stopRecording() async throws -> URL? {
+    public func stopRecording() async throws -> URL? {
         guard isRecording, let recorder = recorder else {
             print("Not recording")
             return nil
@@ -153,7 +154,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Pause the current recording
-    func pauseRecording() {
+    public func pauseRecording() {
         guard isRecording, !isPaused, let _ = recorder else {
             print("Not recording or already paused")
             return
@@ -171,7 +172,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Resume a paused recording
-    func resumeRecording() {
+    public func resumeRecording() {
         guard isRecording, isPaused else {
             print("Not recording or not paused")
             return
@@ -189,7 +190,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Toggle microphone mute state
-    func toggleMicrophoneMute() {
+    public func toggleMicrophoneMute() {
         isMicrophoneMuted.toggle()
 
         // RecordKit doesn't have direct microphone muting
@@ -202,7 +203,7 @@ class RecordKitManager: ObservableObject {
     }
 
     /// Set microphone mute state directly
-    func setMicrophoneMute(muted: Bool) {
+    public func setMicrophoneMute(muted: Bool) {
         if isMicrophoneMuted != muted {
             isMicrophoneMuted = muted
 
