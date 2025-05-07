@@ -164,6 +164,11 @@ class SummaryManager: ObservableObject {
         }
     }
 
+    // Public method to reload summaries from disk
+    func reloadSummaries() {
+        loadSummaries()
+    }
+
     private func loadSummaries() {
         // Try to load from the new directory structure
         let summariesDirectory = directoryManager.getSummariesDirectory()

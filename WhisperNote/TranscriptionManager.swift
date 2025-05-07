@@ -256,6 +256,11 @@ class TranscriptionManager: ObservableObject {
         }
     }
 
+    // Public method to reload transcripts from disk
+    func reloadTranscripts() {
+        loadTranscripts()
+    }
+
     private func loadTranscripts() {
         // Try to load from the new directory structure
         let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
