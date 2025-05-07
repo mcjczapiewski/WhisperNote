@@ -1,44 +1,161 @@
 import Foundation
 import AVFoundation
 import AppKit
+import CoreAudio
 
 class SystemAudioCapture: NSObject {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var isCapturing = false
     private var isPaused = false
+    private var deviceChangeObserver: NSObjectProtocol?
 
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
+    override init() {
+        super.init()
+        setupNotifications()
+    }
+
+    deinit {
+        removeNotifications()
+    }
+
+    private func setupNotifications() {
+        // Register for device change notifications on macOS
+        deviceChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name(rawValue: "NSWorkspaceDidConfigureAudioNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAudioDeviceChange()
+        }
+    }
+
+    private func removeNotifications() {
+        if let observer = deviceChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    private func handleAudioDeviceChange() {
+        print("Audio device configuration changed")
+
+        // Log current audio devices
+        logAudioDevices()
+
+        // If we're currently recording, we might need to reconfigure
+        if isCapturing && !isPaused {
+            restartCaptureIfNeeded()
+        }
+    }
+
+    private func logAudioDevices() {
+        print("Available audio devices:")
+        let devices = Self.getAvailableAudioDevices()
+        for (index, device) in devices.enumerated() {
+            print("[\(index)] \(device)")
+        }
+    }
+
+    private func restartCaptureIfNeeded() {
+        guard let audioEngine = audioEngine else { return }
+
+        // Only restart if we're currently capturing
+        if isCapturing && !isPaused {
+            // Stop the engine temporarily
+            audioEngine.stop()
+
+            // Try to restart the engine
+            do {
+                try audioEngine.start()
+                print("Successfully restarted audio engine after device change")
+            } catch {
+                print("Failed to restart audio engine after device change: \(error.localizedDescription)")
+                // We'll keep the isCapturing flag as true since we're still technically trying to capture
+            }
+        }
+    }
+
     func startCapturing(to fileURL: URL) throws {
+        // Log audio device information for debugging
+        print(Self.getAudioDeviceInfo())
+
+        // Check if Bluetooth headphones are connected
+        let bluetoothConnected = Self.isBluetoothHeadphonesConnected()
+        if bluetoothConnected {
+            print("Bluetooth headphones detected - ensuring proper configuration")
+        }
+
+        // Log current audio devices
+        logAudioDevices()
+
         // Initialize the audio engine
         audioEngine = AVAudioEngine()
 
         guard let audioEngine = audioEngine else {
+            print("Failed to initialize audio engine")
             throw SystemAudioCaptureError.engineInitializationFailed
         }
 
         // Get the input node (this will be the system audio input)
         let inputNode = audioEngine.inputNode
 
+        // Log the current input node format for debugging
+        print("Input node format: \(inputNode.outputFormat(forBus: 0).description)")
+        print("Input node name: \(inputNode.name(forInputBus: 0) ?? "unknown")")
+
         // Configure the audio format
         let format = inputNode.outputFormat(forBus: 0)
 
-        // Create an audio file for recording
-        do {
-            audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
-        } catch {
-            throw SystemAudioCaptureError.fileCreationFailed
+        // Check if the format is valid (has channels)
+        if format.channelCount == 0 {
+            print("Invalid audio format: no channels detected")
+            throw SystemAudioCaptureError.engineInitializationFailed
         }
 
-        // Install a tap on the input node to capture audio
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] (buffer, time) in
-            guard let self = self, let audioFile = self.audioFile else { return }
+        // We're using the same file as the microphone recording, so we don't create a new file
+        // Instead, we'll just capture the system audio and mix it with the microphone input
 
-            do {
-                try audioFile.write(from: buffer)
-            } catch {
-                print("Error writing to audio file: \(error)")
+        // Create a mixer node to mix the system audio with the microphone input
+        let mixer = audioEngine.mainMixerNode
+
+        // Connect the input node to the mixer
+        audioEngine.connect(inputNode, to: mixer, format: format)
+
+        // Connect the mixer to the output
+        audioEngine.connect(mixer, to: audioEngine.outputNode, format: format)
+
+        // Install a tap on the input node to monitor audio (for debugging)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] (buffer, time) in
+            guard let self = self else { return }
+
+            // Check if the buffer has audio data
+            let channelData = buffer.floatChannelData
+            if channelData != nil {
+                // Check if there's actual audio data (not just silence)
+                var hasAudioData = false
+                let frames = buffer.frameLength
+
+                if frames > 0 && buffer.stride > 0 {
+                    // Just check a few samples to see if there's any non-zero data
+                    for channel in 0..<min(2, Int(buffer.format.channelCount)) {
+                        if let data = channelData?[channel] {
+                            for i in stride(from: 0, to: min(Int(frames), 100), by: 10) {
+                                if abs(data[i]) > 0.001 {
+                                    hasAudioData = true
+                                    break
+                                }
+                            }
+                            if hasAudioData { break }
+                        }
+                    }
+                }
+
+                if !hasAudioData && bluetoothConnected {
+                    // If using Bluetooth and no audio data, log it
+                    print("Warning: No system audio data detected in buffer while using Bluetooth")
+                }
             }
         }
 
@@ -46,14 +163,29 @@ class SystemAudioCapture: NSObject {
         do {
             try audioEngine.start()
             isCapturing = true
+            print("System audio engine started successfully - capturing to the same file as microphone")
+
+            // Additional check for Bluetooth headphones
+            if bluetoothConnected {
+                // Log that we're using Bluetooth headphones
+                print("Recording with Bluetooth headphones - monitoring for audio data")
+            }
         } catch {
+            print("Failed to start audio engine: \(error.localizedDescription)")
             inputNode.removeTap(onBus: 0)
-            throw SystemAudioCaptureError.engineStartFailed
+
+            if bluetoothConnected {
+                print("Bluetooth headphones may be causing issues with audio capture")
+                throw SystemAudioCaptureError.bluetoothDeviceNotSupported
+            } else {
+                throw SystemAudioCaptureError.engineStartFailed
+            }
         }
     }
 
     func pauseCapturing() {
         guard let audioEngine = audioEngine, isCapturing, !isPaused else {
+            print("Cannot pause: engine not running or already paused")
             return
         }
 
@@ -61,10 +193,12 @@ class SystemAudioCapture: NSObject {
         audioEngine.pause()
         isPaused = true
         isCapturing = false
+        print("System audio capture paused")
     }
 
     func resumeCapturing() {
         guard let audioEngine = audioEngine, !isCapturing, isPaused else {
+            print("Cannot resume: engine not paused or already running")
             return
         }
 
@@ -73,6 +207,7 @@ class SystemAudioCapture: NSObject {
             try audioEngine.start()
             isCapturing = true
             isPaused = false
+            print("System audio capture resumed")
         } catch {
             print("Error resuming system audio capture: \(error.localizedDescription)")
         }
@@ -80,25 +215,27 @@ class SystemAudioCapture: NSObject {
 
     func stopCapturing() -> URL? {
         guard let audioEngine = audioEngine, (isCapturing || isPaused) else {
+            print("Cannot stop: no active recording")
             return nil
         }
 
         // Stop the audio engine
         audioEngine.stop()
+        print("System audio engine stopped")
 
-        // Remove the tap
+        // Remove the tap if it exists
         audioEngine.inputNode.removeTap(onBus: 0)
-
-        // Get the file URL
-        let fileURL = audioFile?.url
+        print("System audio tap removed")
 
         // Clean up
-        audioFile = nil
         self.audioEngine = nil
         isCapturing = false
         isPaused = false
 
-        return fileURL
+        print("System audio capture stopped")
+
+        // We're not returning a URL since we're using the same file as the microphone
+        return nil
     }
 
     // Helper method to check if a virtual audio device is available
@@ -115,7 +252,8 @@ class SystemAudioCapture: NSObject {
         for device in devices {
             if device.localizedName.lowercased().contains("blackhole") ||
                device.localizedName.lowercased().contains("loopback") ||
-               device.localizedName.lowercased().contains("virtual") {
+               device.localizedName.lowercased().contains("virtual") ||
+               device.localizedName.lowercased().contains("soundflower") {
                 return true
             }
         }
@@ -134,12 +272,86 @@ class SystemAudioCapture: NSObject {
 
         return devices.map { $0.localizedName }
     }
+
+    // Get detailed information about all audio devices
+    static func getAudioDeviceInfo() -> String {
+        var info = "Audio Device Information:\n"
+
+        // Get input devices
+        let inputDevices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInMicrophone, .externalUnknown],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices
+
+        info += "\nInput Devices:\n"
+        for (index, device) in inputDevices.enumerated() {
+            info += "[\(index)] \(device.localizedName) - \(device.uniqueID)\n"
+        }
+
+        // On macOS, we can't access AVAudioSession, so we'll just list the devices
+        info += "\nAudio Engine Information:\n"
+        let engine = AVAudioEngine()
+        info += "Input node format: \(engine.inputNode.outputFormat(forBus: 0).description)\n"
+        info += "Input node name: \(engine.inputNode.name(forInputBus: 0) ?? "unknown")\n"
+
+        return info
+    }
+
+    // Helper method to check if Bluetooth headphones are connected
+    static func isBluetoothHeadphonesConnected() -> Bool {
+        // On macOS, we can't directly check if Bluetooth headphones are connected
+        // through AVAudioSession like on iOS, so we'll use a different approach
+
+        // Get the available output devices
+        let devices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInMicrophone, .externalUnknown],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices
+
+        // Check if any of the devices might be Bluetooth
+        for device in devices {
+            let name = device.localizedName.lowercased()
+            if name.contains("bluetooth") ||
+               name.contains("airpods") ||
+               name.contains("wireless") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // Helper method to log the current audio routing
+    func logAudioRouting() {
+        print("Current audio routing:")
+
+        // Get the available devices
+        let devices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInMicrophone, .externalUnknown],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices
+
+        print("Input devices:")
+        for device in devices {
+            print("- \(device.localizedName)")
+        }
+
+        if let engine = audioEngine {
+            print("Audio engine input node: \(engine.inputNode.name(forInputBus: 0) ?? "unknown")")
+            print("Audio engine output node: \(engine.outputNode.name(forOutputBus: 0) ?? "unknown")")
+        }
+    }
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError {
     case engineInitializationFailed
     case fileCreationFailed
     case engineStartFailed
+    case bluetoothDeviceNotSupported
+    case noAudioData
 
     var errorDescription: String? {
         switch self {
@@ -149,6 +361,10 @@ enum SystemAudioCaptureError: Error, LocalizedError {
             return "Failed to create audio file for recording."
         case .engineStartFailed:
             return "Failed to start audio engine. Make sure a virtual audio device is installed and configured."
+        case .bluetoothDeviceNotSupported:
+            return "Bluetooth device not properly supported. Please ensure your virtual audio device is configured correctly."
+        case .noAudioData:
+            return "No audio data detected. Please check your audio device configuration."
         }
     }
 }

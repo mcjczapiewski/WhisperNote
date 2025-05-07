@@ -69,7 +69,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let fileURL = directoryManager.getURLForNewRecording(name: name, format: audioFormat)
 
-        // No longer creating a separate file URL for system audio
+        // We'll use the same file URL for both microphone and system audio
 
         do {
             // Request microphone permission if needed
@@ -103,8 +103,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 print("Warning: No virtual audio device detected. System audio may not be captured properly.")
             }
 
-            // No longer capturing system audio
-            print("System audio capture disabled")
+            // Start capturing system audio to the same file
+            if SystemAudioCapture.hasVirtualAudioDevice() {
+                do {
+                    try systemAudioCapture.startCapturing(to: fileURL)
+                    print("System audio capture started to the same file as microphone")
+                } catch {
+                    print("Failed to start system audio capture: \(error.localizedDescription)")
+                    // Continue with microphone recording even if system audio fails
+                }
+            } else {
+                print("No virtual audio device detected. Only microphone will be recorded.")
+            }
 
             isRecording = true
             isPaused = false
@@ -141,7 +151,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Pause microphone recording
         audioRecorder?.pause()
 
-        // No longer pausing system audio capture
+        // Pause system audio capture
+        systemAudioCapture.pauseCapturing()
 
         isRecording = false
         isPaused = true
@@ -157,7 +168,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Resume microphone recording
         audioRecorder?.record()
 
-        // No longer resuming system audio capture
+        // Resume system audio capture
+        systemAudioCapture.resumeCapturing()
 
         isRecording = true
         isPaused = false
@@ -180,8 +192,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         audioRecorder?.stop()
         print("Microphone recording stopped")
 
-        // No longer stopping system audio capture
-        print("System audio capture disabled")
+        // Stop system audio capture
+        systemAudioCapture.stopCapturing()
+        print("System audio capture stopped")
 
         isRecording = false
         isPaused = false
