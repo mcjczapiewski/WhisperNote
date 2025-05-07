@@ -292,21 +292,27 @@ struct SummaryDetailView: View {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
 
-                Button(action: {
-                    // Store the current summary ID
-                    let currentSummaryId = selectedSummary.id
+Button(action: {
+    // Store the current summary ID
+    let currentSummaryId = selectedSummary.id
 
-                    // Reload all summaries
-                    summaryManager.reloadSummaries()
+    // Deselect to force UI update
+    selectedSummaryBinding = nil
 
-                    // Find and update the selected summary with the refreshed data
-                    if let refreshedSummary = summaryManager.summaries.first(where: { $0.id == currentSummaryId }) {
-                        selectedSummaryBinding = refreshedSummary
-                    }
-                }) {
-                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .help("Refresh summary content")
+    // Reload all summaries on the main thread
+    DispatchQueue.main.async {
+        summaryManager.reloadSummaries()
+        // Re-select the updated summary after a short delay to ensure state propagation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if let refreshedSummary = summaryManager.summaries.first(where: { $0.id == currentSummaryId }) {
+                selectedSummaryBinding = refreshedSummary
+            }
+        }
+    }
+}) {
+    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
+}
+.help("Refresh summary content")
             }
             .padding()
 

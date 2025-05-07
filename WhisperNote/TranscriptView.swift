@@ -392,21 +392,27 @@ struct TranscriptDetailView: View {
                 }
                 .disabled(selectedTranscript.status != .completed)
 
-                Button(action: {
-                    // Store the current transcript ID
-                    let currentTranscriptId = selectedTranscript.id
+Button(action: {
+    // Store the current transcript ID
+    let currentTranscriptId = selectedTranscript.id
 
-                    // Reload all transcripts
-                    transcriptionManager.reloadTranscripts()
+    // Deselect to force UI update
+    selectedTranscriptBinding = nil
 
-                    // Find and update the selected transcript with the refreshed data
-                    if let refreshedTranscript = transcriptionManager.transcripts.first(where: { $0.id == currentTranscriptId }) {
-                        selectedTranscriptBinding = refreshedTranscript
-                    }
-                }) {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .help("Refresh transcript content")
+    // Reload all transcripts on the main thread
+    DispatchQueue.main.async {
+        transcriptionManager.reloadTranscripts()
+        // Re-select the updated transcript after a short delay to ensure state propagation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if let refreshedTranscript = transcriptionManager.transcripts.first(where: { $0.id == currentTranscriptId }) {
+                selectedTranscriptBinding = refreshedTranscript
+            }
+        }
+    }
+}) {
+    Label("Refresh", systemImage: "arrow.clockwise")
+}
+.help("Refresh transcript content")
             }
             .padding()
 
