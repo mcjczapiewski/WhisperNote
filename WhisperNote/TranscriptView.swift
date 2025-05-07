@@ -48,24 +48,9 @@ struct TranscriptView: View {
                 .padding()
             } else {
                 HStack(spacing: 0) {
-                    // Sidebar with transcript list and refresh button
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                transcriptionManager.reloadTranscripts()
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundColor(.blue)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 5)
-                            .help("Refresh transcripts list")
-                        }
-
-                        List {
-                            ForEach(transcriptionManager.transcripts) { transcript in
+                    // Sidebar with transcript list
+                    List {
+                        ForEach(transcriptionManager.transcripts) { transcript in
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(transcript.name)
@@ -124,8 +109,6 @@ struct TranscriptView: View {
                     }
                     .frame(width: 250)
                     .listStyle(SidebarListStyle())
-                    }
-                    .frame(width: 250)
 
                     // Divider
                     Divider()
@@ -171,6 +154,13 @@ struct TranscriptView: View {
                                     Label(isEditingTranscript ? "Save" : "Edit", systemImage: isEditingTranscript ? "checkmark" : "pencil")
                                 }
                                 .disabled(selectedTranscript.status != .completed)
+
+                                Button(action: {
+                                    transcriptionManager.reloadTranscripts()
+                                }) {
+                                    Label("Refresh", systemImage: "arrow.clockwise")
+                                }
+                                .help("Refresh transcript content")
                             }
                             .padding()
 

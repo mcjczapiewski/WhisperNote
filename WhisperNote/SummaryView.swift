@@ -48,24 +48,9 @@ struct SummaryView: View {
                 .padding()
             } else {
                 HStack(spacing: 0) {
-                    // Sidebar with summary list and refresh button
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                summaryManager.reloadSummaries()
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundColor(.blue)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 5)
-                            .help("Refresh summaries list")
-                        }
-
-                        List {
-                            ForEach(summaryManager.summaries) { summary in
+                    // Sidebar with summary list
+                    List {
+                        ForEach(summaryManager.summaries) { summary in
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(summary.name)
@@ -109,8 +94,6 @@ struct SummaryView: View {
                     }
                     .frame(width: 250)
                     .listStyle(SidebarListStyle())
-                    }
-                    .frame(width: 250)
 
                     // Divider
                     Divider()
@@ -154,6 +137,13 @@ struct SummaryView: View {
                                 }) {
                                     Label("Regenerate", systemImage: "arrow.clockwise")
                                 }
+
+                                Button(action: {
+                                    summaryManager.reloadSummaries()
+                                }) {
+                                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                                .help("Refresh summary content")
                             }
                             .padding()
 
