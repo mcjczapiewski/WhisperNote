@@ -27,11 +27,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
     // RecordKit manager instance
-    private let recordKitManager: RecordKitManager
+    private let recordKitManager = RecordKitManager.shared
 
     override init() {
-        // Initialize RecordKit manager
-        self.recordKitManager = RecordKitManager()
 
         super.init()
         loadRecordings()

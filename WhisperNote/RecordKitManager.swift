@@ -5,6 +5,8 @@ import RecordKit
 
 /// A manager class for handling recording using RecordKit
 class RecordKitManager: ObservableObject {
+    /// Shared instance for use across the app
+    static let shared = RecordKitManager()
     @Published var isRecording = false
     @Published var isPaused = false
     @Published var recordingDuration: TimeInterval = 0
