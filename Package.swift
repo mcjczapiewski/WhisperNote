@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "WhisperNote",
     platforms: [
-        .macOS(.v12)
+        .macOS(.v13)
     ],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
