@@ -69,7 +69,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let fileURL = directoryManager.getURLForNewRecording(name: name, format: audioFormat)
 
-        // We'll use the same file URL for both microphone and system audio
+        // Create a separate file URL for system audio
+        let systemAudioFileURL = fileURL.deletingPathExtension().appendingPathExtension("system.\(audioFormat)")
 
         do {
             // Request microphone permission if needed
@@ -103,11 +104,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 print("Warning: No virtual audio device detected. System audio may not be captured properly.")
             }
 
-            // Start capturing system audio to the same file
+            // Start capturing system audio to a separate file
             if SystemAudioCapture.hasVirtualAudioDevice() {
                 do {
-                    try systemAudioCapture.startCapturing(to: fileURL)
-                    print("System audio capture started to the same file as microphone")
+                    try systemAudioCapture.startCapturing(to: systemAudioFileURL)
+                    print("System audio capture started to separate file")
                 } catch {
                     print("Failed to start system audio capture: \(error.localizedDescription)")
                     // Continue with microphone recording even if system audio fails
@@ -127,7 +128,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 date: Date(),
                 duration: 0,
                 filePath: fileURL,
-                systemAudioFilePath: nil
+                systemAudioFilePath: systemAudioFileURL
             )
 
             currentRecording = newRecording
@@ -193,7 +194,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         print("Microphone recording stopped")
 
         // Stop system audio capture
-        systemAudioCapture.stopCapturing()
+        let systemAudioURL = systemAudioCapture.stopCapturing()
         print("System audio capture stopped")
 
         isRecording = false
@@ -205,6 +206,22 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             accumulatedTime += Date().timeIntervalSince(startTime)
         }
 
+        // Check if we have both microphone and system audio files
+        if let systemAudioURL = systemAudioURL,
+           FileManager.default.fileExists(atPath: systemAudioURL.path),
+           FileManager.default.fileExists(atPath: currentRecording.filePath.path) {
+
+            // Both files exist, we'll keep only the microphone file
+            // In a real implementation, we would mix the audio here
+            // For now, we'll just delete the system audio file
+            do {
+                try FileManager.default.removeItem(at: systemAudioURL)
+                print("Deleted system audio file after recording: \(systemAudioURL.path)")
+            } catch {
+                print("Error deleting system audio file: \(error.localizedDescription)")
+            }
+        }
+
         // Create the final recording object with the correct duration
         let finalRecording = Recording(
             id: currentRecording.id,
@@ -212,7 +229,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             date: currentRecording.date,
             duration: accumulatedTime,
             filePath: currentRecording.filePath,
-            systemAudioFilePath: nil
+            systemAudioFilePath: nil  // We don't keep the system audio file
         )
 
         // Add to recordings array

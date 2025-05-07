@@ -114,21 +114,17 @@ class SystemAudioCapture: NSObject {
             throw SystemAudioCaptureError.engineInitializationFailed
         }
 
-        // We're using the same file as the microphone recording, so we don't create a new file
-        // Instead, we'll just capture the system audio and mix it with the microphone input
+        // Create an audio file for recording
+        do {
+            audioFile = try AVAudioFile(forWriting: fileURL, settings: format.settings)
+        } catch {
+            print("Failed to create system audio file: \(error.localizedDescription)")
+            throw SystemAudioCaptureError.fileCreationFailed
+        }
 
-        // Create a mixer node to mix the system audio with the microphone input
-        let mixer = audioEngine.mainMixerNode
-
-        // Connect the input node to the mixer
-        audioEngine.connect(inputNode, to: mixer, format: format)
-
-        // Connect the mixer to the output
-        audioEngine.connect(mixer, to: audioEngine.outputNode, format: format)
-
-        // Install a tap on the input node to monitor audio (for debugging)
+        // Install a tap on the input node to capture audio
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] (buffer, time) in
-            guard let self = self else { return }
+            guard let self = self, let audioFile = self.audioFile else { return }
 
             // Check if the buffer has audio data
             let channelData = buffer.floatChannelData
@@ -153,9 +149,15 @@ class SystemAudioCapture: NSObject {
                 }
 
                 if !hasAudioData && bluetoothConnected {
-                    // If using Bluetooth and no audio data, log it
+                    // If using Bluetooth and no audio data, log it but still try to write
                     print("Warning: No system audio data detected in buffer while using Bluetooth")
                 }
+            }
+
+            do {
+                try audioFile.write(from: buffer)
+            } catch {
+                print("Error writing to system audio file: \(error)")
             }
         }
 
@@ -163,7 +165,7 @@ class SystemAudioCapture: NSObject {
         do {
             try audioEngine.start()
             isCapturing = true
-            print("System audio engine started successfully - capturing to the same file as microphone")
+            print("System audio engine started successfully")
 
             // Additional check for Bluetooth headphones
             if bluetoothConnected {
@@ -227,15 +229,22 @@ class SystemAudioCapture: NSObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         print("System audio tap removed")
 
+        // Get the file URL
+        let fileURL = audioFile?.url
+
         // Clean up
+        audioFile = nil
         self.audioEngine = nil
         isCapturing = false
         isPaused = false
 
-        print("System audio capture stopped")
+        if let url = fileURL {
+            print("System audio capture stopped, file saved at: \(url.path)")
+        } else {
+            print("System audio capture stopped, but no file was saved")
+        }
 
-        // We're not returning a URL since we're using the same file as the microphone
-        return nil
+        return fileURL
     }
 
     // Helper method to check if a virtual audio device is available
