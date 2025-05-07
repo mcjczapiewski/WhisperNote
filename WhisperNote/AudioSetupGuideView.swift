@@ -3,7 +3,7 @@ import SwiftUI
 struct AudioSetupGuideView: View {
     @Environment(\.presentationMode) var presentationMode
     @State private var currentStep = 0
-    
+
     let steps = [
         SetupStep(
             title: "Install a Virtual Audio Device",
@@ -49,29 +49,29 @@ struct AudioSetupGuideView: View {
             image: "checkmark.circle.fill"
         )
     ]
-    
+
     var body: some View {
         VStack {
             Text("System Audio Recording Setup")
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .padding(.top)
-            
+
             Text("Follow these steps to enable system audio recording")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .padding(.bottom)
-            
+
+            // Use a simple TabView for macOS
             TabView(selection: $currentStep) {
                 ForEach(0..<steps.count, id: \.self) { index in
                     StepView(step: steps[index])
                         .tag(index)
                 }
             }
-            .tabViewStyle(PageTabViewStyle())
-            .indexViewStyle(PageIndexViewStyle(backgroundDisplayMode: .always))
+            .tabViewStyle(DefaultTabViewStyle())
             .frame(height: 400)
-            
+
             HStack {
                 Button(action: {
                     if currentStep > 0 {
@@ -88,9 +88,9 @@ struct AudioSetupGuideView: View {
                     .cornerRadius(10)
                 }
                 .disabled(currentStep == 0)
-                
+
                 Spacer()
-                
+
                 Button(action: {
                     if currentStep < steps.count - 1 {
                         currentStep += 1
@@ -109,7 +109,7 @@ struct AudioSetupGuideView: View {
                 }
             }
             .padding()
-            
+
             if currentStep == 0 {
                 HStack {
                     Button(action: {
@@ -121,7 +121,7 @@ struct AudioSetupGuideView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                     }
-                    
+
                     Button(action: {
                         NSWorkspace.shared.open(URL(string: "https://rogueamoeba.com/loopback/")!)
                     }) {
@@ -134,12 +134,13 @@ struct AudioSetupGuideView: View {
                 }
                 .padding(.bottom)
             }
-            
+
             if currentStep == 1 {
                 Button(action: {
                     // Open Audio MIDI Setup
                     let path = "/Applications/Utilities/Audio MIDI Setup.app"
-                    NSWorkspace.shared.openFile(path)
+                    let url = URL(fileURLWithPath: path)
+                    NSWorkspace.shared.open(url)
                 }) {
                     Text("Open Audio MIDI Setup")
                         .padding()
@@ -157,25 +158,25 @@ struct AudioSetupGuideView: View {
 
 struct StepView: View {
     let step: SetupStep
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack {
                 Image(systemName: step.image)
                     .font(.largeTitle)
                     .foregroundColor(.blue)
-                
+
                 Text(step.title)
                     .font(.title)
                     .fontWeight(.bold)
             }
             .padding(.bottom, 5)
-            
+
             Text(step.description)
                 .font(.headline)
                 .foregroundColor(.secondary)
                 .padding(.bottom, 5)
-            
+
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(step.instructions, id: \.self) { instruction in
                     Text(instruction)
@@ -185,7 +186,7 @@ struct StepView: View {
             .padding()
             .background(Color.gray.opacity(0.1))
             .cornerRadius(10)
-            
+
             Spacer()
         }
         .padding()
