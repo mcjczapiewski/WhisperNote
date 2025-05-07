@@ -35,16 +35,24 @@ class RecordKitManager: ObservableObject {
 
     /// Refresh the list of available devices
     func refreshDevices() async {
-        // Use the updated API methods
-        availableWindows = await RKWindow.windows()
-        availableCameras = RKCamera.cameras(includeDeskView: true)
-        availableMicrophones = RKMicrophone.microphones
-        availableAppleDevices = RKAppleDevice.appleDevices
+        do {
+            // Use the updated API methods based on the documentation
+            availableWindows = try await RKRecorder.getWindows()
+            availableCameras = RKRecorder.getCameras()
+            availableMicrophones = RKRecorder.getMicrophones()
+            availableAppleDevices = await RKRecorder.getAppleDevices()
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.statusMessage = "Found \(self.availableWindows.count) windows, \(self.availableMicrophones.count) microphones, \(self.availableCameras.count) cameras"
-            self.hasError = false
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.statusMessage = "Found \(self.availableWindows.count) windows, \(self.availableMicrophones.count) microphones, \(self.availableCameras.count) cameras"
+                self.hasError = false
+            }
+        } catch {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.hasError = true
+                self.errorMessage = "Error refreshing devices: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -66,21 +74,21 @@ class RecordKitManager: ObservableObject {
         self.recordingURL = outputURL
 
         do {
-            // Create sources array for the recorder
-            var sources: [RKSource] = []
+            // Create sources array for the recorder based on the documentation
+            var sources: [RKRecordingSource] = []
 
             // Add microphone if available
             if let microphone = availableMicrophones.first {
-                sources.append(RKSource.microphone(microphone))
+                sources.append(.webcam(microphoneID: microphone.id, cameraID: nil))
             }
 
-            // Enable system audio recording
-            sources.append(RKSource.systemAudio)
+            // Add system audio recording
+            sources.append(.systemAudio)
 
             // Create the recorder with sources
-            recorder = RKRecorder(sources: sources)
+            recorder = RKRecorder(sources)
 
-            // Set the output URL
+            // Set the output file path
             recorder?.outputURL = outputURL
 
             // Prepare the recorder (this will trigger permission requests)
