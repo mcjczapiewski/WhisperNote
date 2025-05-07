@@ -19,7 +19,7 @@ struct TranscriptView: View {
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
-    @State private var selectedModel: String = ""
+    @State private var selectedModel: String = "openai/gpt-4.1-mini"
     @AppStorage("defaultLLMModel") private var defaultModel = "openai/gpt-4.1-mini"
 
     var body: some View {
@@ -341,7 +341,9 @@ struct TranscriptView: View {
                     .font(.headline)
                     .onAppear {
                         // Initialize with default values when dialog opens
-                        selectedModel = defaultModel
+                        if selectedModel.isEmpty {
+                            selectedModel = defaultModel
+                        }
                     }
 
                 VStack(alignment: .leading, spacing: 10) {
