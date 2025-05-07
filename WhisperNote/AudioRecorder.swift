@@ -83,15 +83,15 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         Task {
             do {
                 // Create sources array for the recorder
-                var sources: [RKRecordingSource] = []
+                var sources: [RKRecorder.SchemaItem] = []
 
                 // Add microphone if available
                 if let microphone = rkAvailableMicrophones.first {
-                    sources.append(.webcam(microphoneID: microphone.id, cameraID: nil))
+                    sources.append(.microphone(microphoneID: microphone.id))
                 }
 
                 // Add system audio recording
-                sources.append(.systemAudio)
+                sources.append(.systemAudio())
 
                 // Create the recorder with sources
                 rkRecorder = RKRecorder(sources)
