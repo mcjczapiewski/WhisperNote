@@ -19,6 +19,8 @@ struct TranscriptView: View {
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
+    @State private var selectedModel: String = ""
+    @AppStorage("defaultLLMModel") private var defaultModel = "openai/gpt-4.1-mini"
 
     var body: some View {
         VStack {
@@ -337,15 +339,39 @@ struct TranscriptView: View {
             VStack(spacing: 20) {
                 Text("Summary Parameters")
                     .font(.headline)
+                    .onAppear {
+                        // Initialize with default values when dialog opens
+                        selectedModel = defaultModel
+                    }
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Meeting Type:")
                     TextField("e.g., Team Meeting, Client Call, Interview", text: $meetingType)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onChange(of: meetingType) { newValue in
+                            if newValue.isEmpty {
+                                meetingType = "General Meeting"
+                            }
+                        }
 
                     Text("Target Audience:")
                     TextField("e.g., Team Members, Management, Clients", text: $audience)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .onChange(of: audience) { newValue in
+                            if newValue.isEmpty {
+                                audience = "Broad Audience"
+                            }
+                        }
+
+                    Text("Language Model:")
+                    Picker("Select LLM Model", selection: $selectedModel) {
+                        Text("GPT-4.1 Mini").tag("openai/gpt-4.1-mini")
+                        Text("Gemini 2.5 Flash").tag("google/gemini-2.5-flash-preview")
+                        Text("DeepSeek Chat v3").tag("deepseek/deepseek-chat-v3-0324")
+                        Text("Gemini 2.5 Pro").tag("google/gemini-2.5-pro-exp-03-25")
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(maxWidth: .infinity)
                 }
                 .padding()
 
@@ -359,13 +385,22 @@ struct TranscriptView: View {
                         if let selectedTranscript = selectedTranscript {
                             showingSummaryParamsDialog = false
 
+                            // Apply default values if fields are empty
+                            let finalMeetingType = meetingType.isEmpty ? "General Meeting" : meetingType
+                            let finalAudience = audience.isEmpty ? "Broad Audience" : audience
+
                             // Generate custom prompt with meeting type and audience
-                            let customPrompt = generateCustomPrompt(meetingType: meetingType, audience: audience)
+                            let customPrompt = generateCustomPrompt(meetingType: finalMeetingType, audience: finalAudience)
 
                             // Generate summary
                             Task {
                                 do {
-                                    _ = try await summaryManager.generateSummary(for: selectedTranscript, with: customPrompt)
+                                    // Pass the selected model to the summary manager
+                                    _ = try await summaryManager.generateSummary(
+                                        for: selectedTranscript,
+                                        with: customPrompt,
+                                        model: selectedModel
+                                    )
                                 } catch {
                                     errorMessage = error.localizedDescription
                                     showingError = true
@@ -377,7 +412,7 @@ struct TranscriptView: View {
                 }
                 .padding()
             }
-            .frame(width: 500, height: 300)
+            .frame(width: 500, height: 380)
             .padding()
         }
     }
@@ -388,27 +423,27 @@ struct TranscriptView: View {
         let audienceText = audience.isEmpty ? "all participants" : audience
 
         return """
-        Review the provided transcript of the \(meetingTypeText). Identify the main participants and their roles. Note the overall structure and flow of the meeting.
+        Review the provided TRANSCRIPT of the \(meetingTypeText). Identify the main participants and their roles. Note the overall structure and flow of the meeting.
 
-        Extract the key discussion points, decisions made, and action items from the transcript. Organize these into a logical structure.
+        Extract the key discussion points, decisions made, and action items from the TRANSCRIPT. Organize these into a logical structure.
 
-        Summarize the main objectives of the meeting as discussed in the transcript. Highlight how these objectives were addressed during the meeting.
+        Summarize the main objectives of the meeting as discussed in the TRANSCRIPT. Highlight how these objectives were addressed during the meeting.
 
-        Identify any critical insights, innovative ideas, or important data points mentioned in the transcript. Ensure these are prominently featured in the final document.
+        Identify any critical insights, innovative ideas, or important data points mentioned in the TRANSCRIPT. Ensure these are prominently featured in the final document.
 
         Create an executive summary that concisely captures the essence of the meeting, its outcomes, and next steps. Tailor this summary to the needs of \(audienceText).
 
-        Develop a detailed list of action items, including responsible parties and deadlines, based on the discussions in the transcript.
+        Develop a detailed list of action items, including responsible parties and deadlines, based on the discussions in the TRANSCRIPT.
 
-        Extract any relevant metrics, KPIs, or quantitative data mentioned in the transcript. Present this information in a clear, visual format (e.g., bullet points, tables).
+        Extract any relevant metrics, KPIs, or quantitative data mentioned in the TRANSCRIPT. Present this information in a clear, visual format (e.g., bullet points, tables).
 
         Identify any risks, challenges, or concerns raised during the meeting. Summarize these along with any proposed mitigation strategies discussed.
 
         Compile a list of any resources, tools, or additional information mentioned or requested during the meeting.
 
-        Create a section highlighting key decisions made and the rationale behind them, as discussed in the transcript.
+        Create a section highlighting key decisions made and the rationale behind them, as discussed in the TRANSCRIPT.
 
-        Develop a 'Next Steps' section that outlines the immediate actions to be taken following the meeting, based on the transcript content.
+        Develop a 'Next Steps' section that outlines the immediate actions to be taken following the meeting, based on the TRANSCRIPT content.
 
         If applicable, create a section that tracks progress on ongoing projects or initiatives discussed in the meeting.
 
@@ -416,7 +451,7 @@ struct TranscriptView: View {
 
         Generate a table of contents for easy navigation of the final document.
 
-        Provide a final summary of the valuable document created from the transcript, highlighting its key features and how it serves the needs of \(audienceText).
+        Provide a final summary of the valuable document created from the TRANSCRIPT, highlighting its key features and how it serves the needs of \(audienceText).
 
         Format the summary using Markdown syntax with:
         - # for main headings
@@ -427,7 +462,7 @@ struct TranscriptView: View {
         - [text](link) for any links
 
         Make sure to use proper Markdown formatting to create a well-structured, readable summary.
-        The summary should be in the same language as the transcript.
+        The summary should be in the same language as the TRANSCRIPT.
         """
     }
 }

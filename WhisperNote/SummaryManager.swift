@@ -13,12 +13,13 @@ class SummaryManager: ObservableObject {
         loadSummaries()
     }
 
-    func generateSummary(for transcript: Transcript, with customPrompt: String? = nil) async throws -> Summary {
+    func generateSummary(for transcript: Transcript, with customPrompt: String? = nil, model: String? = nil) async throws -> Summary {
         guard !apiKey.isEmpty else {
             throw SummaryError.missingApiKey
         }
 
         let prompt = customPrompt ?? getDefaultPrompt()
+        let modelToUse = model ?? defaultModel
 
         // Create a pending summary
         let pendingSummary = Summary(
@@ -26,7 +27,7 @@ class SummaryManager: ObservableObject {
             date: Date(),
             content: "",
             transcriptId: transcript.id,
-            model: defaultModel,
+            model: modelToUse,
             prompt: prompt,
             status: .pending
         )
@@ -60,7 +61,7 @@ class SummaryManager: ObservableObject {
         let fullPrompt = "\(prompt)\n\nTRANSCRIPT=\n\(transcript.content)"
 
         let requestBody: [String: Any] = [
-            "model": defaultModel,
+            "model": modelToUse,
             "messages": [
                 ["role": "user", "content": fullPrompt]
             ]
