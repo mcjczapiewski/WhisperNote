@@ -132,6 +132,19 @@ struct RecordingView: View {
                     .font(.system(size: 48, weight: .medium, design: .monospaced))
                     .padding()
 
+                // Mute microphone button
+                Button(action: {
+                    audioRecorder.toggleMicrophoneMute()
+                }) {
+                    Image(systemName: audioRecorder.isMicrophoneMuted ? "mic.slash.circle.fill" : "mic.circle.fill")
+                        .resizable()
+                        .frame(width: 40, height: 40)
+                        .foregroundColor(audioRecorder.isMicrophoneMuted ? .red : .blue)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.bottom, 10)
+                .help(audioRecorder.isMicrophoneMuted ? "Unmute Microphone" : "Mute Microphone")
+
                 HStack(spacing: 30) {
                     Button(action: {
                         if audioRecorder.isRecording {

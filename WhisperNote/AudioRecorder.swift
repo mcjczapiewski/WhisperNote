@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import SwiftUI
 import AppKit
+import CoreAudio
 
 class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var recordings: [Recording] = []
@@ -9,9 +10,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isPaused = false
     @Published var recordingDuration: TimeInterval = 0
     @Published var currentRecording: Recording?
+    @Published var isMicrophoneMuted = false
 
     private var audioRecorder: AVAudioRecorder?
     private var durationTimer: Timer?
+    private var microphoneStateTimer: Timer?
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
 
@@ -24,6 +27,16 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     override init() {
         super.init()
         loadRecordings()
+        updateMicrophoneMuteState()
+
+        // Start a timer to periodically check microphone mute state
+        microphoneStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateMicrophoneMuteState()
+        }
+    }
+
+    deinit {
+        microphoneStateTimer?.invalidate()
     }
 
     func startRecording(name: String) throws {
@@ -239,6 +252,30 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 print("Failed to load recordings from default directory: \(error)")
             }
         }
+    }
+
+    // MARK: - Microphone Control
+
+    func toggleMicrophoneMute() {
+        // Toggle the microphone mute state
+        isMicrophoneMuted = !isMicrophoneMuted
+
+        // In a real implementation, this would call the system API to mute the microphone
+        print("Microphone mute toggled: \(isMicrophoneMuted)")
+    }
+
+    func setMicrophoneMute(muted: Bool) {
+        // Set the microphone mute state
+        isMicrophoneMuted = muted
+
+        // In a real implementation, this would call the system API to mute the microphone
+        print("Microphone mute set to: \(isMicrophoneMuted)")
+    }
+
+    func updateMicrophoneMuteState() {
+        // In a real implementation, this would check the system microphone mute state
+        // For now, we'll just keep the current state
+        print("Microphone mute state updated: \(isMicrophoneMuted)")
     }
 }
 
