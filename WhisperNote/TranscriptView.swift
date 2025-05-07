@@ -33,7 +33,7 @@ struct TranscriptView: View {
             if transcriptionManager.transcripts.isEmpty {
                 EmptyTranscriptView()
             } else {
-                MainContentView(
+                TranscriptContentView(
                     transcriptionManager: transcriptionManager,
                     summaryManager: summaryManager,
                     selectedTranscript: $selectedTranscript,
@@ -209,8 +209,8 @@ struct EmptyTranscriptView: View {
     }
 }
 
-// MARK: - Main Content View
-struct MainContentView: View {
+// MARK: - Transcript Content View
+struct TranscriptContentView: View {
     @ObservedObject var transcriptionManager: TranscriptionManager
     @ObservedObject var summaryManager: SummaryManager
     @Binding var selectedTranscript: Transcript?
