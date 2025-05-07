@@ -26,11 +26,13 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private let directoryManager = DirectoryManager.shared
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 
-    // RecordKit manager instance
-    private let recordKitManager = RecordKitManager.shared
+    // RecordKit properties
+    private var rkRecorder: RKRecorder?
+    private var rkRecordingStartTime: Date?
+    private var rkRecordingURL: URL?
+    private var rkAvailableMicrophones: [RKMicrophone] = []
 
     override init() {
-
         super.init()
         loadRecordings()
         updateMicrophoneMuteState()
@@ -38,6 +40,24 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Set up a timer to periodically check microphone state
         microphoneStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.updateMicrophoneMuteState()
+        }
+
+        // Initialize RecordKit
+        Task {
+            await refreshRecordKitDevices()
+        }
+    }
+
+    // MARK: - RecordKit Methods
+
+    /// Refresh the list of available RecordKit devices
+    private func refreshRecordKitDevices() async {
+        do {
+            // Get available microphones
+            rkAvailableMicrophones = RKRecorder.getMicrophones()
+            print("Found \(rkAvailableMicrophones.count) microphones")
+        } catch {
+            print("Error refreshing RecordKit devices: \(error.localizedDescription)")
         }
     }
 
@@ -49,19 +69,48 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let outputDirectory = directoryManager.getRecordingsDirectory()
 
+        // Create a unique filename
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let dateString = dateFormatter.string(from: Date())
+        let filename = "\(name)_\(dateString)"
+
+        // Create the output URL
+        let outputURL = outputDirectory.appendingPathComponent(filename)
+        self.rkRecordingURL = outputURL
+
         // Start a Task to handle the async RecordKit operations
         Task {
             do {
-                // Start recording with RecordKit
-                try await recordKitManager.startRecording(name: name, outputDirectory: outputDirectory)
+                // Create sources array for the recorder
+                var sources: [RKRecordingSource] = []
+
+                // Add microphone if available
+                if let microphone = rkAvailableMicrophones.first {
+                    sources.append(.webcam(microphoneID: microphone.id, cameraID: nil))
+                }
+
+                // Add system audio recording
+                sources.append(.systemAudio)
+
+                // Create the recorder with sources
+                rkRecorder = RKRecorder(sources)
+
+                // Set the output file path
+                rkRecorder?.outputURL = outputURL
+
+                // Prepare the recorder (this will trigger permission requests)
+                try await rkRecorder?.prepare()
+
+                // Start recording
+                rkRecorder?.start()
 
                 // Update UI on main thread
                 await MainActor.run {
-                    // Sync our state with RecordKit manager
-                    self.isRecording = recordKitManager.isRecording
-                    self.isPaused = recordKitManager.isPaused
-                    self.isMicrophoneMuted = recordKitManager.isMicrophoneMuted
-                    self.recordingDuration = recordKitManager.recordingDuration
+                    // Update our state
+                    self.isRecording = true
+                    self.isPaused = false
+                    self.rkRecordingStartTime = Date()
 
                     // Create a new recording object (placeholder until recording is complete)
                     let placeholderURL = outputDirectory.appendingPathComponent("\(name)_placeholder.\(audioFormat)")
@@ -82,8 +131,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     // Start the timer to update duration
                     self.durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                         guard let self = self else { return }
-                        // Update our duration from RecordKit
-                        self.recordingDuration = recordKitManager.recordingDuration
+
+                        // Calculate duration from start time
+                        if let startTime = self.startTime {
+                            self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
+                        }
 
                         // Update the current recording duration
                         self.currentRecording?.duration = self.recordingDuration
@@ -102,8 +154,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func pauseRecording() {
         guard isRecording, !isPaused else { return }
 
-        // Pause recording with RecordKit
-        recordKitManager.pauseRecording()
+        // RecordKit doesn't have pause/resume functionality
+        // We'll just stop the timer to simulate pausing
 
         // Update our state
         isRecording = false
@@ -119,8 +171,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func resumeRecording() {
         guard !isRecording, isPaused else { return }
 
-        // Resume recording with RecordKit
-        recordKitManager.resumeRecording()
+        // RecordKit doesn't have pause/resume functionality
+        // We'll just restart the timer to simulate resuming
 
         // Update our state
         isRecording = true
@@ -130,8 +182,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Restart the timer
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            // Update our duration from RecordKit
-            self.recordingDuration = recordKitManager.recordingDuration
+
+            // Calculate duration from start time
+            if let startTime = self.startTime {
+                self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
+            }
 
             // Update the current recording duration
             self.currentRecording?.duration = self.recordingDuration
@@ -144,8 +199,14 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Stop recording with RecordKit
         Task {
             do {
-                // Stop the recording and get the final URL
-                if let finalURL = try await recordKitManager.stopRecording() {
+                // Stop the recording
+                if let recorder = rkRecorder {
+                    try await recorder.stop()
+                    print("Recording stopped")
+
+                    // Get the final URL
+                    let finalURL = self.rkRecordingURL
+
                     await MainActor.run {
                         // Update state
                         isRecording = false
@@ -163,7 +224,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                             name: currentRecording.name,
                             date: currentRecording.date,
                             duration: accumulatedTime,
-                            filePath: finalURL,
+                            filePath: finalURL ?? currentRecording.filePath,
                             systemAudioFilePath: nil  // RecordKit handles both in one file
                         )
 
@@ -175,6 +236,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                         startTime = nil
                         accumulatedTime = 0
                         recordingDuration = 0
+                        rkRecorder = nil
 
                         // Save recordings to disk
                         saveRecordings()
@@ -354,14 +416,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Toggle the mute state
         let newMuteState = !isMicrophoneMuted
 
-        // Update RecordKit's state
-        recordKitManager.setMicrophoneMute(muted: newMuteState)
-
         // Update our state
         isMicrophoneMuted = newMuteState
         print("Microphone mute toggled: \(isMicrophoneMuted)")
 
-        // Also update system-wide mute
+        // Update system-wide mute
         do {
             try setMicrophoneMuteSystem(muted: isMicrophoneMuted)
         } catch {
@@ -377,9 +436,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             // Update our state
             isMicrophoneMuted = muted
 
-            // Update RecordKit's state
-            recordKitManager.setMicrophoneMute(muted: muted)
-
             print("Microphone mute set to: \(isMicrophoneMuted)")
         } catch {
             print("Failed to set microphone mute state: \(error.localizedDescription)")
@@ -391,16 +447,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             // Get the system microphone mute state
             let systemMuted = try isMicrophoneMutedSystem()
 
-            // If we're recording, sync our state with RecordKit
-            if isRecording {
-                isMicrophoneMuted = recordKitManager.isMicrophoneMuted
-            } else {
-                // Otherwise use the system state
-                isMicrophoneMuted = systemMuted
-
-                // Also update RecordKit's state to match
-                recordKitManager.setMicrophoneMute(muted: systemMuted)
-            }
+            // Update our state with the system state
+            isMicrophoneMuted = systemMuted
         } catch {
             // Silently fail - don't log every time
         }
@@ -412,16 +460,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func checkSystemAudioCapture() -> (isReady: Bool, message: String) {
         // Refresh RecordKit devices
         Task {
-            await recordKitManager.refreshDevices()
-        }
-
-        // Check if RecordKit has any error messages
-        if recordKitManager.hasError {
-            return (false, recordKitManager.errorMessage)
+            await refreshRecordKitDevices()
         }
 
         // Check if we have microphones available
-        let hasMicrophones = !recordKitManager.availableMicrophones.isEmpty
+        let hasMicrophones = !rkAvailableMicrophones.isEmpty
         if !hasMicrophones {
             return (false, "No microphones detected. Please check your audio devices.")
         }
