@@ -28,11 +28,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         super.init()
         loadRecordings()
         updateMicrophoneMuteState()
-
-        // Start a timer to periodically check microphone mute state
-        microphoneStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateMicrophoneMuteState()
-        }
     }
 
     deinit {
@@ -257,25 +252,28 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     // MARK: - Microphone Control
 
     func toggleMicrophoneMute() {
-        // Toggle the microphone mute state
-        isMicrophoneMuted = !isMicrophoneMuted
-
-        // In a real implementation, this would call the system API to mute the microphone
-        print("Microphone mute toggled: \(isMicrophoneMuted)")
+        do {
+            isMicrophoneMuted = try MicrophoneController.shared.toggleMicrophoneMute()
+        } catch {
+            print("Failed to toggle microphone mute: \(error.localizedDescription)")
+        }
     }
 
     func setMicrophoneMute(muted: Bool) {
-        // Set the microphone mute state
-        isMicrophoneMuted = muted
-
-        // In a real implementation, this would call the system API to mute the microphone
-        print("Microphone mute set to: \(isMicrophoneMuted)")
+        do {
+            try MicrophoneController.shared.setMicrophoneMute(muted: muted)
+            isMicrophoneMuted = muted
+        } catch {
+            print("Failed to set microphone mute state: \(error.localizedDescription)")
+        }
     }
 
     func updateMicrophoneMuteState() {
-        // In a real implementation, this would check the system microphone mute state
-        // For now, we'll just keep the current state
-        print("Microphone mute state updated: \(isMicrophoneMuted)")
+        do {
+            isMicrophoneMuted = try MicrophoneController.shared.isMicrophoneMuted()
+        } catch {
+            // Silently fail - don't log every second
+        }
     }
 }
 
