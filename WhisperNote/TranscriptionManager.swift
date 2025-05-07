@@ -362,7 +362,7 @@ class TranscriptionManager: ObservableObject {
                 }
 
                 // Add speaker ID header
-                formattedContent += "[SPEAKER \(speakerId)]\n"
+                formattedContent += "[\(speakerId)]\n"
                 currentSpeakerId = speakerId
                 currentSentence = ""
             }
