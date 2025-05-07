@@ -132,9 +132,7 @@ struct SummaryView: View {
                                 }
 
                                 Button(action: {
-                                    // Show parameters dialog for regenerating summary
-                                    meetingType = ""
-                                    audience = ""
+                                    // Show dialog for regenerating summary
                                     showingSummaryParamsDialog = true
                                 }) {
                                     Label("Regenerate", systemImage: "arrow.clockwise")
@@ -293,19 +291,8 @@ struct SummaryView: View {
         }
         .sheet(isPresented: $showingSummaryParamsDialog) {
             VStack(spacing: 20) {
-                Text("Summary Parameters")
+                Text("Regenerate Summary")
                     .font(.headline)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Meeting Type:")
-                    TextField("e.g., Team Meeting, Client Call, Interview", text: $meetingType)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-
-                    Text("Target Audience:")
-                    TextField("e.g., Team Members, Management, Clients", text: $audience)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                }
-                .padding()
 
                 HStack {
                     Button("Cancel") {
@@ -313,19 +300,19 @@ struct SummaryView: View {
                     }
                     .keyboardShortcut(.cancelAction)
 
-                    Button("Show Advanced") {
-                        // Generate custom prompt with meeting type and audience
-                        customPrompt = summaryManager.getDefaultPrompt(meetingType: meetingType, audience: audience)
+                    Button("Edit Prompt") {
+                        // Get default prompt without meeting type and audience parameters
+                        customPrompt = summaryManager.getDefaultPrompt()
                         showingSummaryParamsDialog = false
                         showingPromptEditor = true
                     }
 
-                    Button("Generate Summary") {
+                    Button("Regenerate") {
                         if let selectedSummary = selectedSummary {
                             showingSummaryParamsDialog = false
 
-                            // Generate custom prompt with meeting type and audience
-                            let customPrompt = summaryManager.getDefaultPrompt(meetingType: meetingType, audience: audience)
+                            // Use default prompt without parameters
+                            let defaultPrompt = summaryManager.getDefaultPrompt()
 
                             // Find the transcript for this summary
                             Task {
@@ -338,8 +325,8 @@ struct SummaryView: View {
                                     // Find the transcript for this summary
                                     let transcriptionManager = TranscriptionManager()
                                     if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                        // Generate a new summary with the custom prompt
-                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                        // Generate a new summary with the default prompt
+                                        _ = try await summaryManager.generateSummary(for: transcript, with: defaultPrompt)
                                     } else {
                                         throw NSError(domain: "SummaryView", code: 1,
                                                      userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
@@ -357,7 +344,7 @@ struct SummaryView: View {
                 }
                 .padding()
             }
-            .frame(width: 500, height: 300)
+            .frame(width: 500, height: 150)
             .padding()
         }
     }

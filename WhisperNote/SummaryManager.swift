@@ -122,39 +122,12 @@ class SummaryManager: ObservableObject {
     }
 
     func getDefaultPrompt(meetingType: String = "meeting", audience: String = "all participants") -> String {
-        let meetingTypeText = meetingType.isEmpty ? "meeting" : meetingType
-        let audienceText = audience.isEmpty ? "all participants" : audience
-
+        // Parameters are kept for backward compatibility but no longer used in the prompt
         return """
-        Review the provided transcript of the \(meetingTypeText). Identify the main participants and their roles. Note the overall structure and flow of the meeting.
-
-        Extract the key discussion points, decisions made, and action items from the transcript. Organize these into a logical structure.
-
-        Summarize the main objectives of the meeting as discussed in the transcript. Highlight how these objectives were addressed during the meeting.
-
-        Identify any critical insights, innovative ideas, or important data points mentioned in the transcript. Ensure these are prominently featured in the final document.
-
-        Create an executive summary that concisely captures the essence of the meeting, its outcomes, and next steps. Tailor this summary to the needs of \(audienceText).
-
-        Develop a detailed list of action items, including responsible parties and deadlines, based on the discussions in the transcript.
-
-        Extract any relevant metrics, KPIs, or quantitative data mentioned in the transcript. Present this information in a clear, visual format (e.g., bullet points, tables).
-
-        Identify any risks, challenges, or concerns raised during the meeting. Summarize these along with any proposed mitigation strategies discussed.
-
-        Compile a list of any resources, tools, or additional information mentioned or requested during the meeting.
-
-        Create a section highlighting key decisions made and the rationale behind them, as discussed in the transcript.
-
-        Develop a 'Next Steps' section that outlines the immediate actions to be taken following the meeting, based on the transcript content.
-
-        If applicable, create a section that tracks progress on ongoing projects or initiatives discussed in the meeting.
-
-        Review the document for clarity, coherence, and relevance to \(audienceText). Ensure all confidential or sensitive information is appropriately handled.
-
-        Generate a table of contents for easy navigation of the final document.
-
-        Provide a final summary of the valuable document created from the transcript, highlighting its key features and how it serves the needs of \(audienceText).
+        Identify key points, action items, decisions made, and any important discussions from TRANSCRIPT.
+        Organize the information in a clear and concise manner, ensure accuracy, and capture the essence of the meeting.
+        Include relevant details such as attendee names, time stamps, and any follow-up actions required.
+        The meeting minutes should serve as a comprehensive record of the meeting for future reference and accountability.
 
         Format the summary using Markdown syntax with:
         - # for main headings
@@ -165,7 +138,7 @@ class SummaryManager: ObservableObject {
         - [text](link) for any links
 
         Make sure to use proper Markdown formatting to create a well-structured, readable summary.
-        The summary should be in the same language as the transcript.
+        The summary should be in the same language as the TRANSCRIPT.
         """
     }
 
