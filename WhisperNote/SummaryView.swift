@@ -294,25 +294,24 @@ struct SummaryView: View {
                 Text("Regenerate Summary")
                     .font(.headline)
 
+                Text("Edit Prompt:")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+
+                TextEditor(text: $customPrompt)
+                    .frame(minHeight: 200)
+                    .border(Color.gray.opacity(0.2))
+                    .padding(.horizontal)
+
                 HStack {
                     Button("Cancel") {
                         showingSummaryParamsDialog = false
                     }
                     .keyboardShortcut(.cancelAction)
 
-                    Button("Edit Prompt") {
-                        // Get default prompt without meeting type and audience parameters
-                        customPrompt = summaryManager.getDefaultPrompt()
-                        showingSummaryParamsDialog = false
-                        showingPromptEditor = true
-                    }
-
                     Button("Regenerate") {
                         if let selectedSummary = selectedSummary {
                             showingSummaryParamsDialog = false
-
-                            // Use default prompt without parameters
-                            let defaultPrompt = summaryManager.getDefaultPrompt()
 
                             // Find the transcript for this summary
                             Task {
@@ -325,8 +324,8 @@ struct SummaryView: View {
                                     // Find the transcript for this summary
                                     let transcriptionManager = TranscriptionManager()
                                     if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                        // Generate a new summary with the default prompt
-                                        _ = try await summaryManager.generateSummary(for: transcript, with: defaultPrompt)
+                                        // Generate a new summary with the custom prompt
+                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
                                     } else {
                                         throw NSError(domain: "SummaryView", code: 1,
                                                      userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
@@ -341,11 +340,15 @@ struct SummaryView: View {
                         }
                     }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(customPrompt.isEmpty)
                 }
                 .padding()
             }
-            .frame(width: 500, height: 150)
+            .frame(width: 500, height: 400)
             .padding()
+            .onAppear {
+                customPrompt = summaryManager.getDefaultPrompt()
+            }
         }
     }
 }
