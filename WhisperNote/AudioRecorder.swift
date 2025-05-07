@@ -251,9 +251,104 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     // MARK: - Microphone Control
 
+    // Get the default input device ID
+    private func getDefaultInputDevice() throws -> AudioDeviceID {
+        var deviceID: AudioDeviceID = 0
+        var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize,
+            &deviceID
+        )
+
+        if status != noErr {
+            throw NSError(domain: "AudioRecorder", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "Could not find the default input device."])
+        }
+
+        return deviceID
+    }
+
+    // Check if the microphone is currently muted
+    private func isMicrophoneMutedSystem() throws -> Bool {
+        let deviceID = try getDefaultInputDevice()
+        var muted: UInt32 = 0
+        var propertySize = UInt32(MemoryLayout<UInt32>.size)
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Check if the device supports the mute property
+        if !AudioObjectHasProperty(deviceID, &propertyAddress) {
+            return false
+        }
+
+        let status = AudioObjectGetPropertyData(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize,
+            &muted
+        )
+
+        if status != noErr {
+            throw NSError(domain: "AudioRecorder", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "Failed to get audio device property."])
+        }
+
+        return muted == 1
+    }
+
+    // Mute or unmute the microphone
+    private func setMicrophoneMuteSystem(muted: Bool) throws {
+        let deviceID = try getDefaultInputDevice()
+        var mutedValue: UInt32 = muted ? 1 : 0
+
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Check if the device supports the mute property
+        if !AudioObjectHasProperty(deviceID, &propertyAddress) {
+            throw NSError(domain: "AudioRecorder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Device does not support mute property."])
+        }
+
+        let status = AudioObjectSetPropertyData(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            UInt32(MemoryLayout<UInt32>.size),
+            &mutedValue
+        )
+
+        if status != noErr {
+            throw NSError(domain: "AudioRecorder", code: Int(status), userInfo: [NSLocalizedDescriptionKey: "Failed to set audio device property."])
+        }
+    }
+
+    // Public methods for controlling microphone mute
+
     func toggleMicrophoneMute() {
         do {
-            isMicrophoneMuted = try MicrophoneController.shared.toggleMicrophoneMute()
+            let currentlyMuted = try isMicrophoneMutedSystem()
+            try setMicrophoneMuteSystem(muted: !currentlyMuted)
+            isMicrophoneMuted = !currentlyMuted
+            print("Microphone mute toggled: \(isMicrophoneMuted)")
         } catch {
             print("Failed to toggle microphone mute: \(error.localizedDescription)")
         }
@@ -261,8 +356,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func setMicrophoneMute(muted: Bool) {
         do {
-            try MicrophoneController.shared.setMicrophoneMute(muted: muted)
+            try setMicrophoneMuteSystem(muted: muted)
             isMicrophoneMuted = muted
+            print("Microphone mute set to: \(isMicrophoneMuted)")
         } catch {
             print("Failed to set microphone mute state: \(error.localizedDescription)")
         }
@@ -270,9 +366,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func updateMicrophoneMuteState() {
         do {
-            isMicrophoneMuted = try MicrophoneController.shared.isMicrophoneMuted()
+            isMicrophoneMuted = try isMicrophoneMutedSystem()
         } catch {
-            // Silently fail - don't log every second
+            // Silently fail - don't log every time
         }
     }
 }
