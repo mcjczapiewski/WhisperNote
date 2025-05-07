@@ -69,8 +69,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the file URL from the directory manager
         let fileURL = directoryManager.getURLForNewRecording(name: name, format: audioFormat)
 
-        // Create a separate file URL for system audio
-        let systemAudioFileURL = fileURL.deletingPathExtension().appendingPathExtension("system.\(audioFormat)")
+        // No longer creating a separate file URL for system audio
 
         do {
             // Request microphone permission if needed
@@ -93,14 +92,19 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             audioRecorder?.delegate = self
             audioRecorder?.record()
 
-            // Start capturing system audio
-            do {
-                try systemAudioCapture.startCapturing(to: systemAudioFileURL)
-                print("System audio capture started")
-            } catch {
-                print("Failed to start system audio capture: \(error.localizedDescription)")
-                // Continue with microphone recording even if system audio fails
+            // Check if Bluetooth headphones are connected
+            let bluetoothConnected = SystemAudioCapture.isBluetoothHeadphonesConnected()
+            if bluetoothConnected {
+                print("Bluetooth headphones detected - special handling may be required")
             }
+
+            // Check if a virtual audio device is available
+            if !SystemAudioCapture.hasVirtualAudioDevice() {
+                print("Warning: No virtual audio device detected. System audio may not be captured properly.")
+            }
+
+            // No longer capturing system audio
+            print("System audio capture disabled")
 
             isRecording = true
             isPaused = false
@@ -113,7 +117,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 date: Date(),
                 duration: 0,
                 filePath: fileURL,
-                systemAudioFilePath: systemAudioFileURL
+                systemAudioFilePath: nil
             )
 
             currentRecording = newRecording
@@ -137,8 +141,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Pause microphone recording
         audioRecorder?.pause()
 
-        // Pause system audio capture
-        systemAudioCapture.pauseCapturing()
+        // No longer pausing system audio capture
 
         isRecording = false
         isPaused = true
@@ -154,8 +157,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Resume microphone recording
         audioRecorder?.record()
 
-        // Resume system audio capture
-        systemAudioCapture.resumeCapturing()
+        // No longer resuming system audio capture
 
         isRecording = true
         isPaused = false
@@ -176,11 +178,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Stop microphone recording
         audioRecorder?.stop()
+        print("Microphone recording stopped")
 
-        // Stop system audio capture
-        if let systemAudioURL = systemAudioCapture.stopCapturing() {
-            print("System audio capture stopped, file saved at: \(systemAudioURL.path)")
-        }
+        // No longer stopping system audio capture
+        print("System audio capture disabled")
 
         isRecording = false
         isPaused = false
@@ -198,7 +199,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             date: currentRecording.date,
             duration: accumulatedTime,
             filePath: currentRecording.filePath,
-            systemAudioFilePath: currentRecording.systemAudioFilePath
+            systemAudioFilePath: nil
         )
 
         // Add to recordings array
@@ -249,15 +250,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 print("Error deleting audio file: \(error.localizedDescription)")
             }
 
-            // Delete the system audio file if it exists
-            if let systemAudioFilePath = recording.systemAudioFilePath {
-                do {
-                    try FileManager.default.removeItem(at: systemAudioFilePath)
-                    print("Deleted system audio file at: \(systemAudioFilePath.path)")
-                } catch {
-                    print("Error deleting system audio file: \(error.localizedDescription)")
-                }
-            }
+            // No longer need to delete system audio files
 
             // Remove from recordings array
             recordings.remove(at: index)
@@ -414,6 +407,39 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             // Silently fail - don't log every time
         }
     }
+
+    // MARK: - System Audio Diagnostics
+
+    // Check if system audio capture is likely to work
+    func checkSystemAudioCapture() -> (isReady: Bool, message: String) {
+        // Check if a virtual audio device is available
+        if !SystemAudioCapture.hasVirtualAudioDevice() {
+            return (false, "No virtual audio device detected. Please install BlackHole, Loopback, or another virtual audio device.")
+        }
+
+        // Check if Bluetooth headphones are connected
+        if SystemAudioCapture.isBluetoothHeadphonesConnected() {
+            // Get available devices for more detailed diagnostics
+            let availableDevices = SystemAudioCapture.getAvailableAudioDevices()
+
+            // Look for signs that the virtual audio device is properly configured
+            let hasVirtualDevice = availableDevices.contains { device in
+                device.lowercased().contains("blackhole") ||
+                device.lowercased().contains("loopback") ||
+                device.lowercased().contains("soundflower") ||
+                device.lowercased().contains("virtual")
+            }
+
+            if hasVirtualDevice {
+                return (true, "Bluetooth headphones detected. Virtual audio device is present, but you may need to configure your system audio to output to the virtual device.\n\nAvailable devices: \(availableDevices.joined(separator: ", "))")
+            } else {
+                return (false, "Bluetooth headphones detected, but virtual audio device may not be properly configured. Please ensure your system audio is routed through the virtual audio device.\n\nAvailable devices: \(availableDevices.joined(separator: ", "))")
+            }
+        }
+
+        // If we get here, basic checks passed
+        return (true, "System audio capture appears to be properly configured.")
+    }
 }
 
 // MARK: - Errors
@@ -422,6 +448,8 @@ enum AudioRecorderError: Error, LocalizedError {
     case sessionSetupFailed
     case recordingFailed
     case permissionDenied
+    case systemAudioCaptureFailed
+    case bluetoothDeviceIssue
 
     var errorDescription: String? {
         switch self {
@@ -431,6 +459,10 @@ enum AudioRecorderError: Error, LocalizedError {
             return "Failed to start recording. Please try again."
         case .permissionDenied:
             return "Microphone access is denied. Please enable it in System Preferences > Security & Privacy > Privacy > Microphone."
+        case .systemAudioCaptureFailed:
+            return "Failed to capture system audio. Make sure a virtual audio device is installed and configured correctly."
+        case .bluetoothDeviceIssue:
+            return "There was an issue with Bluetooth audio device. Make sure your virtual audio device is configured to capture Bluetooth audio output."
         }
     }
 }
