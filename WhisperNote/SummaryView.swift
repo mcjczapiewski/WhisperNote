@@ -139,7 +139,16 @@ struct SummaryView: View {
                                 }
 
                                 Button(action: {
+                                    // Store the current summary ID
+                                    let currentSummaryId = selectedSummary.id
+
+                                    // Reload all summaries
                                     summaryManager.reloadSummaries()
+
+                                    // Find and update the selected summary with the refreshed data
+                                    if let refreshedSummary = summaryManager.summaries.first(where: { $0.id == currentSummaryId }) {
+                                        selectedSummary = refreshedSummary
+                                    }
                                 }) {
                                     Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
                                 }

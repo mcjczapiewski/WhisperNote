@@ -156,7 +156,16 @@ struct TranscriptView: View {
                                 .disabled(selectedTranscript.status != .completed)
 
                                 Button(action: {
+                                    // Store the current transcript ID
+                                    let currentTranscriptId = selectedTranscript.id
+
+                                    // Reload all transcripts
                                     transcriptionManager.reloadTranscripts()
+
+                                    // Find and update the selected transcript with the refreshed data
+                                    if let refreshedTranscript = transcriptionManager.transcripts.first(where: { $0.id == currentTranscriptId }) {
+                                        selectedTranscript = refreshedTranscript
+                                    }
                                 }) {
                                     Label("Refresh", systemImage: "arrow.clockwise")
                                 }
