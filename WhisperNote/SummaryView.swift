@@ -22,6 +22,7 @@ struct SummaryView: View {
 
     // Initialize with markdown format in onAppear
 
+    // MARK: - Main View
     var body: some View {
         VStack {
             Text("Summaries")
@@ -30,175 +31,18 @@ struct SummaryView: View {
                 .padding(.bottom, 20)
 
             if summaryManager.summaries.isEmpty {
-                VStack(spacing: 20) {
-                    Image(systemName: "list.bullet.clipboard")
-                        .resizable()
-                        .frame(width: 80, height: 100)
-                        .foregroundColor(.blue)
-
-                    Text("No Summaries Yet")
-                        .font(.title)
-
-                    Text("Generate a summary from a transcript to get started")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .padding()
+                EmptySummaryView()
             } else {
-                HStack(spacing: 0) {
-                    // Sidebar with summary list
-                    List {
-                        ForEach(summaryManager.summaries) { summary in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(summary.name)
-                                        .font(.headline)
-
-                                    Text(summary.date, style: .date)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                Spacer()
-
-                                Button(action: {
-                                    summaryToDelete = summary
-                                    showingDeleteConfirmation = true
-                                }) {
-                                    Image(systemName: "trash")
-                                        .foregroundColor(.red)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                                .padding(.horizontal, 5)
-
-                                if summary.status == .inProgress {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                } else if summary.status == .completed {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                } else if summary.status == .failed {
-                                    Image(systemName: "exclamationmark.circle.fill")
-                                        .foregroundColor(.red)
-                                }
-                            }
-                            .padding(.vertical, 5)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedSummary = summary
-                            }
-                            .background(selectedSummary?.id == summary.id ? Color.blue.opacity(0.1) : Color.clear)
-                        }
-                    }
-                    .frame(width: 250)
-                    .listStyle(SidebarListStyle())
-
-                    // Divider
-                    Divider()
-
-                    // Summary content
-                    if let selectedSummary = selectedSummary {
-                        VStack {
-                            HStack {
-                                Text(selectedSummary.name)
-                                    .font(.headline)
-
-                                Spacer()
-
-                                Button(action: {
-                                    if selectedSummary.status == .completed {
-                                        isShowingExportOptions = true
-                                    }
-                                }) {
-                                    Label("Export", systemImage: "square.and.arrow.up")
-                                }
-                                .disabled(selectedSummary.status != .completed)
-                                .confirmationDialog("Export Format", isPresented: $isShowingExportOptions) {
-                                    Button("Markdown (.md)") {
-                                        exportFormat = TextDocument.markdownUTType
-                                        isShowingExportDialog = true
-                                    }
-
-                                    Button("Plain Text (.txt)") {
-                                        exportFormat = .plainText
-                                        isShowingExportDialog = true
-                                    }
-
-                                    Button("Cancel", role: .cancel) { }
-                                } message: {
-                                    Text("Choose export format")
-                                }
-
-                                Button(action: {
-                                    // Show dialog for regenerating summary
-                                    showingSummaryParamsDialog = true
-                                }) {
-                                    Label("Regenerate", systemImage: "arrow.clockwise")
-                                }
-
-                                Button(action: {
-                                    // Store the current summary ID
-                                    let currentSummaryId = selectedSummary.id
-
-                                    // Reload all summaries
-                                    summaryManager.reloadSummaries()
-
-                                    // Find and update the selected summary with the refreshed data
-                                    if let refreshedSummary = summaryManager.summaries.first(where: { $0.id == currentSummaryId }) {
-                                        selectedSummary = refreshedSummary
-                                    }
-                                }) {
-                                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
-                                }
-                                .help("Refresh summary content")
-                            }
-                            .padding()
-
-                            if selectedSummary.status == .inProgress {
-                                VStack {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                        .scaleEffect(2)
-
-                                    Text("Generating Summary...")
-                                        .font(.headline)
-                                        .padding(.top, 20)
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            } else if selectedSummary.status == .completed {
-                                ScrollView {
-                                    Markdown(selectedSummary.content)
-                                        .textSelection(.enabled)
-                                        .padding()
-                                }
-                            } else if selectedSummary.status == .failed {
-                                VStack {
-                                    Image(systemName: "exclamationmark.circle")
-                                        .resizable()
-                                        .frame(width: 50, height: 50)
-                                        .foregroundColor(.red)
-
-                                    Text("Summary Generation Failed")
-                                        .font(.headline)
-                                        .padding(.top, 10)
-
-                                    Button("Retry") {
-                                        // Retry summary generation
-                                    }
-                                    .padding(.top, 10)
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        }
-                    } else {
-                        Text("Select a summary to view")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+                MainContentView(
+                    summaryManager: summaryManager,
+                    selectedSummary: $selectedSummary,
+                    summaryToDelete: $summaryToDelete,
+                    showingDeleteConfirmation: $showingDeleteConfirmation,
+                    isShowingExportOptions: $isShowingExportOptions,
+                    showingSummaryParamsDialog: $showingSummaryParamsDialog,
+                    exportFormat: $exportFormat,
+                    isShowingExportDialog: $isShowingExportDialog
+                )
             }
         }
         .padding()
@@ -214,59 +58,15 @@ struct SummaryView: View {
             )
         }
         .sheet(isPresented: $showingPromptEditor) {
-            VStack(spacing: 20) {
-                Text("Customize Summary Prompt")
-                    .font(.headline)
-
-                TextEditor(text: $customPrompt)
-                    .frame(minHeight: 200)
-                    .border(Color.gray.opacity(0.2))
-                    .padding()
-
-                HStack {
-                    Button("Cancel") {
-                        showingPromptEditor = false
-                    }
-                    .keyboardShortcut(.cancelAction)
-
-                    Button("Generate Summary") {
-                        if !customPrompt.isEmpty && selectedSummary != nil {
-                            // Find the transcript for this summary
-                            Task {
-                                do {
-                                    isGenerating = true
-                                    showingPromptEditor = false
-
-                                    // Delete the existing summary
-                                    if let selectedSummary = selectedSummary {
-                                        summaryManager.deleteSummary(id: selectedSummary.id)
-
-                                        // Find the transcript for this summary
-                                        let transcriptionManager = TranscriptionManager()
-                                        if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                            // Generate a new summary with the custom prompt
-                                            _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
-                                        } else {
-                                            throw NSError(domain: "SummaryView", code: 1,
-                                                         userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
-                                        }
-                                    }
-                                    isGenerating = false
-                                } catch {
-                                    isGenerating = false
-                                    errorMessage = error.localizedDescription
-                                    showingError = true
-                                }
-                            }
-                        }
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(customPrompt.isEmpty)
-                }
-                .padding()
-            }
-            .frame(width: 500, height: 400)
-            .padding()
+            CustomPromptEditorView(
+                customPrompt: $customPrompt,
+                showingPromptEditor: $showingPromptEditor,
+                selectedSummary: $selectedSummary,
+                isGenerating: $isGenerating,
+                errorMessage: $errorMessage,
+                showingError: $showingError,
+                summaryManager: summaryManager
+            )
         }
         .alert("Delete Summary", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -306,35 +106,286 @@ struct SummaryView: View {
             }
         }
         .sheet(isPresented: $showingSummaryParamsDialog) {
-            VStack(spacing: 20) {
-                Text("Regenerate Summary")
+            RegenerateSummaryView(
+                customPrompt: $customPrompt,
+                showingSummaryParamsDialog: $showingSummaryParamsDialog,
+                selectedSummary: $selectedSummary,
+                isGenerating: $isGenerating,
+                errorMessage: $errorMessage,
+                showingError: $showingError,
+                summaryManager: summaryManager
+            )
+        }
+    }
+}
+
+// MARK: - Empty State View
+struct EmptySummaryView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "list.bullet.clipboard")
+                .resizable()
+                .frame(width: 80, height: 100)
+                .foregroundColor(.blue)
+
+            Text("No Summaries Yet")
+                .font(.title)
+
+            Text("Generate a summary from a transcript to get started")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding()
+    }
+}
+
+// MARK: - Main Content View
+struct MainContentView: View {
+    @ObservedObject var summaryManager: SummaryManager
+    @Binding var selectedSummary: Summary?
+    @Binding var summaryToDelete: Summary?
+    @Binding var showingDeleteConfirmation: Bool
+    @Binding var isShowingExportOptions: Bool
+    @Binding var showingSummaryParamsDialog: Bool
+    @Binding var exportFormat: UTType
+    @Binding var isShowingExportDialog: Bool
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Sidebar with summary list
+            SummarySidebarView(
+                summaryManager: summaryManager,
+                selectedSummary: $selectedSummary,
+                summaryToDelete: $summaryToDelete,
+                showingDeleteConfirmation: $showingDeleteConfirmation
+            )
+
+            // Divider
+            Divider()
+
+            // Summary content
+            if let selectedSummary = selectedSummary {
+                SummaryDetailView(
+                    selectedSummary: selectedSummary,
+                    summaryManager: summaryManager,
+                    isShowingExportOptions: $isShowingExportOptions,
+                    showingSummaryParamsDialog: $showingSummaryParamsDialog,
+                    exportFormat: $exportFormat,
+                    isShowingExportDialog: $isShowingExportDialog,
+                    selectedSummaryBinding: $selectedSummary
+                )
+            } else {
+                Text("Select a summary to view")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+}
+
+// MARK: - Sidebar View
+struct SummarySidebarView: View {
+    @ObservedObject var summaryManager: SummaryManager
+    @Binding var selectedSummary: Summary?
+    @Binding var summaryToDelete: Summary?
+    @Binding var showingDeleteConfirmation: Bool
+
+    var body: some View {
+        List {
+            ForEach(summaryManager.summaries) { summary in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(summary.name)
+                            .font(.headline)
+
+                        Text(summary.date, style: .date)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button(action: {
+                        summaryToDelete = summary
+                        showingDeleteConfirmation = true
+                    }) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal, 5)
+
+                    if summary.status == .inProgress {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    } else if summary.status == .completed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    } else if summary.status == .failed {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedSummary = summary
+                }
+                .background(selectedSummary?.id == summary.id ? Color.blue.opacity(0.1) : Color.clear)
+            }
+        }
+        .frame(width: 250)
+        .listStyle(SidebarListStyle())
+    }
+}
+
+// MARK: - Detail View
+struct SummaryDetailView: View {
+    let selectedSummary: Summary
+    @ObservedObject var summaryManager: SummaryManager
+    @Binding var isShowingExportOptions: Bool
+    @Binding var showingSummaryParamsDialog: Bool
+    @Binding var exportFormat: UTType
+    @Binding var isShowingExportDialog: Bool
+    @Binding var selectedSummaryBinding: Summary?
+
+    var body: some View {
+        VStack {
+            // Toolbar
+            HStack {
+                Text(selectedSummary.name)
                     .font(.headline)
 
-                Text("Edit Prompt:")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
+                Spacer()
 
-                TextEditor(text: $customPrompt)
-                    .frame(minHeight: 200)
-                    .border(Color.gray.opacity(0.2))
-                    .padding(.horizontal)
-
-                HStack {
-                    Button("Cancel") {
-                        showingSummaryParamsDialog = false
+                Button(action: {
+                    if selectedSummary.status == .completed {
+                        isShowingExportOptions = true
                     }
-                    .keyboardShortcut(.cancelAction)
+                }) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(selectedSummary.status != .completed)
+                .confirmationDialog("Export Format", isPresented: $isShowingExportOptions) {
+                    Button("Markdown (.md)") {
+                        exportFormat = TextDocument.markdownUTType
+                        isShowingExportDialog = true
+                    }
 
-                    Button("Regenerate") {
-                        if let selectedSummary = selectedSummary {
-                            showingSummaryParamsDialog = false
+                    Button("Plain Text (.txt)") {
+                        exportFormat = .plainText
+                        isShowingExportDialog = true
+                    }
 
-                            // Find the transcript for this summary
-                            Task {
-                                do {
-                                    isGenerating = true
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("Choose export format")
+                }
 
-                                    // Delete the existing summary
+                Button(action: {
+                    // Show dialog for regenerating summary
+                    showingSummaryParamsDialog = true
+                }) {
+                    Label("Regenerate", systemImage: "arrow.clockwise")
+                }
+
+                Button(action: {
+                    // Store the current summary ID
+                    let currentSummaryId = selectedSummary.id
+
+                    // Reload all summaries
+                    summaryManager.reloadSummaries()
+
+                    // Find and update the selected summary with the refreshed data
+                    if let refreshedSummary = summaryManager.summaries.first(where: { $0.id == currentSummaryId }) {
+                        selectedSummaryBinding = refreshedSummary
+                    }
+                }) {
+                    Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .help("Refresh summary content")
+            }
+            .padding()
+
+            // Content based on status
+            if selectedSummary.status == .inProgress {
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                        .scaleEffect(2)
+
+                    Text("Generating Summary...")
+                        .font(.headline)
+                        .padding(.top, 20)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if selectedSummary.status == .completed {
+                ScrollView {
+                    Markdown(selectedSummary.content)
+                        .textSelection(.enabled)
+                        .padding()
+                }
+            } else if selectedSummary.status == .failed {
+                VStack {
+                    Image(systemName: "exclamationmark.circle")
+                        .resizable()
+                        .frame(width: 50, height: 50)
+                        .foregroundColor(.red)
+
+                    Text("Summary Generation Failed")
+                        .font(.headline)
+                        .padding(.top, 10)
+
+                    Button("Retry") {
+                        // Retry summary generation
+                    }
+                    .padding(.top, 10)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+}
+
+// MARK: - Custom Prompt Editor View
+struct CustomPromptEditorView: View {
+    @Binding var customPrompt: String
+    @Binding var showingPromptEditor: Bool
+    @Binding var selectedSummary: Summary?
+    @Binding var isGenerating: Bool
+    @Binding var errorMessage: String
+    @Binding var showingError: Bool
+    @ObservedObject var summaryManager: SummaryManager
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Customize Summary Prompt")
+                .font(.headline)
+
+            TextEditor(text: $customPrompt)
+                .frame(minHeight: 200)
+                .border(Color.gray.opacity(0.2))
+                .padding()
+
+            HStack {
+                Button("Cancel") {
+                    showingPromptEditor = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Generate Summary") {
+                    if !customPrompt.isEmpty && selectedSummary != nil {
+                        // Find the transcript for this summary
+                        Task {
+                            do {
+                                isGenerating = true
+                                showingPromptEditor = false
+
+                                // Delete the existing summary
+                                if let selectedSummary = selectedSummary {
                                     summaryManager.deleteSummary(id: selectedSummary.id)
 
                                     // Find the transcript for this summary
@@ -346,25 +397,95 @@ struct SummaryView: View {
                                         throw NSError(domain: "SummaryView", code: 1,
                                                      userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
                                     }
-                                    isGenerating = false
-                                } catch {
-                                    isGenerating = false
-                                    errorMessage = error.localizedDescription
-                                    showingError = true
                                 }
+                                isGenerating = false
+                            } catch {
+                                isGenerating = false
+                                errorMessage = error.localizedDescription
+                                showingError = true
                             }
                         }
                     }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(customPrompt.isEmpty)
                 }
-                .padding()
+                .keyboardShortcut(.defaultAction)
+                .disabled(customPrompt.isEmpty)
             }
-            .frame(width: 500, height: 400)
             .padding()
-            .onAppear {
-                customPrompt = summaryManager.getDefaultPrompt()
+        }
+        .frame(width: 500, height: 400)
+        .padding()
+    }
+}
+
+// MARK: - Regenerate Summary View
+struct RegenerateSummaryView: View {
+    @Binding var customPrompt: String
+    @Binding var showingSummaryParamsDialog: Bool
+    @Binding var selectedSummary: Summary?
+    @Binding var isGenerating: Bool
+    @Binding var errorMessage: String
+    @Binding var showingError: Bool
+    @ObservedObject var summaryManager: SummaryManager
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Regenerate Summary")
+                .font(.headline)
+
+            Text("Edit Prompt:")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+
+            TextEditor(text: $customPrompt)
+                .frame(minHeight: 200)
+                .border(Color.gray.opacity(0.2))
+                .padding(.horizontal)
+
+            HStack {
+                Button("Cancel") {
+                    showingSummaryParamsDialog = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Regenerate") {
+                    if let selectedSummary = selectedSummary {
+                        showingSummaryParamsDialog = false
+
+                        // Find the transcript for this summary
+                        Task {
+                            do {
+                                isGenerating = true
+
+                                // Delete the existing summary
+                                summaryManager.deleteSummary(id: selectedSummary.id)
+
+                                // Find the transcript for this summary
+                                let transcriptionManager = TranscriptionManager()
+                                if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
+                                    // Generate a new summary with the custom prompt
+                                    _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                } else {
+                                    throw NSError(domain: "SummaryView", code: 1,
+                                                 userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                }
+                                isGenerating = false
+                            } catch {
+                                isGenerating = false
+                                errorMessage = error.localizedDescription
+                                showingError = true
+                            }
+                        }
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(customPrompt.isEmpty)
             }
+            .padding()
+        }
+        .frame(width: 500, height: 400)
+        .padding()
+        .onAppear {
+            customPrompt = summaryManager.getDefaultPrompt()
         }
     }
 }
