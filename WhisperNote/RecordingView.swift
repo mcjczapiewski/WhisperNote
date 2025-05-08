@@ -289,19 +289,17 @@ struct RecordingView: View {
                         Task {
                             // Check all permissions
                             let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                            let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                             let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
-                            print("Current permissions - Mic: \(hasMicPermission), Screen: \(hasScreenPermission), System Audio: \(hasSystemAudioPermission)")
+                            print("Current permissions - Mic: \(hasMicPermission), System Audio: \(hasSystemAudioPermission)")
 
                             // If we don't have all required permissions, show a message first
-                            if !hasMicPermission || !hasScreenPermission || !hasSystemAudioPermission {
+                            if !hasMicPermission || !hasSystemAudioPermission {
                                 await MainActor.run {
                                     audioWarningMessage = """
                                     WhisperNote needs the following permissions:
 
                                     Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                     System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                     When prompted, please click "Open System Settings" and enable WhisperNote in the list.
@@ -316,21 +314,19 @@ struct RecordingView: View {
 
                             // Check permissions again after the request
                             let updatedMicPermission = audioRecorder.hasMicrophonePermission()
-                            let updatedScreenPermission = audioRecorder.hasScreenRecordingPermission()
                             let updatedSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
-                            print("Updated permissions - Mic: \(updatedMicPermission), Screen: \(updatedScreenPermission), System Audio: \(updatedSystemAudioPermission)")
+                            print("Updated permissions - Mic: \(updatedMicPermission), System Audio: \(updatedSystemAudioPermission)")
 
                             // Update UI on main thread
                             await MainActor.run {
                                 if permissionsGranted {
                                     // Even if microphone permission is granted, warn about other missing permissions
-                                    if !updatedScreenPermission || !updatedSystemAudioPermission {
+                                    if !updatedSystemAudioPermission {
                                         audioWarningMessage = """
                                         Some permissions are still missing:
 
                                         Microphone: \(updatedMicPermission ? "✓ Granted" : "❌ Missing")
-                                        Screen Recording: \(updatedScreenPermission ? "✓ Granted" : "❌ Missing")
                                         System Audio: \(updatedSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                         You can proceed with recording, but some features may not work properly.
@@ -339,22 +335,29 @@ struct RecordingView: View {
                                         showingAudioWarning = true
                                     }
 
-                                    // Reset selected microphone to default
+                                    // Reset selected microphone to default (system preferred)
                                     selectedMicrophoneId = ""
 
                                     // Refresh available microphones before showing the popup
+                                    // This ensures we get the current system default microphone
                                     Task {
                                         await audioRecorder.refreshRecordKitDevices()
-                                    }
 
-                                    showingNamePrompt = true
+                                        // Update UI on main thread
+                                        await MainActor.run {
+                                            // If we have a preferred microphone, show it in the UI
+                                            if let preferredMic = RKMicrophone.preferred {
+                                                print("System preferred microphone: \(preferredMic.localizedName)")
+                                            }
+                                            showingNamePrompt = true
+                                        }
+                                    }
                                 } else {
                                     // Show detailed permission error
                                     alertMessage = """
                                     Permission error. Current status:
 
                                     Microphone: \(updatedMicPermission ? "✓ Granted" : "❌ Missing")
-                                    Screen Recording: \(updatedScreenPermission ? "✓ Granted" : "❌ Missing")
                                     System Audio: \(updatedSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                     Please enable all permissions in System Settings > Privacy & Security, then restart the app.
@@ -531,7 +534,6 @@ struct RecordingView: View {
                                     case .permissionDenied:
                                         // Check all permissions again
                                         let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                         let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                         alertMessage = """
@@ -539,7 +541,6 @@ struct RecordingView: View {
 
                                         Current permission status:
                                         Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                         System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                         Please enable all permissions in System Settings > Privacy & Security, then restart the app.
@@ -559,7 +560,6 @@ struct RecordingView: View {
 
                                     // Check permissions to provide more context
                                     let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                     let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                     alertMessage = """
@@ -567,7 +567,6 @@ struct RecordingView: View {
 
                                     Current permission status:
                                     Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                     System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                     Please check your system settings and try again.
@@ -593,7 +592,6 @@ struct RecordingView: View {
                                     case .permissionDenied:
                                         // Check all permissions again
                                         let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                         let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                         alertMessage = """
@@ -601,7 +599,6 @@ struct RecordingView: View {
 
                                         Current permission status:
                                         Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                         System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                         Please enable all permissions in System Settings > Privacy & Security, then restart the app.
@@ -621,7 +618,6 @@ struct RecordingView: View {
 
                                     // Check permissions to provide more context
                                     let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                     let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                     alertMessage = """
@@ -629,7 +625,6 @@ struct RecordingView: View {
 
                                     Current permission status:
                                     Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                     System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                     Please check your system settings and try again.
@@ -649,7 +644,6 @@ struct RecordingView: View {
                                     case .permissionDenied:
                                         // Check all permissions again
                                         let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                         let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                         alertMessage = """
@@ -657,7 +651,6 @@ struct RecordingView: View {
 
                                         Current permission status:
                                         Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                         System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                         Please enable all permissions in System Settings > Privacy & Security, then restart the app.
@@ -677,7 +670,6 @@ struct RecordingView: View {
 
                                     // Check permissions to provide more context
                                     let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
                                     let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
 
                                     alertMessage = """
@@ -685,7 +677,6 @@ struct RecordingView: View {
 
                                     Current permission status:
                                     Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
                                     System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                     Please check your system settings and try again.

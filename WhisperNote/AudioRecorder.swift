@@ -58,10 +58,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func refreshRecordKitDevices() async {
         // Check current authorization status
         let micStatus = RKAuthorization.microphone
-        let screenStatus = RKAuthorization.screenRecording
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Only request microphone permission if not already granted
         if micStatus != .authorized {
@@ -69,19 +68,25 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             logger.info("Microphone permission request result: \(micPermissionGranted)")
         }
 
-        // Don't request screen recording or system audio permissions here
+        // Don't request system audio permissions here
         // These will be requested only when needed for recording
 
         // Force refresh the permission status by checking again
         let updatedMicStatus = RKAuthorization.microphone
-        let updatedScreenStatus = RKAuthorization.screenRecording
         let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Updated authorization status - Microphone: \(updatedMicStatus.rawValue), Screen Recording: \(updatedScreenStatus), System Audio: \(updatedSystemAudioStatus)")
+        logger.info("Updated authorization status - Microphone: \(updatedMicStatus.rawValue), System Audio: \(updatedSystemAudioStatus)")
 
         // Get available microphones using the non-deprecated API
         rkAvailableMicrophones = RKMicrophone.microphones
         logger.info("Found \(self.rkAvailableMicrophones.count) microphones")
+
+        // Update the preferred microphone to the system default
+        if let preferredMic = RKMicrophone.preferred {
+            logger.info("System preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
+        } else {
+            logger.info("No system preferred microphone found")
+        }
     }
 
     deinit {
@@ -143,10 +148,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             do {
                 // Check current authorization status
                 let micStatus = RKAuthorization.microphone
-                let screenStatus = RKAuthorization.screenRecording
                 let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-                logger.info("Recording authorization status - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+                logger.info("Recording authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
                 // Only request microphone permission if not already granted
                 var micPermissionGranted = micStatus == .authorized
@@ -169,20 +173,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     }
                 }
 
-                // Always check screen recording permission
-                var screenPermissionGranted = screenStatus
-                if !screenPermissionGranted {
-                    logger.info("Requesting screen recording permission...")
-                    RKAuthorization.requestScreenRecording()
-                    UserDefaults.standard.set(true, forKey: "lastScreenRecordingStatus")
-
-                    // Force refresh the screen recording status
-                    screenPermissionGranted = RKAuthorization.screenRecording
-                    logger.info("Updated screen recording status after request: \(screenPermissionGranted)")
-                } else {
-                    logger.info("Screen recording permission already granted")
-                }
-
                 // Always check system audio permission
                 var systemAudioPermissionGranted = systemAudioStatus
                 if !systemAudioPermissionGranted {
@@ -199,10 +189,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
                 // Final check of all permissions after requests
                 let finalMicStatus = RKAuthorization.microphone
-                let finalScreenStatus = RKAuthorization.screenRecording
                 let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
 
-                logger.info("Final permission status before recording - Microphone: \(finalMicStatus.rawValue), Screen Recording: \(finalScreenStatus), System Audio: \(finalSystemAudioStatus)")
+                logger.info("Final permission status before recording - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
                 // Refresh available microphones
                 rkAvailableMicrophones = RKMicrophone.microphones
@@ -325,10 +314,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
                         // Check all permission statuses again
                         let micStatus = RKAuthorization.microphone
-                        let screenStatus = RKAuthorization.screenRecording
                         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-                        logger.error("Current permission status - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+                        logger.error("Current permission status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
                         // Show more detailed error message
                         logger.error("""
@@ -336,7 +324,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
                         Current permission status:
                         - Microphone: \(micStatus.rawValue)
-                        - Screen Recording: \(screenStatus)
                         - System Audio: \(systemAudioStatus)
 
                         Please check that WhisperNote has all required permissions in System Settings > Privacy & Security.
@@ -404,10 +391,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 if error.localizedDescription.contains("microphone access") {
                     // Check status but don't need to use it
                     _ = RKAuthorization.microphone
-                    throw AudioRecorderError.permissionDenied
-                } else if error.localizedDescription.contains("screen recording") {
-                    // Check status but don't need to use it
-                    _ = RKAuthorization.screenRecording
                     throw AudioRecorderError.permissionDenied
                 } else if error.localizedDescription.contains("system audio") {
                     // Check status but don't need to use it
@@ -480,9 +463,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     // Get the bundle URL from the result
                     let bundleURL = result.bundleURL
 
-                    // Find the actual audio files in the bundle directory
-                    // Use a local function to find the audio file URLs to avoid capture issues
-                    func findAudioFileURLs() -> URL {
+                    // Find and merge the audio files in the bundle directory
+                    // Use a local function to find the audio file URLs and merge them
+                    func findAndMergeAudioFiles() async throws -> URL {
                         do {
                             // Look for audio files in the bundle directory
                             let fileManager = FileManager.default
@@ -491,59 +474,67 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                             // Log all files found in the bundle
                             logger.info("Files in bundle: \(bundleContents.map { $0.lastPathComponent }.joined(separator: ", "))")
 
-                            // First try to find the merged recording file
+                            // First check if we already have a merged recording file
                             if let mergedAudioURL = bundleContents.first(where: { url in
                                 return url.lastPathComponent == "recording.m4a"
                             }) {
-                                logger.info("Found merged audio file: \(mergedAudioURL.path)")
+                                logger.info("Found existing merged audio file: \(mergedAudioURL.path)")
                                 return mergedAudioURL
                             }
 
-                            // Next try to find the system audio file
-                            if let systemAudioURL = bundleContents.first(where: { url in
-                                return url.lastPathComponent == "system_recording.m4a"
-                            }) {
-                                logger.info("Found system audio file: \(systemAudioURL.path)")
-                                return systemAudioURL
+                            // Find the microphone audio file
+                            guard let micAudioURL = bundleContents.first(where: { url in
+                                return url.lastPathComponent == "mic_recording.m4a"
+                            }) else {
+                                logger.warning("Microphone audio file not found")
+
+                                // If no microphone file, look for any audio file
+                                if let audioURL = bundleContents.first(where: { url in
+                                    let pathExtension = url.pathExtension.lowercased()
+                                    return pathExtension == "m4a" || pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov"
+                                }) {
+                                    logger.info("Found generic audio file: \(audioURL.path)")
+                                    return audioURL
+                                } else {
+                                    logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
+                                    throw AudioRecorderError.recordingFailed
+                                }
                             }
 
-                            // Next try to find the microphone audio file
-                            if let micAudioURL = bundleContents.first(where: { url in
-                                return url.lastPathComponent == "mic_recording.m4a"
-                            }) {
-                                logger.info("Found microphone audio file: \(micAudioURL.path)")
+                            // Find the system audio file
+                            guard let systemAudioURL = bundleContents.first(where: { url in
+                                return url.lastPathComponent == "system_recording.m4a"
+                            }) else {
+                                logger.warning("System audio file not found, using microphone audio only")
                                 return micAudioURL
                             }
 
-                            // If none of the expected files are found, look for any m4a file
-                            if let m4aURL = bundleContents.first(where: { url in
-                                return url.pathExtension.lowercased() == "m4a"
-                            }) {
-                                logger.info("Found m4a audio file: \(m4aURL.path)")
-                                return m4aURL
-                            }
+                            // Create the output URL for the merged file
+                            let mergedAudioURL = bundleURL.appendingPathComponent("recording.m4a")
 
-                            // If no m4a file is found, look for any audio file
-                            if let audioURL = bundleContents.first(where: { url in
-                                let pathExtension = url.pathExtension.lowercased()
-                                return pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov" || pathExtension == "m4a"
-                            }) {
-                                logger.info("Found generic audio file: \(audioURL.path)")
-                                return audioURL
-                            } else {
-                                logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
-                                // Fall back to the bundle URL itself
-                                return bundleURL
+                            // Merge the audio files
+                            logger.info("Merging microphone and system audio files...")
+                            do {
+                                let mergedURL = try await AudioMerger.mergeAudioFiles(
+                                    microphoneURL: micAudioURL,
+                                    systemAudioURL: systemAudioURL,
+                                    outputURL: mergedAudioURL
+                                )
+                                logger.info("Audio files successfully merged to: \(mergedURL.path)")
+                                return mergedURL
+                            } catch {
+                                logger.error("Failed to merge audio files: \(error.localizedDescription)")
+                                // If merging fails, return the microphone audio file
+                                return micAudioURL
                             }
                         } catch {
                             logger.error("Error examining bundle directory: \(error.localizedDescription)")
-                            // Fall back to the bundle URL
-                            return bundleURL
+                            throw error
                         }
                     }
 
-                    // Get the audio file URL
-                    let audioFileURL = findAudioFileURLs()
+                    // Get the audio file URL by finding and merging the files
+                    let audioFileURL = try await findAndMergeAudioFiles()
 
                     await MainActor.run {
                         // Update state
@@ -823,13 +814,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Check current authorization status
         let micStatus = RKAuthorization.microphone
-        let screenStatus = RKAuthorization.screenRecording
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Get the last known status from UserDefaults (for reference only)
-        _ = UserDefaults.standard.bool(forKey: "lastScreenRecordingStatus")
         _ = UserDefaults.standard.bool(forKey: "lastSystemAudioStatus")
 
         // Only request microphone permission if not already granted
@@ -844,23 +833,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
             // Update our local variable based on the refreshed status
             micPermissionGranted = updatedMicStatus == .authorized
-        }
-
-        // Always request screen recording permission if not already granted
-        // The RecordKit API returns a Bool for screen recording permission
-        if !screenStatus {
-            // Request screen recording permission (needed for system audio)
-            logger.info("Requesting screen recording permission...")
-            RKAuthorization.requestScreenRecording()
-
-            // Store that we've requested it
-            UserDefaults.standard.set(true, forKey: "lastScreenRecordingStatus")
-
-            // Force refresh the screen recording status
-            let updatedScreenStatus = RKAuthorization.screenRecording
-            logger.info("Updated screen recording status after request: \(updatedScreenStatus)")
-        } else {
-            logger.info("Screen recording permission already granted")
         }
 
         // Always request system audio permission if not already granted
@@ -881,21 +853,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Final check of all permissions after requests
         let finalMicStatus = RKAuthorization.microphone
-        let finalScreenStatus = RKAuthorization.screenRecording
         let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Final permission status - Microphone: \(finalMicStatus.rawValue), Screen Recording: \(finalScreenStatus), System Audio: \(finalSystemAudioStatus)")
+        logger.info("Final permission status - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
         // Return true if we have microphone permission
         return finalMicStatus == .authorized
-    }
-
-    // Check if the app has been granted screen recording permission
-    func hasScreenRecordingPermission() -> Bool {
-        // Force a fresh check of the permission status
-        let status = RKAuthorization.screenRecording
-        logger.info("Current screen recording permission status: \(status)")
-        return status
     }
 
     // Check if the app has been granted system audio recording permission
@@ -904,6 +867,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let status = RKAuthorization.systemAudioRecording
         logger.info("Current system audio permission status: \(status)")
         return status
+    }
+
+    // For backward compatibility, but we no longer require screen recording permission
+    func hasScreenRecordingPermission() -> Bool {
+        return true
     }
 
     // Check if the app has been granted microphone permission
@@ -923,27 +891,20 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Check all permission statuses
         let micStatus = RKAuthorization.microphone
-        let screenStatus = RKAuthorization.screenRecording
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Checking system audio capture readiness - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+        logger.info("Checking system audio capture readiness - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Build a status message with all permission states
         var statusMessage = """
         Current permission status:
         - Microphone: \(micStatus == .authorized ? "✓ Granted" : "❌ Missing")
-        - Screen Recording: \(screenStatus ? "✓ Granted" : "❌ Missing")
         - System Audio: \(systemAudioStatus ? "✓ Granted" : "❌ Missing")
         """
 
         // Check microphone permission status
         if micStatus == .denied {
             return (false, "\(statusMessage)\n\nMicrophone access is denied. Please enable it in System Settings > Privacy & Security > Microphone, then restart the app.")
-        }
-
-        // Check screen recording permission
-        if !screenStatus {
-            return (false, "\(statusMessage)\n\nScreen recording permission is required to capture system audio. Please grant this permission when prompted.")
         }
 
         // Check system audio permission
@@ -983,7 +944,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     /// Helper method to select a default microphone using a fallback strategy
     private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) {
-        // First try to find a physical microphone (not BlackHole or other virtual devices)
+        // Always refresh the list of available microphones to get the current system default
+        rkAvailableMicrophones = RKMicrophone.microphones
+
+        // First try to use the system's preferred microphone
+        if let preferredMic = RKMicrophone.preferred {
+            // Use system's preferred microphone
+            sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using system's preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
+            return
+        }
+
+        // If no preferred microphone is available, try to find a physical microphone
         let physicalMics = rkAvailableMicrophones.filter { mic in
             let name = mic.localizedName.lowercased()
             return !name.contains("blackhole") &&
@@ -992,11 +964,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                    !name.contains("aggregate")
         }
 
-        if let preferredMic = RKMicrophone.preferred {
-            // Use system's preferred microphone
-            sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
-        } else if let physicalMic = physicalMics.first {
+        if let physicalMic = physicalMics.first {
             // Fall back to the first physical microphone we found
             sources.append(.microphone(microphoneID: physicalMic.id, output: .singleFile(filename: microphoneFilename)))
             logger.info("Using physical microphone: \(physicalMic.localizedName) (ID: \(physicalMic.id))")

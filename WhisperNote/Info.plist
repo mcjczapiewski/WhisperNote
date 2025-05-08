@@ -7,7 +7,7 @@
     <key>NSCameraUsageDescription</key>
     <string>WhisperNote does not use the camera but may request this permission for audio capture.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>WhisperNote needs screen recording permission to capture system audio.</string>
+    <string>WhisperNote needs system audio recording permission to capture audio from other applications.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>WhisperNote needs permission to control system audio settings.</string>
     <key>NSSystemAdministrationUsageDescription</key>

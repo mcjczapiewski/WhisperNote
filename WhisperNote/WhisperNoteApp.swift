@@ -22,10 +22,9 @@ struct WhisperNoteApp: App {
 
         // Log current authorization status
         let micStatus = RKAuthorization.microphone
-        let screenStatus = RKAuthorization.screenRecording
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("App startup authorization status - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
+        logger.info("App startup authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Request microphone permission if not already granted
         var micPermissionGranted = micStatus == .authorized
@@ -36,16 +35,6 @@ struct WhisperNoteApp: App {
             // Force refresh the microphone status
             let updatedMicStatus = RKAuthorization.microphone
             logger.info("Updated microphone status after request: \(updatedMicStatus.rawValue)")
-        }
-
-        // Request screen recording permission (needed for system audio)
-        if !screenStatus {
-            logger.info("Requesting screen recording permission...")
-            RKAuthorization.requestScreenRecording()
-
-            // Force refresh the screen recording status
-            let updatedScreenStatus = RKAuthorization.screenRecording
-            logger.info("Updated screen recording status after request: \(updatedScreenStatus)")
         }
 
         // Request system audio recording permission
@@ -60,13 +49,11 @@ struct WhisperNoteApp: App {
 
         // Final check of all permissions after requests
         let finalMicStatus = RKAuthorization.microphone
-        let finalScreenStatus = RKAuthorization.screenRecording
         let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("Final app startup permission status - Microphone: \(finalMicStatus.rawValue), Screen Recording: \(finalScreenStatus), System Audio: \(finalSystemAudioStatus)")
+        logger.info("Final app startup permission status - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
         // Store the current permission status in UserDefaults
-        UserDefaults.standard.set(finalScreenStatus, forKey: "lastScreenRecordingStatus")
         UserDefaults.standard.set(finalSystemAudioStatus, forKey: "lastSystemAudioStatus")
     }
 
