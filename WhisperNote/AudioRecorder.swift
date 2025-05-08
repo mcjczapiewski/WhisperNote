@@ -82,12 +82,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         logger.info("Found \(self.rkAvailableMicrophones.count) microphones")
 
         // Force refresh the preferred microphone to match system settings
-        // Try to refresh the preferred microphone, but handle any errors
-        do {
-            RKMicrophone.refreshPreferred()
-        } catch {
-            logger.warning("Error refreshing preferred microphone: \(error.localizedDescription)")
-        }
+        // Note: refreshPreferred method doesn't exist in this version of RecordKit
+        // We'll just use the current preferred microphone
 
         // Get the system's current default input device
         var systemDefaultDeviceID: String? = nil
@@ -1074,7 +1070,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         rkAvailableMicrophones = RKMicrophone.microphones
 
         // Log all available microphones for debugging
-        logger.info("Available microphones for selection: \(rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+        logger.info("Available microphones for selection: \(self.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
 
         // Get the system's current default input device
         var systemDefaultDeviceID: String? = nil
@@ -1095,12 +1091,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
 
         // If that fails, try to use RecordKit's preferred microphone
-        // Force refresh the preferred microphone to ensure it's current
-        do {
-            RKMicrophone.refreshPreferred()
-        } catch {
-            logger.warning("Error refreshing preferred microphone: \(error.localizedDescription)")
-        }
+        // Note: refreshPreferred method doesn't exist in this version of RecordKit
+        // We'll just use the current preferred microphone
 
         if let preferredMic = RKMicrophone.preferred {
             // Use system's preferred microphone from RecordKit

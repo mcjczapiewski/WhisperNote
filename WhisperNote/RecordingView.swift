@@ -342,13 +342,8 @@ struct RecordingView: View {
                                     // Refresh available microphones before showing the popup
                                     // This ensures we get the current system default microphone
                                     Task {
-                                        // Force refresh the preferred microphone to match system settings
-                                        // Try to refresh the preferred microphone, but handle any errors
-                                        do {
-                                            RKMicrophone.refreshPreferred()
-                                        } catch {
-                                            print("Error refreshing preferred microphone: \(error.localizedDescription)")
-                                        }
+                                        // Note: refreshPreferred method doesn't exist in this version of RecordKit
+                                        // We'll just use the current preferred microphone
 
                                         // Refresh all available devices
                                         await audioRecorder.refreshRecordKitDevices()
