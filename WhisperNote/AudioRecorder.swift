@@ -81,11 +81,35 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         rkAvailableMicrophones = RKMicrophone.microphones
         logger.info("Found \(self.rkAvailableMicrophones.count) microphones")
 
+        // Force refresh the preferred microphone to match system settings
+        // Check if the refreshPreferred method exists (it might not in older versions of RecordKit)
+        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+            RKMicrophone.refreshPreferred()
+        } else {
+            logger.warning("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+        }
+
+        // Get the system's current default input device
+        var systemDefaultDeviceID: String? = nil
+        do {
+            let deviceID = try getDefaultInputDevice()
+            systemDefaultDeviceID = String(deviceID)
+            logger.info("System default input device ID: \(deviceID)")
+
+            // Try to find this device in our available microphones
+            if let systemDefaultID = systemDefaultDeviceID,
+               let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(systemDefaultID) }) {
+                logger.info("Found system default microphone in available microphones: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            }
+        } catch {
+            logger.error("Failed to get system default input device: \(error.localizedDescription)")
+        }
+
         // Update the preferred microphone to the system default
         if let preferredMic = RKMicrophone.preferred {
-            logger.info("System preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
+            logger.info("RecordKit preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
         } else {
-            logger.info("No system preferred microphone found")
+            logger.info("No RecordKit preferred microphone found")
         }
     }
 
@@ -176,7 +200,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 // Always check system audio permission
                 var systemAudioPermissionGranted = systemAudioStatus
                 if !systemAudioPermissionGranted {
-                    logger.info("Requesting system audio recording permission...")
+                    logger.info("Requesting system audio recording permission (without screen recording)...")
+                    // Request only system audio recording permission, not screen recording
                     RKAuthorization.requestSystemAudioRecording()
                     UserDefaults.standard.set(true, forKey: "lastSystemAudioStatus")
 
@@ -838,8 +863,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Always request system audio permission if not already granted
         if !systemAudioStatus {
-            // Request system audio recording permission
-            logger.info("Requesting system audio recording permission...")
+            // Request system audio recording permission (without screen recording)
+            logger.info("Requesting system audio recording permission (without screen recording)...")
             RKAuthorization.requestSystemAudioRecording()
 
             // Store that we've requested it
@@ -1048,11 +1073,39 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Always refresh the list of available microphones to get the current system default
         rkAvailableMicrophones = RKMicrophone.microphones
 
-        // First try to use the system's preferred microphone
+        // Log all available microphones for debugging
+        logger.info("Available microphones for selection: \(rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+
+        // Get the system's current default input device
+        var systemDefaultDeviceID: String? = nil
+        do {
+            let deviceID = try getDefaultInputDevice()
+            systemDefaultDeviceID = String(deviceID)
+            logger.info("System default input device ID: \(deviceID)")
+        } catch {
+            logger.error("Failed to get system default input device: \(error.localizedDescription)")
+        }
+
+        // First try to use the actual system default input device
+        if let systemDefaultID = systemDefaultDeviceID,
+           let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(systemDefaultID) }) {
+            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using actual system default microphone: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            return
+        }
+
+        // If that fails, try to use RecordKit's preferred microphone
+        // Force refresh the preferred microphone to ensure it's current
+        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+            RKMicrophone.refreshPreferred()
+        } else {
+            logger.warning("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+        }
+
         if let preferredMic = RKMicrophone.preferred {
-            // Use system's preferred microphone
+            // Use system's preferred microphone from RecordKit
             sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system's preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
+            logger.info("Using RecordKit's preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
             return
         }
 

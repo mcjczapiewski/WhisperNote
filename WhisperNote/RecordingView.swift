@@ -342,14 +342,27 @@ struct RecordingView: View {
                                     // Refresh available microphones before showing the popup
                                     // This ensures we get the current system default microphone
                                     Task {
+                                        // Force refresh the preferred microphone to match system settings
+                                        // Check if the refreshPreferred method exists (it might not in older versions of RecordKit)
+                                        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+                                            RKMicrophone.refreshPreferred()
+                                        } else {
+                                            print("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+                                        }
+
+                                        // Refresh all available devices
                                         await audioRecorder.refreshRecordKitDevices()
 
                                         // Update UI on main thread
                                         await MainActor.run {
+                                            // Log all available microphones for debugging
+                                            print("Available microphones: \(audioRecorder.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+
                                             // If we have a preferred microphone, show it in the UI
                                             if let preferredMic = RKMicrophone.preferred {
-                                                print("System preferred microphone: \(preferredMic.localizedName)")
+                                                print("System preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
                                             }
+
                                             showingNamePrompt = true
                                         }
                                     }
