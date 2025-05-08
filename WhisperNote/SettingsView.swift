@@ -5,7 +5,6 @@ struct SettingsView: View {
     @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
     @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
     @AppStorage("defaultLLMModel") private var defaultLLMModel = "openai/gpt-4.1-mini"
-    @AppStorage("audioFormat") private var audioFormat = "wav"
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
 
@@ -15,7 +14,6 @@ struct SettingsView: View {
     @State private var alertMessage = ""
 
     private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
-    private let audioFormats = ["wav", "mp3"]
     private let audioQualities = ["low", "medium", "high"]
 
     init() {
@@ -86,23 +84,9 @@ struct SettingsView: View {
             // Audio Settings
             GroupBox(label: Text("Audio Settings").font(.headline)) {
                 VStack(alignment: .leading, spacing: 15) {
-                    Text("Configure audio recording format and quality")
+                    Text("Configure audio recording quality")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-
-                    HStack {
-                        Text("Audio Format")
-                            .frame(width: 120, alignment: .leading)
-
-                        Picker("Audio Format", selection: $audioFormat) {
-                            ForEach(audioFormats, id: \.self) { format in
-                                Text(format.uppercased()).tag(format)
-                            }
-                        }
-                        .pickerStyle(MenuPickerStyle())
-                        .frame(width: 150)
-                    }
-                    .padding(.top, 5)
 
                     HStack {
                         Text("Audio Quality")
@@ -116,6 +100,7 @@ struct SettingsView: View {
                         .pickerStyle(MenuPickerStyle())
                         .frame(width: 150)
                     }
+                    .padding(.top, 5)
 
                     Divider()
                         .padding(.vertical, 5)

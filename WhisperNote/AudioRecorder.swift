@@ -34,7 +34,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var rkRecorder: RKRecorder?
     private var rkRecordingStartTime: Date?
     private var rkRecordingURL: URL?
-    private var rkAvailableMicrophones: [RKMicrophone] = []
+    @Published var rkAvailableMicrophones: [RKMicrophone] = []
 
     override init() {
         super.init()
@@ -55,7 +55,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     // MARK: - RecordKit Methods
 
     /// Refresh the list of available RecordKit devices and check permissions
-    private func refreshRecordKitDevices() async {
+    func refreshRecordKitDevices() async {
         // Check current authorization status
         let micStatus = RKAuthorization.microphone
         let screenStatus = RKAuthorization.screenRecording
@@ -88,7 +88,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         microphoneStateTimer?.invalidate()
     }
 
-    func startRecording(name: String) throws {
+    func startRecording(name: String, microphoneId: String = "") throws {
         // We'll check permissions in the Task below, but also check microphone status synchronously
         if RKAuthorization.microphone == .denied {
             print("Microphone permission is denied")
@@ -98,47 +98,45 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Get the base recordings directory from the directory manager
         let baseDirectory = directoryManager.getRecordingsDirectory()
 
-        // Create a unique subdirectory for this recording
+        // Create a completely unique directory using UUID
+        let uuid = UUID().uuidString
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"  // Added milliseconds for more uniqueness
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
         let dateString = dateFormatter.string(from: Date())
-        let recordingDirName = "\(name)_\(dateString)"
-        // We'll use a unique directory name with random suffix instead
 
-        // Always add a random suffix to ensure uniqueness
-        let randomSuffix = Int.random(in: 10000...99999)
-        let uniqueDirName = "\(recordingDirName)_\(randomSuffix)"
+        // Sanitize the name to remove characters that might cause issues in filenames
+        let sanitizedName = name.replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
+
+        // Create a unique directory name with UUID to ensure uniqueness
+        let uniqueDirName = "recording_\(dateString)_\(uuid)"
         let uniqueDirectory = baseDirectory.appendingPathComponent(uniqueDirName)
 
-        // Check if the directory already exists (extremely unlikely with the random suffix)
+        // IMPORTANT: Do NOT create the directory - RecordKit needs to create it itself
+        // If we create it first, RecordKit will fail with "directory already exists" error
+
+        // Check if the directory already exists (extremely unlikely with UUID)
         if FileManager.default.fileExists(atPath: uniqueDirectory.path) {
-            // Try to remove it first
+            // If it somehow exists, try to remove it first
             do {
+                logger.info("Removing existing directory at: \(uniqueDirectory.path)")
                 try FileManager.default.removeItem(at: uniqueDirectory)
-                print("Removed existing directory: \(uniqueDirectory.path)")
             } catch {
-                print("Failed to remove existing directory: \(error.localizedDescription)")
-
-                // Try with another random suffix
-                let newRandomSuffix = Int.random(in: 100000...999999)
-                let newUniqueDirName = "\(recordingDirName)_\(newRandomSuffix)"
-                let newUniqueDirectory = baseDirectory.appendingPathComponent(newUniqueDirName)
-
-                if FileManager.default.fileExists(atPath: newUniqueDirectory.path) {
-                    print("Error: Could not create a unique recording directory")
-                    throw AudioRecorderError.directoryError
-                }
-
-                // Use the new directory
-                self.rkRecordingURL = newUniqueDirectory.appendingPathComponent("recording.m4a")
-                print("Using alternative unique directory: \(newUniqueDirectory.path)")
-                return
+                logger.error("Failed to remove existing directory: \(error.localizedDescription)")
+                throw AudioRecorderError.directoryError
             }
         }
 
-        // Store the expected output URL
+        // Store the recording metadata for later use
+        let metadata = [
+            "name": sanitizedName,
+            "date": dateString,
+            "uuid": uuid
+        ]
+        UserDefaults.standard.set(metadata, forKey: "lastRecordingMetadata")
+
+        // Store the expected output URL with the final output filename
         self.rkRecordingURL = uniqueDirectory.appendingPathComponent("recording.m4a")
-        print("Using unique directory: \(uniqueDirectory.path)")
+        logger.info("Using unique directory: \(uniqueDirectory.path)")
 
         // Start a Task to handle the async RecordKit operations
         Task {
@@ -213,32 +211,57 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 // Create sources array for the recorder
                 var sources: [RKRecorder.SchemaItem] = []
 
-                // Use the system's preferred microphone if available, otherwise try to find the default one
-                if let preferredMic = RKMicrophone.preferred {
-                    sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: "recording")))
-                    print("Using preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
-                } else if let defaultMic = rkAvailableMicrophones.first {
-                    sources.append(.microphone(microphoneID: defaultMic.id, output: .singleFile(filename: "recording")))
-                    print("Using default microphone: \(defaultMic.localizedName) (ID: \(defaultMic.id))")
+                // Log all available microphones
+                let availableMics = rkAvailableMicrophones
+                logger.info("Available microphones: \(availableMics.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+
+                // Create unique output filenames for each source
+                let microphoneFilename = "mic_recording.m4a"
+                let systemAudioFilename = "system_recording.m4a"
+                // The merged file will be named "recording.m4a"
+
+                // Check if a specific microphone was selected
+                if !microphoneId.isEmpty {
+                    // Use the selected microphone if it exists
+                    if let selectedMic = availableMics.first(where: { $0.id == microphoneId }) {
+                        sources.append(.microphone(microphoneID: selectedMic.id, output: .singleFile(filename: microphoneFilename)))
+                        logger.info("Using selected microphone: \(selectedMic.localizedName) (ID: \(selectedMic.id))")
+                    } else {
+                        logger.warning("Selected microphone ID \(microphoneId) not found, falling back to default")
+                        // Fall back to default selection logic
+                        selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
+                    }
                 } else {
-                    print("Warning: No microphones available for recording")
+                    // No specific microphone selected, use default selection logic
+                    selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
                 }
 
-                // Add system audio recording with single file output option
-                sources.append(.systemAudio(output: .singleFile(filename: "recording")))
-                print("Added system audio source with single file output")
+                // Add system audio recording with a different output filename
+                sources.append(.systemAudio(output: .singleFile(filename: systemAudioFilename)))
+                logger.info("Added system audio source with single file output")
 
-                // Create the recorder with sources and the unique output directory
-                // Use the directory path from rkRecordingURL
+                // Get the output directory path from rkRecordingURL
                 let outputDirectory = rkRecordingURL!.deletingLastPathComponent()
 
-                // Do NOT create the directory - RecordKit needs to create it itself
-                // If we create it first, RecordKit will fail with "directory already exists" error
+                // IMPORTANT: Make sure the directory does NOT exist before creating the recorder
+                // RecordKit will fail with "directory already exists" error if it does
+                if FileManager.default.fileExists(atPath: outputDirectory.path) {
+                    do {
+                        logger.info("Removing existing directory at: \(outputDirectory.path)")
+                        try FileManager.default.removeItem(at: outputDirectory)
+                    } catch {
+                        logger.error("Failed to remove existing directory: \(error.localizedDescription)")
+                        throw AudioRecorderError.directoryError
+                    }
+                }
 
-                print("Using output directory: \(outputDirectory.path)")
+                logger.info("Using output directory: \(outputDirectory.path)")
 
                 // Create settings to ensure consistent sample rates and prevent audio speed issues
-                let settings = RKRecorder.Settings(allowFrameReordering: false, updatesUserPreferred: true)
+                let settings = RKRecorder.Settings(
+                    allowFrameReordering: false,
+                    updatesUserPreferred: true
+                )
 
                 // Initialize recorder with our settings
                 rkRecorder = RKRecorder(sources, outputDirectory: outputDirectory, settings: settings)
@@ -325,8 +348,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                             _ = await self.checkAndRequestPermissions()
                         }
 
-                    } else if error.localizedDescription.contains("directory") || error.localizedDescription.contains("outputDirectory") {
-                        logger.error("This appears to be a directory error: \(error.localizedDescription)")
+                    } else if error.localizedDescription.contains("directory") ||
+                              error.localizedDescription.contains("outputDirectory") ||
+                              error.localizedDescription.contains("Cannot Save") {
+                        logger.error("This appears to be a directory or file error: \(error.localizedDescription)")
 
                         // Try to delete the directory and recreate it
                         if let outputDir = rkRecordingURL?.deletingLastPathComponent() {
@@ -336,6 +361,22 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                                 logger.info("Successfully removed directory")
                             } catch {
                                 logger.error("Failed to remove directory: \(error.localizedDescription)")
+                            }
+                        }
+
+                        // Log detailed information about the error
+                        if let nsError = error as NSError? {
+                            logger.error("Error domain: \(nsError.domain), code: \(nsError.code)")
+                            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                                logger.error("Underlying error domain: \(underlyingError.domain), code: \(underlyingError.code)")
+                            }
+                            if let recoverySuggestion = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String {
+                                logger.error("Recovery suggestion: \(recoverySuggestion)")
+
+                                // If the error is about a file already existing, log more details
+                                if recoverySuggestion.contains("already in use") {
+                                    logger.error("File name conflict detected. Using different filenames for microphone and system audio.")
+                                }
                             }
                         }
                     } else {
@@ -348,20 +389,33 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
                         logger.error("Current permission status during error - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
                         logger.error("Available microphones: \(self.rkAvailableMicrophones.count)")
+
+                        // Log detailed information about the error
+                        if let nsError = error as NSError? {
+                            logger.error("Error domain: \(nsError.domain), code: \(nsError.code)")
+                            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                                logger.error("Underlying error domain: \(underlyingError.domain), code: \(underlyingError.code)")
+                            }
+                        }
                     }
                 }
 
                 // Rethrow as our custom error with more detailed information
                 if error.localizedDescription.contains("microphone access") {
-                    let micStatus = RKAuthorization.microphone
+                    // Check status but don't need to use it
+                    _ = RKAuthorization.microphone
                     throw AudioRecorderError.permissionDenied
                 } else if error.localizedDescription.contains("screen recording") {
-                    let screenStatus = RKAuthorization.screenRecording
+                    // Check status but don't need to use it
+                    _ = RKAuthorization.screenRecording
                     throw AudioRecorderError.permissionDenied
                 } else if error.localizedDescription.contains("system audio") {
-                    let systemAudioStatus = RKAuthorization.systemAudioRecording
+                    // Check status but don't need to use it
+                    _ = RKAuthorization.systemAudioRecording
                     throw AudioRecorderError.permissionDenied
-                } else if error.localizedDescription.contains("directory") || error.localizedDescription.contains("outputDirectory") {
+                } else if error.localizedDescription.contains("directory") ||
+                          error.localizedDescription.contains("outputDirectory") ||
+                          error.localizedDescription.contains("Cannot Save") {
                     throw AudioRecorderError.directoryError
                 } else {
                     throw AudioRecorderError.recordingFailed
@@ -426,35 +480,70 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     // Get the bundle URL from the result
                     let bundleURL = result.bundleURL
 
-                    // Find the actual audio file in the bundle directory
-                    // Use a local function to find the audio file URL to avoid capture issues
-                    func findAudioFileURL() -> URL {
+                    // Find the actual audio files in the bundle directory
+                    // Use a local function to find the audio file URLs to avoid capture issues
+                    func findAudioFileURLs() -> URL {
                         do {
                             // Look for audio files in the bundle directory
                             let fileManager = FileManager.default
                             let bundleContents = try fileManager.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
 
-                            // Find the first audio file (should be the recording)
+                            // Log all files found in the bundle
+                            logger.info("Files in bundle: \(bundleContents.map { $0.lastPathComponent }.joined(separator: ", "))")
+
+                            // First try to find the merged recording file
+                            if let mergedAudioURL = bundleContents.first(where: { url in
+                                return url.lastPathComponent == "recording.m4a"
+                            }) {
+                                logger.info("Found merged audio file: \(mergedAudioURL.path)")
+                                return mergedAudioURL
+                            }
+
+                            // Next try to find the system audio file
+                            if let systemAudioURL = bundleContents.first(where: { url in
+                                return url.lastPathComponent == "system_recording.m4a"
+                            }) {
+                                logger.info("Found system audio file: \(systemAudioURL.path)")
+                                return systemAudioURL
+                            }
+
+                            // Next try to find the microphone audio file
+                            if let micAudioURL = bundleContents.first(where: { url in
+                                return url.lastPathComponent == "mic_recording.m4a"
+                            }) {
+                                logger.info("Found microphone audio file: \(micAudioURL.path)")
+                                return micAudioURL
+                            }
+
+                            // If none of the expected files are found, look for any m4a file
+                            if let m4aURL = bundleContents.first(where: { url in
+                                return url.pathExtension.lowercased() == "m4a"
+                            }) {
+                                logger.info("Found m4a audio file: \(m4aURL.path)")
+                                return m4aURL
+                            }
+
+                            // If no m4a file is found, look for any audio file
                             if let audioURL = bundleContents.first(where: { url in
                                 let pathExtension = url.pathExtension.lowercased()
-                                return pathExtension == "m4a" || pathExtension == "wav" || pathExtension == "mp4"
+                                return pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov" || pathExtension == "m4a"
                             }) {
-                                print("Found audio file: \(audioURL.path)")
+                                logger.info("Found generic audio file: \(audioURL.path)")
                                 return audioURL
                             } else {
-                                print("No audio file found in bundle directory: \(bundleURL.path)")
+                                logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
                                 // Fall back to the bundle URL itself
                                 return bundleURL
                             }
                         } catch {
-                            print("Error examining bundle directory: \(error.localizedDescription)")
+                            logger.error("Error examining bundle directory: \(error.localizedDescription)")
                             // Fall back to the bundle URL
                             return bundleURL
                         }
                     }
 
                     // Get the audio file URL
-                    let audioFileURL = findAudioFileURL()
+                    let audioFileURL = findAudioFileURLs()
 
                     await MainActor.run {
                         // Update state
@@ -891,17 +980,43 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // If we get here, everything looks good
         return (true, "\(statusMessage)\n\nSystem audio capture is properly configured. RecordKit will record both microphone and system audio.")
     }
-}
 
-// MARK: - Errors
+    /// Helper method to select a default microphone using a fallback strategy
+    private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) {
+        // First try to find a physical microphone (not BlackHole or other virtual devices)
+        let physicalMics = rkAvailableMicrophones.filter { mic in
+            let name = mic.localizedName.lowercased()
+            return !name.contains("blackhole") &&
+                   !name.contains("virtual") &&
+                   !name.contains("loopback") &&
+                   !name.contains("aggregate")
+        }
+
+        if let preferredMic = RKMicrophone.preferred {
+            // Use system's preferred microphone
+            sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
+        } else if let physicalMic = physicalMics.first {
+            // Fall back to the first physical microphone we found
+            sources.append(.microphone(microphoneID: physicalMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using physical microphone: \(physicalMic.localizedName) (ID: \(physicalMic.id))")
+        } else if let defaultMic = rkAvailableMicrophones.first {
+            // Last resort: use the first available microphone
+            sources.append(.microphone(microphoneID: defaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using default microphone: \(defaultMic.localizedName) (ID: \(defaultMic.id))")
+        } else {
+            logger.warning("No microphones available for recording")
+        }
+    }
+}
 
 enum AudioRecorderError: Error, LocalizedError {
     case sessionSetupFailed
     case recordingFailed
     case permissionDenied
     case systemAudioCaptureFailed
-    case bluetoothDeviceIssue
     case directoryError
+    case bluetoothDeviceIssue
 
     var errorDescription: String? {
         switch self {
@@ -916,7 +1031,7 @@ enum AudioRecorderError: Error, LocalizedError {
         case .bluetoothDeviceIssue:
             return "There was an issue with Bluetooth audio device. Please try using a different audio output device."
         case .directoryError:
-            return "There was an issue with the recording directory. Please try again with a different recording name."
+            return "There was an issue with the recording directory or file. This could be because a file with the same name already exists or the directory couldn't be created. The app will try to use different filenames for microphone and system audio to avoid conflicts. Please try again with a different recording name if the issue persists."
         }
     }
 }

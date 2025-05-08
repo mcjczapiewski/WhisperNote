@@ -216,8 +216,8 @@ class SystemAudioCapture: NSObject {
 
     // Try to select a virtual audio device for input
     private func trySelectVirtualAudioDevice() -> Bool {
-        // Get all audio devices
-        let allDevices = Self.getAudioDeviceList()
+        // Get all audio devices (unused, but keeping the call for side effects)
+        _ = Self.getAudioDeviceList()
 
         // Find a virtual audio device
         var virtualDeviceID: AudioDeviceID = 0
@@ -287,14 +287,17 @@ class SystemAudioCapture: NSObject {
             }
 
             var deviceName: CFString? = nil
-            status = AudioObjectGetPropertyData(
-                deviceID,
-                &nameAddress,
-                0,
-                nil,
-                &nameSize,
-                &deviceName
-            )
+            // Use UnsafeMutablePointer to handle the CFString properly
+            withUnsafeMutablePointer(to: &deviceName) { ptr in
+                status = AudioObjectGetPropertyData(
+                    deviceID,
+                    &nameAddress,
+                    0,
+                    nil,
+                    &nameSize,
+                    ptr
+                )
+            }
 
             if status == noErr, let name = deviceName as String? {
                 let lowercaseName = name.lowercased()
@@ -513,14 +516,17 @@ class SystemAudioCapture: NSObject {
 
             // Get the name
             var deviceName: CFString? = nil
-            status = AudioObjectGetPropertyData(
-                deviceID,
-                &nameAddress,
-                0,
-                nil,
-                &nameSize,
-                &deviceName
-            )
+            // Use UnsafeMutablePointer to handle the CFString properly
+            withUnsafeMutablePointer(to: &deviceName) { ptr in
+                status = AudioObjectGetPropertyData(
+                    deviceID,
+                    &nameAddress,
+                    0,
+                    nil,
+                    &nameSize,
+                    ptr
+                )
+            }
 
             if status == noErr, let name = deviceName as String? {
                 deviceList.append(name)
@@ -631,15 +637,15 @@ enum SystemAudioCaptureError: Error, LocalizedError {
         case .fileCreationFailed:
             return "Failed to create audio file for recording."
         case .engineStartFailed:
-            return "Failed to start audio engine. Make sure a virtual audio device is installed and configured."
+            return "Failed to start audio engine. RecordKit will be used for recording."
         case .bluetoothDeviceNotSupported:
-            return "Bluetooth device not properly supported. Please ensure your virtual audio device is configured correctly."
+            return "Bluetooth device not properly supported by the legacy audio engine. RecordKit will be used instead for recording."
         case .noAudioData:
-            return "No audio data detected. Please check your audio device configuration."
+            return "No audio data detected in legacy audio engine. RecordKit will be used for recording instead."
         case .virtualDeviceConfigurationError:
-            return "Virtual audio device detected but not properly configured. Please check your system audio settings and make sure your system audio is routed through the virtual device."
+            return "Audio device not properly configured. RecordKit will be used for recording."
         case .virtualDeviceNotFound:
-            return "No virtual audio device found. Please install BlackHole, Loopback, or another virtual audio device to capture system audio."
+            return "Audio device not found. RecordKit will be used for recording."
         }
     }
 }

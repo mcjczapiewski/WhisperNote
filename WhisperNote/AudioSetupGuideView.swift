@@ -6,35 +6,32 @@ struct AudioSetupGuideView: View {
 
     let steps = [
         SetupStep(
-            title: "Install a Virtual Audio Device",
-            description: "To record system audio, you need to install a virtual audio device like BlackHole or Loopback.",
+            title: "Grant Required Permissions",
+            description: "WhisperNote needs certain permissions to record audio properly.",
             instructions: [
-                "1. Download BlackHole from https://existential.audio/blackhole/ (free)",
-                "2. Install the package by double-clicking and following the prompts",
-                "3. Restart your Mac after installation"
+                "1. When prompted, allow WhisperNote to access your microphone",
+                "2. When prompted, allow screen recording permission (needed for system audio)",
+                "3. You may need to restart the app after granting permissions"
             ],
-            image: "speaker.wave.3.fill"
+            image: "lock.shield"
         ),
         SetupStep(
-            title: "Create a Multi-Output Device",
-            description: "This allows you to hear audio while also routing it to the virtual device for recording.",
+            title: "Microphone Setup",
+            description: "Make sure your microphone is properly configured.",
             instructions: [
-                "1. Open Audio MIDI Setup (from Applications > Utilities)",
-                "2. Click the + button in the bottom left corner",
-                "3. Select 'Create Multi-Output Device'",
-                "4. Check both your regular output device (e.g., Built-in Output) and BlackHole 2ch",
-                "5. Make sure your regular output device is at the top of the list (drag if needed)",
-                "6. Make sure 'Drift Correction' is checked for BlackHole"
+                "1. Check that your preferred microphone is connected",
+                "2. WhisperNote will automatically use your system's default microphone",
+                "3. You can change your default microphone in System Settings > Sound"
             ],
-            image: "rectangle.on.rectangle"
+            image: "mic.fill"
         ),
         SetupStep(
-            title: "Set System Audio Output",
-            description: "Now you need to set your system to use the Multi-Output Device.",
+            title: "System Audio Setup",
+            description: "WhisperNote can record system audio directly.",
             instructions: [
-                "1. In Audio MIDI Setup, right-click on the Multi-Output Device",
-                "2. Select 'Use This Device For Sound Output'",
-                "3. Alternatively, select it from the volume control in the menu bar"
+                "1. Make sure your system audio is not muted",
+                "2. Adjust the volume to an appropriate level",
+                "3. Test your audio setup before important recordings"
             ],
             image: "speaker.wave.2.circle.fill"
         ),
@@ -43,8 +40,9 @@ struct AudioSetupGuideView: View {
             description: "WhisperNote will now be able to record both your microphone and system audio.",
             instructions: [
                 "1. When recording in WhisperNote, your microphone will capture your voice",
-                "2. System audio (like music, videos, or other participants in calls) will be captured through BlackHole",
-                "3. You can mute your microphone during recording if needed"
+                "2. System audio (like music, videos, or other participants in calls) will be captured directly",
+                "3. You can mute your microphone during recording if needed",
+                "4. Both microphone and system audio will be saved in a single file"
             ],
             image: "checkmark.circle.fill"
         )
@@ -57,7 +55,7 @@ struct AudioSetupGuideView: View {
                 .fontWeight(.bold)
                 .padding(.top)
 
-            Text("Follow these steps to enable system audio recording")
+            Text("Follow these steps to set up audio recording")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .padding(.bottom)
@@ -110,39 +108,14 @@ struct AudioSetupGuideView: View {
             }
             .padding()
 
-            if currentStep == 0 {
-                HStack {
-                    Button(action: {
-                        NSWorkspace.shared.open(URL(string: "https://existential.audio/blackhole/")!)
-                    }) {
-                        Text("Download BlackHole")
-                            .padding()
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
-
-                    Button(action: {
-                        NSWorkspace.shared.open(URL(string: "https://rogueamoeba.com/loopback/")!)
-                    }) {
-                        Text("Loopback (Paid Alternative)")
-                            .padding()
-                            .background(Color.orange)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
-                }
-                .padding(.bottom)
-            }
+            // No additional buttons needed for step 0
 
             if currentStep == 1 {
                 Button(action: {
-                    // Open Audio MIDI Setup
-                    let path = "/Applications/Utilities/Audio MIDI Setup.app"
-                    let url = URL(fileURLWithPath: path)
-                    NSWorkspace.shared.open(url)
+                    // Open Sound preferences
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.sound")!)
                 }) {
-                    Text("Open Audio MIDI Setup")
+                    Text("Open Sound Settings")
                         .padding()
                         .background(Color.green)
                         .foregroundColor(.white)

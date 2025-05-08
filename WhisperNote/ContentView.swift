@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab = 0
-    @StateObject private var audioRecorder = AudioRecorder()
+    @EnvironmentObject var audioRecorder: AudioRecorder
     @StateObject private var transcriptionManager = TranscriptionManager()
     @StateObject private var summaryManager = SummaryManager()
 

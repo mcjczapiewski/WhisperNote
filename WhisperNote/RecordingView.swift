@@ -16,6 +16,7 @@ struct RecordingView: View {
     @State private var showingAudioWarning = false
     @State private var audioWarningMessage = ""
     @State private var showingSetupGuide = false
+    @State private var selectedMicrophoneId: String = ""
 
     private let languages = [
         ("afr", "Afrikaans"),
@@ -338,6 +339,14 @@ struct RecordingView: View {
                                         showingAudioWarning = true
                                     }
 
+                                    // Reset selected microphone to default
+                                    selectedMicrophoneId = ""
+
+                                    // Refresh available microphones before showing the popup
+                                    Task {
+                                        await audioRecorder.refreshRecordKitDevices()
+                                    }
+
                                     showingNamePrompt = true
                                 } else {
                                     // Show detailed permission error
@@ -468,6 +477,34 @@ struct RecordingView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
 
+                // Microphone selection
+                VStack(alignment: .leading) {
+                    Text("Select Microphone:")
+                        .fontWeight(.medium)
+
+                    Picker("Microphone", selection: $selectedMicrophoneId) {
+                        // Default option - system preferred microphone
+                        Text("System Default").tag("")
+
+                        // List all available microphones
+                        ForEach(audioRecorder.rkAvailableMicrophones, id: \.id) { mic in
+                            Text(mic.localizedName).tag(mic.id)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .frame(maxWidth: .infinity)
+
+                    if let selectedMic = audioRecorder.rkAvailableMicrophones.first(where: { $0.id == selectedMicrophoneId }) {
+                        Text("Selected: \(selectedMic.localizedName)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if selectedMicrophoneId.isEmpty {
+                        Text("Selected: System Default")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 HStack {
                     Button("Cancel") {
                         recordingName = ""
@@ -485,7 +522,7 @@ struct RecordingView: View {
 
                                 // Proceed with recording (will only capture microphone)
                                 do {
-                                    try audioRecorder.startRecording(name: recordingName)
+                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
                                     showingNamePrompt = false
                                     recordingName = ""
                                 } catch let error as AudioRecorderError {
@@ -547,7 +584,7 @@ struct RecordingView: View {
 
                                 // Proceed with recording
                                 do {
-                                    try audioRecorder.startRecording(name: recordingName)
+                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
                                     showingNamePrompt = false
                                     recordingName = ""
                                 } catch let error as AudioRecorderError {
@@ -603,7 +640,7 @@ struct RecordingView: View {
                             } else {
                                 // No Bluetooth headphones, proceed normally
                                 do {
-                                    try audioRecorder.startRecording(name: recordingName)
+                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
                                     showingNamePrompt = false
                                     recordingName = ""
                                 } catch let error as AudioRecorderError {
@@ -664,7 +701,7 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            .frame(width: 300, height: 200)
+            .frame(width: 400, height: 350)
             .padding()
         }
         .alert("Delete Recording", isPresented: $showingDeleteConfirmation) {

@@ -38,24 +38,16 @@ public class RecordKitManager: ObservableObject {
 
     /// Refresh the list of available devices
     public func refreshDevices() async {
-        do {
-            // Use the updated API methods based on the documentation
-            availableWindows = try await RKRecorder.getWindows()
-            availableCameras = RKRecorder.getCameras()
-            availableMicrophones = RKRecorder.getMicrophones()
-            availableAppleDevices = await RKRecorder.getAppleDevices()
+        // Use the updated API methods based on the documentation
+        availableWindows = await RKWindow.windows()
+        availableCameras = RKCamera.cameras(includeDeskView: true)
+        availableMicrophones = RKMicrophone.microphones
+        availableAppleDevices = await RKAppleDevice.appleDevices
 
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.statusMessage = "Found \(self.availableWindows.count) windows, \(self.availableMicrophones.count) microphones, \(self.availableCameras.count) cameras"
-                self.hasError = false
-            }
-        } catch {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.hasError = true
-                self.errorMessage = "Error refreshing devices: \(error.localizedDescription)"
-            }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.statusMessage = "Found \(self.availableWindows.count) windows, \(self.availableMicrophones.count) microphones, \(self.availableCameras.count) cameras"
+            self.hasError = false
         }
     }
 
@@ -78,27 +70,24 @@ public class RecordKitManager: ObservableObject {
 
         do {
             // Create sources array for the recorder based on the documentation
-            var sources: [RKRecordingSource] = []
+            var sources: [RKRecorder.SchemaItem] = []
 
             // Add microphone if available
             if let microphone = availableMicrophones.first {
-                sources.append(.webcam(microphoneID: microphone.id, cameraID: nil))
+                sources.append(.microphone(microphoneID: microphone.id, output: .singleFile(filename: "mic_recording")))
             }
 
-            // Add system audio recording
-            sources.append(.systemAudio)
+            // Add system audio recording with a different filename
+            sources.append(.systemAudio(output: .singleFile(filename: "system_recording")))
 
-            // Create the recorder with sources
-            recorder = RKRecorder(sources)
-
-            // Set the output file path
-            recorder?.outputURL = outputURL
+            // Create the recorder with sources and output directory
+            recorder = RKRecorder(sources, outputDirectory: outputURL)
 
             // Prepare the recorder (this will trigger permission requests)
             try await recorder?.prepare()
 
             // Start recording
-            recorder?.start()
+            try await recorder?.start()
 
             // Update state
             DispatchQueue.main.async { [weak self] in
@@ -128,9 +117,9 @@ public class RecordKitManager: ObservableObject {
         }
 
         do {
-            // Stop the recording
-            try await recorder.stop()
-            print("Recording stopped")
+            // Stop the recording and get the result
+            let result = try await recorder.stop()
+            print("Recording stopped, bundle URL: \(result.bundleURL.path)")
 
             // Update state
             DispatchQueue.main.async { [weak self] in
