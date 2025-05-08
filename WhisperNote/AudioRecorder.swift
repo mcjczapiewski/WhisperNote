@@ -201,7 +201,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Remove the property listener
         let status = AudioObjectRemovePropertyListener(
-            devicePropertyListener,
+            self.devicePropertyListener,
             &propertyAddress,
             { (_, _, _, _) -> OSStatus in
                 return noErr
@@ -210,7 +210,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         )
 
         if status == noErr {
-            logger.info("Removed device property listener for device ID: \(devicePropertyListener)")
+            logger.info("Removed device property listener for device ID: \(self.devicePropertyListener)")
         } else {
             logger.error("Failed to remove device property listener: \(status)")
         }
