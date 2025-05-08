@@ -284,7 +284,76 @@ struct RecordingView: View {
                     }
 
                     Button(action: {
-                        showingNamePrompt = true
+                        // First check permissions before showing the name prompt
+                        Task {
+                            // Check all permissions
+                            let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                            let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                            let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                            print("Current permissions - Mic: \(hasMicPermission), Screen: \(hasScreenPermission), System Audio: \(hasSystemAudioPermission)")
+
+                            // If we don't have all required permissions, show a message first
+                            if !hasMicPermission || !hasScreenPermission || !hasSystemAudioPermission {
+                                await MainActor.run {
+                                    audioWarningMessage = """
+                                    WhisperNote needs the following permissions:
+
+                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                    When prompted, please click "Open System Settings" and enable WhisperNote in the list.
+                                    You may need to restart the app after granting permissions.
+                                    """
+                                    showingAudioWarning = true
+                                }
+                            }
+
+                            // Now check and request all permissions
+                            let permissionsGranted = await audioRecorder.checkAndRequestPermissions()
+
+                            // Check permissions again after the request
+                            let updatedMicPermission = audioRecorder.hasMicrophonePermission()
+                            let updatedScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                            let updatedSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                            print("Updated permissions - Mic: \(updatedMicPermission), Screen: \(updatedScreenPermission), System Audio: \(updatedSystemAudioPermission)")
+
+                            // Update UI on main thread
+                            await MainActor.run {
+                                if permissionsGranted {
+                                    // Even if microphone permission is granted, warn about other missing permissions
+                                    if !updatedScreenPermission || !updatedSystemAudioPermission {
+                                        audioWarningMessage = """
+                                        Some permissions are still missing:
+
+                                        Microphone: \(updatedMicPermission ? "✓ Granted" : "❌ Missing")
+                                        Screen Recording: \(updatedScreenPermission ? "✓ Granted" : "❌ Missing")
+                                        System Audio: \(updatedSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                        You can proceed with recording, but some features may not work properly.
+                                        To fix this, please grant all permissions in System Settings and restart the app.
+                                        """
+                                        showingAudioWarning = true
+                                    }
+
+                                    showingNamePrompt = true
+                                } else {
+                                    // Show detailed permission error
+                                    alertMessage = """
+                                    Permission error. Current status:
+
+                                    Microphone: \(updatedMicPermission ? "✓ Granted" : "❌ Missing")
+                                    Screen Recording: \(updatedScreenPermission ? "✓ Granted" : "❌ Missing")
+                                    System Audio: \(updatedSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                    Please enable all permissions in System Settings > Privacy & Security, then restart the app.
+                                    """
+                                    showingAlert = true
+                                }
+                            }
+                        }
                     }) {
                         Text("Start Recording")
                             .font(.headline)
@@ -419,8 +488,53 @@ struct RecordingView: View {
                                     try audioRecorder.startRecording(name: recordingName)
                                     showingNamePrompt = false
                                     recordingName = ""
+                                } catch let error as AudioRecorderError {
+                                    // Handle our custom error types
+                                    switch error {
+                                    case .permissionDenied:
+                                        // Check all permissions again
+                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                        alertMessage = """
+                                        Permission error
+
+                                        Current permission status:
+                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
+                                        """
+                                    case .directoryError:
+                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
+                                    case .recordingFailed:
+                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
+                                    default:
+                                        alertMessage = error.localizedDescription
+                                    }
+                                    showingAlert = true
+                                    showingNamePrompt = false
                                 } catch {
-                                    alertMessage = error.localizedDescription
+                                    // Handle other errors with more detailed information
+                                    print("Recording error: \(error.localizedDescription)")
+
+                                    // Check permissions to provide more context
+                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                    alertMessage = """
+                                    Recording error: \(error.localizedDescription)
+
+                                    Current permission status:
+                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                    Please check your system settings and try again.
+                                    """
                                     showingAlert = true
                                     showingNamePrompt = false
                                 }
@@ -436,8 +550,53 @@ struct RecordingView: View {
                                     try audioRecorder.startRecording(name: recordingName)
                                     showingNamePrompt = false
                                     recordingName = ""
+                                } catch let error as AudioRecorderError {
+                                    // Handle our custom error types
+                                    switch error {
+                                    case .permissionDenied:
+                                        // Check all permissions again
+                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                        alertMessage = """
+                                        Permission error
+
+                                        Current permission status:
+                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
+                                        """
+                                    case .directoryError:
+                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
+                                    case .recordingFailed:
+                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
+                                    default:
+                                        alertMessage = error.localizedDescription
+                                    }
+                                    showingAlert = true
+                                    showingNamePrompt = false
                                 } catch {
-                                    alertMessage = error.localizedDescription
+                                    // Handle other errors with more detailed information
+                                    print("Recording error: \(error.localizedDescription)")
+
+                                    // Check permissions to provide more context
+                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                    alertMessage = """
+                                    Recording error: \(error.localizedDescription)
+
+                                    Current permission status:
+                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                    Please check your system settings and try again.
+                                    """
                                     showingAlert = true
                                     showingNamePrompt = false
                                 }
@@ -447,8 +606,53 @@ struct RecordingView: View {
                                     try audioRecorder.startRecording(name: recordingName)
                                     showingNamePrompt = false
                                     recordingName = ""
+                                } catch let error as AudioRecorderError {
+                                    // Handle our custom error types
+                                    switch error {
+                                    case .permissionDenied:
+                                        // Check all permissions again
+                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                        let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                        alertMessage = """
+                                        Permission error
+
+                                        Current permission status:
+                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                        Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
+                                        """
+                                    case .directoryError:
+                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
+                                    case .recordingFailed:
+                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
+                                    default:
+                                        alertMessage = error.localizedDescription
+                                    }
+                                    showingAlert = true
+                                    showingNamePrompt = false
                                 } catch {
-                                    alertMessage = error.localizedDescription
+                                    // Handle other errors with more detailed information
+                                    print("Recording error: \(error.localizedDescription)")
+
+                                    // Check permissions to provide more context
+                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
+                                    let hasScreenPermission = audioRecorder.hasScreenRecordingPermission()
+                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
+
+                                    alertMessage = """
+                                    Recording error: \(error.localizedDescription)
+
+                                    Current permission status:
+                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
+                                    Screen Recording: \(hasScreenPermission ? "✓ Granted" : "❌ Missing")
+                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
+
+                                    Please check your system settings and try again.
+                                    """
                                     showingAlert = true
                                     showingNamePrompt = false
                                 }
