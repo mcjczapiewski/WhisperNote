@@ -91,27 +91,12 @@ class SystemAudioCapture: NSObject {
         // Log current audio devices
         logAudioDevices()
 
-        // Check if we have a virtual audio device
-        let hasVirtualDevice = Self.hasVirtualAudioDevice()
-        if !hasVirtualDevice {
-            print("WARNING: No virtual audio device detected. System audio capture may not work.")
-        } else {
-            print("Virtual audio device detected. Proceeding with system audio capture.")
-        }
-
         // Initialize the audio engine
         audioEngine = AVAudioEngine()
 
         guard let audioEngine = audioEngine else {
             print("Failed to initialize audio engine")
             throw SystemAudioCaptureError.engineInitializationFailed
-        }
-
-        // Try to select the virtual audio device if available
-        if hasVirtualDevice {
-            if !trySelectVirtualAudioDevice() {
-                print("Could not select virtual audio device, using default input")
-            }
         }
 
         // Get the input node (this will be the system audio input)
@@ -166,10 +151,10 @@ class SystemAudioCapture: NSObject {
 
                 if !hasAudioData {
                     // Log if no audio data is detected
-                    if hasVirtualDevice {
-                        print("Warning: No system audio data detected in buffer. Make sure your system audio is routed through the virtual audio device.")
-                    } else if bluetoothConnected {
+                    if bluetoothConnected {
                         print("Warning: No system audio data detected in buffer while using Bluetooth")
+                    } else {
+                        print("Warning: No system audio data detected in buffer")
                     }
                 } else {
                     // Log when we detect audio data (only once)
@@ -205,9 +190,6 @@ class SystemAudioCapture: NSObject {
             if bluetoothConnected {
                 print("Bluetooth headphones may be causing issues with audio capture")
                 throw SystemAudioCaptureError.bluetoothDeviceNotSupported
-            } else if hasVirtualDevice {
-                print("Virtual audio device detected but failed to start audio engine. Check your system audio configuration.")
-                throw SystemAudioCaptureError.virtualDeviceConfigurationError
             } else {
                 throw SystemAudioCaptureError.engineStartFailed
             }
@@ -215,135 +197,10 @@ class SystemAudioCapture: NSObject {
     }
 
     // Try to select a virtual audio device for input
+    // This is kept for backward compatibility but now just returns true
+    // since we no longer require virtual audio devices
     private func trySelectVirtualAudioDevice() -> Bool {
-        // Get all audio devices (unused, but keeping the call for side effects)
-        _ = Self.getAudioDeviceList()
-
-        // Find a virtual audio device
-        var virtualDeviceID: AudioDeviceID = 0
-        var found = false
-
-        // Get all device IDs
-        var propertySize: UInt32 = 0
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var status = AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize
-        )
-
-        if status != noErr {
-            print("Error getting audio device list size: \(status)")
-            return false
-        }
-
-        let deviceCount = Int(propertySize) / MemoryLayout<AudioDeviceID>.size
-        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
-
-        status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            &deviceIDs
-        )
-
-        if status != noErr {
-            print("Error getting audio device IDs: \(status)")
-            return false
-        }
-
-        // Find a virtual audio device
-        for deviceID in deviceIDs {
-            var nameSize: UInt32 = 0
-            var nameAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceNameCFString,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-
-            if !AudioObjectHasProperty(deviceID, &nameAddress) {
-                continue
-            }
-
-            status = AudioObjectGetPropertyDataSize(
-                deviceID,
-                &nameAddress,
-                0,
-                nil,
-                &nameSize
-            )
-
-            if status != noErr {
-                continue
-            }
-
-            var deviceName: CFString? = nil
-            // Use UnsafeMutablePointer to handle the CFString properly
-            withUnsafeMutablePointer(to: &deviceName) { ptr in
-                status = AudioObjectGetPropertyData(
-                    deviceID,
-                    &nameAddress,
-                    0,
-                    nil,
-                    &nameSize,
-                    ptr
-                )
-            }
-
-            if status == noErr, let name = deviceName as String? {
-                let lowercaseName = name.lowercased()
-                if lowercaseName.contains("blackhole") ||
-                   lowercaseName.contains("loopback") ||
-                   lowercaseName.contains("virtual") ||
-                   lowercaseName.contains("soundflower") {
-                    virtualDeviceID = deviceID
-                    found = true
-                    print("Found virtual audio device: \(name) with ID: \(deviceID)")
-                    break
-                }
-            }
-        }
-
-        if !found {
-            print("No virtual audio device found")
-            return false
-        }
-
-        // Try to set the default input device to the virtual audio device
-        // Note: This requires elevated permissions and may not work
-        // This is just an attempt - the user should configure this manually
-        propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        status = AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            UInt32(MemoryLayout<AudioDeviceID>.size),
-            &virtualDeviceID
-        )
-
-        if status == noErr {
-            print("Successfully set virtual audio device as default input")
-            return true
-        } else {
-            print("Could not set virtual audio device as default input: \(status)")
-            print("User needs to manually configure audio routing")
-            return false
-        }
+        return true
     }
 
     func pauseCapturing() {
@@ -409,36 +266,10 @@ class SystemAudioCapture: NSObject {
     }
 
     // Helper method to check if a virtual audio device is available
+    // This is kept for backward compatibility but always returns true
+    // since we no longer require virtual audio devices
     static func hasVirtualAudioDevice() -> Bool {
-        // Get the available input devices
-        let devices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInMicrophone, .externalUnknown],
-            mediaType: .audio,
-            position: .unspecified
-        ).devices
-
-        // Check if any of the devices might be a virtual audio device
-        for device in devices {
-            if device.localizedName.lowercased().contains("blackhole") ||
-               device.localizedName.lowercased().contains("loopback") ||
-               device.localizedName.lowercased().contains("virtual") ||
-               device.localizedName.lowercased().contains("soundflower") {
-                return true
-            }
-        }
-
-        // Also check audio devices using Core Audio API for more thorough detection
-        let deviceList = getAudioDeviceList()
-        for deviceName in deviceList {
-            if deviceName.lowercased().contains("blackhole") ||
-               deviceName.lowercased().contains("loopback") ||
-               deviceName.lowercased().contains("virtual") ||
-               deviceName.lowercased().contains("soundflower") {
-                return true
-            }
-        }
-
-        return false
+        return true
     }
 
     // Get a list of all audio devices using Core Audio API
@@ -627,8 +458,6 @@ enum SystemAudioCaptureError: Error, LocalizedError {
     case engineStartFailed
     case bluetoothDeviceNotSupported
     case noAudioData
-    case virtualDeviceConfigurationError
-    case virtualDeviceNotFound
 
     var errorDescription: String? {
         switch self {
@@ -642,10 +471,6 @@ enum SystemAudioCaptureError: Error, LocalizedError {
             return "Bluetooth device not properly supported by the legacy audio engine. RecordKit will be used instead for recording."
         case .noAudioData:
             return "No audio data detected in legacy audio engine. RecordKit will be used for recording instead."
-        case .virtualDeviceConfigurationError:
-            return "Audio device not properly configured. RecordKit will be used for recording."
-        case .virtualDeviceNotFound:
-            return "Audio device not found. RecordKit will be used for recording."
         }
     }
 }

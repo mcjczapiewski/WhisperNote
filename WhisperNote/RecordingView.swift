@@ -16,7 +16,6 @@ struct RecordingView: View {
     @State private var selectedLanguage = "eng"
     @State private var showingAudioWarning = false
     @State private var audioWarningMessage = ""
-    @State private var showingSetupGuide = false
     @State private var selectedMicrophoneId: String = ""
 
     private let languages = [
@@ -192,64 +191,8 @@ struct RecordingView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
 
-                    // Add a button for system audio setup even when virtual device is detected
-                    if SystemAudioCapture.hasVirtualAudioDevice() {
-                        Button(action: {
-                            showingSetupGuide = true
-                        }) {
-                            HStack {
-                                Image(systemName: "speaker.wave.3")
-                                Text("System Audio Setup Guide")
-                            }
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.blue.opacity(0.7))
-                            .foregroundColor(.white)
-                            .cornerRadius(5)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .padding(.top, 5)
-                    }
-
-                    // Check for virtual audio device
-                    if !SystemAudioCapture.hasVirtualAudioDevice() {
-                        VStack(spacing: 10) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.red)
-
-                                Text("No virtual audio device detected")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-
-                                Button(action: {
-                                    audioWarningMessage = "WhisperNote requires a virtual audio device (like BlackHole or Loopback) to capture system audio. Please install one and configure your system to route audio through it."
-                                    showingAudioWarning = true
-                                }) {
-                                    Image(systemName: "info.circle")
-                                        .foregroundColor(.blue)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-
-                            Button(action: {
-                                showingSetupGuide = true
-                            }) {
-                                Text("Setup System Audio Recording")
-                                    .font(.caption)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(5)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                        .padding(.vertical, 5)
-                    }
                     // Check for Bluetooth headphones
-                    else if SystemAudioCapture.isBluetoothHeadphonesConnected() {
+                    if SystemAudioCapture.isBluetoothHeadphonesConnected() {
                         VStack(spacing: 10) {
                             HStack {
                                 Image(systemName: "info.circle.fill")
@@ -260,7 +203,7 @@ struct RecordingView: View {
                                     .foregroundColor(.blue)
 
                                 Button(action: {
-                                    audioWarningMessage = "When using Bluetooth headphones, make sure your system audio is routed through a virtual audio device (like BlackHole or Loopback) to ensure proper recording of both microphone and system audio.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
+                                    audioWarningMessage = "When using Bluetooth headphones, audio quality may be affected.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
                                     showingAudioWarning = true
                                 }) {
                                     Image(systemName: "info.circle")
@@ -268,19 +211,6 @@ struct RecordingView: View {
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
-
-                            Button(action: {
-                                showingSetupGuide = true
-                            }) {
-                                Text("Check Audio Setup Guide")
-                                    .font(.caption)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(5)
-                            }
-                            .buttonStyle(PlainButtonStyle())
                         }
                         .padding(.vertical, 5)
                     }
@@ -526,68 +456,10 @@ struct RecordingView: View {
 
                     Button("Start Recording") {
                         if !recordingName.isEmpty {
-                            // Check for virtual audio device
-                            if !SystemAudioCapture.hasVirtualAudioDevice() {
-                                // Show a warning but still proceed
-                                audioWarningMessage = "No virtual audio device detected. System audio will not be captured properly. Please install BlackHole, Loopback, or another virtual audio device to capture system audio."
-                                showingAudioWarning = true
-
-                                // Proceed with recording (will only capture microphone)
-                                do {
-                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
-                                    showingNamePrompt = false
-                                    recordingName = ""
-                                } catch let error as AudioRecorderError {
-                                    // Handle our custom error types
-                                    switch error {
-                                    case .permissionDenied:
-                                        // Check all permissions again
-                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                        alertMessage = """
-                                        Permission error
-
-                                        Current permission status:
-                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
-                                        """
-                                    case .directoryError:
-                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
-                                    case .recordingFailed:
-                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
-                                    default:
-                                        alertMessage = error.localizedDescription
-                                    }
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                } catch {
-                                    // Handle other errors with more detailed information
-                                    print("Recording error: \(error.localizedDescription)")
-
-                                    // Check permissions to provide more context
-                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                    alertMessage = """
-                                    Recording error: \(error.localizedDescription)
-
-                                    Current permission status:
-                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                    Please check your system settings and try again.
-                                    """
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                }
-                            }
                             // Check if Bluetooth headphones are connected and warn the user
-                            else if SystemAudioCapture.isBluetoothHeadphonesConnected() {
+                            if SystemAudioCapture.isBluetoothHeadphonesConnected() {
                                 // We'll still proceed, but show a warning first
-                                audioWarningMessage = "Bluetooth headphones detected. Make sure your system audio is routed through a virtual audio device (like BlackHole or Loopback) to ensure proper recording of both microphone and system audio.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
+                                audioWarningMessage = "Bluetooth headphones detected. Audio quality may be affected.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
                                 showingAudioWarning = true
 
                                 // Proceed with recording
@@ -777,37 +649,7 @@ struct RecordingView: View {
             .frame(width: 450, height: 220)
             .padding()
         }
-        .sheet(isPresented: $showingSetupGuide) {
-            VStack {
-                Text("System Audio Recording Setup")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .padding(.top)
 
-                Text("To record system audio, you need to install a virtual audio device:")
-                    .padding()
-
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("1. Download BlackHole from https://existential.audio/blackhole/ (free)")
-                    Text("2. Install the package and restart your Mac")
-                    Text("3. Open Audio MIDI Setup and create a Multi-Output Device")
-                    Text("4. Select both your regular output and BlackHole 2ch")
-                    Text("5. Set the Multi-Output Device as your system output")
-                }
-                .padding()
-
-                Button("Close") {
-                    showingSetupGuide = false
-                }
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
-                .padding(.bottom)
-            }
-            .frame(width: 600, height: 400)
-            .padding()
-        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

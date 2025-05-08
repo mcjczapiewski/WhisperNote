@@ -330,9 +330,14 @@ Button(action: {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if selectedSummary.status == .completed {
                 ScrollView {
-                    Markdown(selectedSummary.content)
-                        .textSelection(.enabled)
-                        .padding()
+                    // Wrap the Markdown view in a VStack with a fixed width to avoid layout issues
+                    VStack {
+                        Markdown(selectedSummary.content)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
             } else if selectedSummary.status == .failed {
                 VStack {
@@ -432,11 +437,31 @@ struct RegenerateSummaryView: View {
     @Binding var errorMessage: String
     @Binding var showingError: Bool
     @ObservedObject var summaryManager: SummaryManager
+    @State private var selectedModel: String = ""
 
+    private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
+
+    // Initialize the selected model when the view appears
     var body: some View {
         VStack(spacing: 20) {
             Text("Regenerate Summary")
                 .font(.headline)
+
+            // LLM Model Selection
+            VStack(alignment: .leading) {
+                Text("Language Model:")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Picker("Select LLM Model", selection: $selectedModel) {
+                    Text("GPT-4.1 Mini").tag("openai/gpt-4.1-mini")
+                    Text("Gemini 2.5 Flash").tag("google/gemini-2.5-flash-preview")
+                    Text("DeepSeek Chat v3").tag("deepseek/deepseek-chat-v3-0324")
+                    Text("Gemini 2.5 Pro").tag("google/gemini-2.5-pro-exp-03-25")
+                }
+                .pickerStyle(MenuPickerStyle())
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal)
 
             Text("Edit Prompt:")
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -468,8 +493,8 @@ struct RegenerateSummaryView: View {
                                 // Find the transcript for this summary
                                 let transcriptionManager = TranscriptionManager()
                                 if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                    // Generate a new summary with the custom prompt
-                                    _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
+                                    // Generate a new summary with the custom prompt and selected model
+                                    _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt, model: selectedModel)
                                 } else {
                                     throw NSError(domain: "SummaryView", code: 1,
                                                  userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
@@ -488,10 +513,17 @@ struct RegenerateSummaryView: View {
             }
             .padding()
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
         .padding()
         .onAppear {
-            customPrompt = summaryManager.getDefaultPrompt()
+            // Initialize with the default model or the model from the selected summary
+            if let summary = selectedSummary {
+                selectedModel = summary.model
+                customPrompt = summary.prompt
+            } else {
+                selectedModel = summaryManager.defaultModel
+                customPrompt = summaryManager.getDefaultPrompt()
+            }
         }
     }
 }

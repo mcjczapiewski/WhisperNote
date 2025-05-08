@@ -21,6 +21,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var microphoneStateTimer: Timer?
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
+    private var devicePropertyListener: UInt32 = 0
+    private var isListeningForDeviceChanges = false
 
     @AppStorage("audioQuality") private var audioQuality = "high"
     private let audioFormat = "m4a"
@@ -138,6 +140,84 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     deinit {
         microphoneStateTimer?.invalidate()
+        removeDevicePropertyListener()
+    }
+
+    // Add a listener for audio device property changes
+    private func addDevicePropertyListener() {
+        // Only add if not already listening
+        if isListeningForDeviceChanges {
+            return
+        }
+
+        // Get the default input device
+        do {
+            let deviceID = try getDefaultInputDevice()
+
+            // Set up the property address
+            var propertyAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceIsAlive,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+
+            // Add the property listener
+            let status = AudioObjectAddPropertyListener(
+                deviceID,
+                &propertyAddress,
+                { (_, _, _, _) -> OSStatus in
+                    // This is a callback that will be called when the device changes
+                    // We don't need to do anything here as we're just using it to track the device
+                    return noErr
+                },
+                nil
+            )
+
+            if status == noErr {
+                isListeningForDeviceChanges = true
+                devicePropertyListener = deviceID
+                logger.info("Added device property listener for device ID: \(deviceID)")
+            } else {
+                logger.error("Failed to add device property listener: \(status)")
+            }
+        } catch {
+            logger.error("Failed to get default input device for property listener: \(error.localizedDescription)")
+        }
+    }
+
+    // Remove the device property listener
+    private func removeDevicePropertyListener() {
+        // Only remove if we're listening
+        if !isListeningForDeviceChanges || devicePropertyListener == 0 {
+            return
+        }
+
+        // Set up the property address
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Remove the property listener
+        let status = AudioObjectRemovePropertyListener(
+            devicePropertyListener,
+            &propertyAddress,
+            { (_, _, _, _) -> OSStatus in
+                return noErr
+            },
+            nil
+        )
+
+        if status == noErr {
+            logger.info("Removed device property listener for device ID: \(devicePropertyListener)")
+        } else {
+            logger.error("Failed to remove device property listener: \(status)")
+        }
+
+        // Reset the state
+        isListeningForDeviceChanges = false
+        devicePropertyListener = 0
     }
 
     func startRecording(name: String, microphoneId: String = "") throws {
@@ -329,6 +409,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     self.isRecording = true
                     self.isPaused = false
                     self.rkRecordingStartTime = Date()
+
+                    // Add device property listener
+                    self.addDevicePropertyListener()
 
                     // Create a new recording object (placeholder until recording is complete)
                     let outputDirectory = rkRecordingURL!.deletingLastPathComponent()
@@ -601,6 +684,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                         isPaused = false
                         durationTimer?.invalidate()
 
+                        // Remove device property listener
+                        removeDevicePropertyListener()
+
                         // Update the final duration
                         if let startTime = startTime {
                             accumulatedTime += Date().timeIntervalSince(startTime)
@@ -787,7 +873,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Get the name
         var deviceName: CFString = "" as CFString
-        var deviceNamePtr = UnsafeMutablePointer<CFString>.allocate(capacity: 1)
+        let deviceNamePtr = UnsafeMutablePointer<CFString>.allocate(capacity: 1)
         deviceNamePtr.initialize(to: deviceName)
 
         status = AudioObjectGetPropertyData(
@@ -1045,13 +1131,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return (true, "\(statusMessage)\n\nRecordKit is ready to record, but be aware that Bluetooth headphones may cause issues with system audio capture.")
         }
 
-        // Check for virtual audio device
-        let hasVirtualDevice = SystemAudioCapture.hasVirtualAudioDevice()
-        if !hasVirtualDevice {
-            statusMessage += "\n\nNo virtual audio device detected. System audio may not be captured properly."
-            return (true, "\(statusMessage)\n\nRecordKit will attempt to record, but system audio may not be captured properly without a virtual audio device like BlackHole.")
-        }
-
         // If we get here, everything looks good
         return (true, "\(statusMessage)\n\nSystem audio capture is properly configured. RecordKit will record both microphone and system audio.")
     }
@@ -1064,6 +1143,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// - Returns: URL of the merged file
     private func mergeAudioFiles(microphoneURL: URL, systemAudioURL: URL, outputURL: URL) async throws -> URL {
         logger.info("Merging audio files: \(microphoneURL.lastPathComponent) and \(systemAudioURL.lastPathComponent)")
+
+        // Get file sizes for logging
+        let microphoneFileSize = (try? FileManager.default.attributesOfItem(atPath: microphoneURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let systemAudioFileSize = (try? FileManager.default.attributesOfItem(atPath: systemAudioURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+
+        logger.info("Original file sizes - Microphone: \(ByteCountFormatter.string(fromByteCount: microphoneFileSize, countStyle: .file)), System Audio: \(ByteCountFormatter.string(fromByteCount: systemAudioFileSize, countStyle: .file))")
 
         // Check if both files exist
         guard FileManager.default.fileExists(atPath: microphoneURL.path) else {
@@ -1093,6 +1178,16 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         logger.info("Microphone duration: \(microphoneDuration.seconds) seconds")
         logger.info("System audio duration: \(systemAudioDuration.seconds) seconds")
+
+        // Check if microphone file is significantly smaller than system audio file
+        // This could indicate that the microphone was muted or has silence compression
+        let sizeRatio = Double(microphoneFileSize) / Double(systemAudioFileSize)
+        let hasSignificantSizeDifference = sizeRatio < 0.1 // Microphone file is less than 10% of system audio file
+
+        if hasSignificantSizeDifference {
+            logger.info("Detected significant file size difference: microphone file is \(Int(sizeRatio * 100))% of system audio file size")
+            logger.info("This suggests the microphone may have been muted or contains mostly silence")
+        }
 
         // Check if there's a significant difference in durations (more than 10%)
         let durationRatio = microphoneDuration.seconds / systemAudioDuration.seconds
@@ -1229,7 +1324,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
 
         // Create an export session with specific settings to ensure consistent output
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+        // Use a more optimized preset if the microphone file is significantly smaller
+        let exportPreset = hasSignificantSizeDifference ? AVAssetExportPresetMediumQuality : AVAssetExportPresetAppleM4A
+
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: exportPreset) else {
             logger.error("Failed to create export session")
             throw AudioRecorderError.recordingFailed
         }
@@ -1238,6 +1336,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .m4a
         exportSession.shouldOptimizeForNetworkUse = true
+
+        // Set audio mix time pitch algorithm to optimize quality
+        exportSession.audioTimePitchAlgorithm = .spectral
 
         // Set audio mixing to ensure both tracks are audible
         let audioMix = AVMutableAudioMix()
@@ -1277,6 +1378,16 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         if let error = exportSession.error {
             logger.error("Export failed: \(error.localizedDescription)")
             throw AudioRecorderError.recordingFailed
+        }
+
+        // Log the final file size
+        if let mergedFileSize = try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber {
+            let finalSize = mergedFileSize.int64Value
+            let totalOriginalSize = microphoneFileSize + systemAudioFileSize
+            let compressionRatio = Double(finalSize) / Double(totalOriginalSize)
+
+            logger.info("Merged file size: \(ByteCountFormatter.string(fromByteCount: finalSize, countStyle: .file))")
+            logger.info("Compression ratio: \(String(format: "%.2f", compressionRatio * 100))% of original combined size")
         }
 
         logger.info("Audio files successfully merged to: \(outputURL.path)")

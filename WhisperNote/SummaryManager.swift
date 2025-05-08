@@ -5,7 +5,7 @@ import SwiftUI
 class SummaryManager: ObservableObject {
     @Published var summaries: [Summary] = []
     @AppStorage("openrouterApiKey") private var apiKey = ""
-    @AppStorage("defaultLLMModel") private var defaultModel = "openai/gpt-4.1-mini"
+    @AppStorage("defaultLLMModel") var defaultModel = "openai/gpt-4.1-mini"
 
     private let directoryManager = DirectoryManager.shared
 
