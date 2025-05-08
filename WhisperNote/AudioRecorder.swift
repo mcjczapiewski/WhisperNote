@@ -82,11 +82,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         logger.info("Found \(self.rkAvailableMicrophones.count) microphones")
 
         // Force refresh the preferred microphone to match system settings
-        // Check if the refreshPreferred method exists (it might not in older versions of RecordKit)
-        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+        // Try to refresh the preferred microphone, but handle any errors
+        do {
             RKMicrophone.refreshPreferred()
-        } else {
-            logger.warning("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+        } catch {
+            logger.warning("Error refreshing preferred microphone: \(error.localizedDescription)")
         }
 
         // Get the system's current default input device
@@ -1096,10 +1096,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // If that fails, try to use RecordKit's preferred microphone
         // Force refresh the preferred microphone to ensure it's current
-        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+        do {
             RKMicrophone.refreshPreferred()
-        } else {
-            logger.warning("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+        } catch {
+            logger.warning("Error refreshing preferred microphone: \(error.localizedDescription)")
         }
 
         if let preferredMic = RKMicrophone.preferred {

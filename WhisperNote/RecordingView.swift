@@ -343,11 +343,11 @@ struct RecordingView: View {
                                     // This ensures we get the current system default microphone
                                     Task {
                                         // Force refresh the preferred microphone to match system settings
-                                        // Check if the refreshPreferred method exists (it might not in older versions of RecordKit)
-                                        if RKMicrophone.responds(to: #selector(RKMicrophone.refreshPreferred)) {
+                                        // Try to refresh the preferred microphone, but handle any errors
+                                        do {
                                             RKMicrophone.refreshPreferred()
-                                        } else {
-                                            print("RKMicrophone.refreshPreferred method not available in this version of RecordKit")
+                                        } catch {
+                                            print("Error refreshing preferred microphone: \(error.localizedDescription)")
                                         }
 
                                         // Refresh all available devices
