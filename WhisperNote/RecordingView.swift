@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import RecordKit
 
 struct RecordingView: View {
     @EnvironmentObject var audioRecorder: AudioRecorder
