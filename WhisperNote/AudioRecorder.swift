@@ -515,7 +515,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                             // Merge the audio files
                             logger.info("Merging microphone and system audio files...")
                             do {
-                                let mergedURL = try await AudioMerger.mergeAudioFiles(
+                                // Merge the audio files using AVFoundation
+                                let mergedURL = try await mergeAudioFiles(
                                     microphoneURL: micAudioURL,
                                     systemAudioURL: systemAudioURL,
                                     outputURL: mergedAudioURL
@@ -942,6 +943,106 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         return (true, "\(statusMessage)\n\nSystem audio capture is properly configured. RecordKit will record both microphone and system audio.")
     }
 
+    /// Merge two audio files into a single file
+    /// - Parameters:
+    ///   - microphoneURL: URL of the microphone audio file
+    ///   - systemAudioURL: URL of the system audio file
+    ///   - outputURL: URL where the merged file will be saved
+    /// - Returns: URL of the merged file
+    private func mergeAudioFiles(microphoneURL: URL, systemAudioURL: URL, outputURL: URL) async throws -> URL {
+        logger.info("Merging audio files: \(microphoneURL.lastPathComponent) and \(systemAudioURL.lastPathComponent)")
+
+        // Check if both files exist
+        guard FileManager.default.fileExists(atPath: microphoneURL.path) else {
+            logger.error("Microphone audio file not found at: \(microphoneURL.path)")
+            throw AudioRecorderError.fileNotFound
+        }
+
+        guard FileManager.default.fileExists(atPath: systemAudioURL.path) else {
+            logger.error("System audio file not found at: \(systemAudioURL.path)")
+            throw AudioRecorderError.fileNotFound
+        }
+
+        // Create AVAssets for both files
+        let microphoneAsset = AVAsset(url: microphoneURL)
+        let systemAudioAsset = AVAsset(url: systemAudioURL)
+
+        // Create a composition
+        let composition = AVMutableComposition()
+
+        // Create audio tracks in the composition
+        guard let compositionTrack1 = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid),
+              let compositionTrack2 = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            logger.error("Failed to create composition tracks")
+            throw AudioRecorderError.recordingFailed
+        }
+
+        // Get audio tracks from the assets
+        guard let microphoneTrack = try? await microphoneAsset.loadTracks(withMediaType: .audio).first,
+              let systemAudioTrack = try? await systemAudioAsset.loadTracks(withMediaType: .audio).first else {
+            logger.error("Failed to get audio tracks from assets")
+            throw AudioRecorderError.recordingFailed
+        }
+
+        // Get the time ranges for both tracks
+        let microphoneDuration = try await microphoneAsset.load(.duration)
+        let systemAudioDuration = try await systemAudioAsset.load(.duration)
+
+        logger.info("Microphone duration: \(microphoneDuration.seconds) seconds")
+        logger.info("System audio duration: \(systemAudioDuration.seconds) seconds")
+
+        // Create time ranges for both tracks
+        let microphoneTimeRange = CMTimeRange(start: .zero, duration: microphoneDuration)
+        let systemAudioTimeRange = CMTimeRange(start: .zero, duration: systemAudioDuration)
+
+        // Insert the audio tracks into the composition
+        do {
+            try compositionTrack1.insertTimeRange(microphoneTimeRange, of: microphoneTrack, at: .zero)
+            try compositionTrack2.insertTimeRange(systemAudioTimeRange, of: systemAudioTrack, at: .zero)
+        } catch {
+            logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+            throw AudioRecorderError.recordingFailed
+        }
+
+        // Create an export session
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
+            logger.error("Failed to create export session")
+            throw AudioRecorderError.recordingFailed
+        }
+
+        // Configure the export session
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .m4a
+        exportSession.shouldOptimizeForNetworkUse = true
+
+        // Remove the output file if it already exists
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            do {
+                try FileManager.default.removeItem(at: outputURL)
+                logger.info("Removed existing file at: \(outputURL.path)")
+            } catch {
+                logger.error("Failed to remove existing file: \(error.localizedDescription)")
+                throw AudioRecorderError.fileOperationFailed
+            }
+        }
+
+        // Export the composition
+        await exportSession.export()
+
+        // Check for export errors
+        if let error = exportSession.error {
+            logger.error("Export failed: \(error.localizedDescription)")
+            throw AudioRecorderError.recordingFailed
+        }
+
+        logger.info("Audio files successfully merged to: \(outputURL.path)")
+        return outputURL
+    }
+
     /// Helper method to select a default microphone using a fallback strategy
     private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) {
         // Always refresh the list of available microphones to get the current system default
@@ -985,6 +1086,8 @@ enum AudioRecorderError: Error, LocalizedError {
     case systemAudioCaptureFailed
     case directoryError
     case bluetoothDeviceIssue
+    case fileNotFound
+    case fileOperationFailed
 
     var errorDescription: String? {
         switch self {
@@ -1000,6 +1103,10 @@ enum AudioRecorderError: Error, LocalizedError {
             return "There was an issue with Bluetooth audio device. Please try using a different audio output device."
         case .directoryError:
             return "There was an issue with the recording directory or file. This could be because a file with the same name already exists or the directory couldn't be created. The app will try to use different filenames for microphone and system audio to avoid conflicts. Please try again with a different recording name if the issue persists."
+        case .fileNotFound:
+            return "Audio file not found. The recording may have failed or been moved."
+        case .fileOperationFailed:
+            return "Failed to perform file operation. Please try again."
         }
     }
 }
