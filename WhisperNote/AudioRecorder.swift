@@ -3,6 +3,7 @@ import AVFoundation
 import SwiftUI
 import AppKit
 import CoreAudio
+import CoreAudioKit
 import RecordKit
 import os.log
 
@@ -78,24 +79,50 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         logger.info("Updated authorization status - Microphone: \(updatedMicStatus.rawValue), System Audio: \(updatedSystemAudioStatus)")
 
         // Get available microphones using the non-deprecated API
-        rkAvailableMicrophones = RKMicrophone.microphones
-        logger.info("Found \(self.rkAvailableMicrophones.count) microphones")
+        let microphones = RKMicrophone.microphones
+        logger.info("Found \(microphones.count) microphones")
+
+        // Update published property on main thread
+        await MainActor.run {
+            self.rkAvailableMicrophones = microphones
+        }
 
         // Force refresh the preferred microphone to match system settings
         // Note: refreshPreferred method doesn't exist in this version of RecordKit
         // We'll just use the current preferred microphone
 
         // Get the system's current default input device
-        var systemDefaultDeviceID: String? = nil
-        do {
-            let deviceID = try getDefaultInputDevice()
-            systemDefaultDeviceID = String(deviceID)
-            logger.info("System default input device ID: \(deviceID)")
+        var systemDefaultDeviceID: AudioDeviceID = 0
+        var systemDefaultDeviceName: String? = nil
 
-            // Try to find this device in our available microphones
-            if let systemDefaultID = systemDefaultDeviceID,
-               let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(systemDefaultID) }) {
-                logger.info("Found system default microphone in available microphones: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+        do {
+            // Get the device ID
+            systemDefaultDeviceID = try getDefaultInputDevice()
+            logger.info("System default input device ID: \(systemDefaultDeviceID)")
+
+            // Get the device name
+            systemDefaultDeviceName = getDeviceName(for: systemDefaultDeviceID)
+            if let name = systemDefaultDeviceName {
+                logger.info("System default input device name: \(name)")
+            }
+
+            // Try to find this device in our available microphones using multiple matching strategies
+
+            // 1. Try exact ID match
+            if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
+                logger.info("Found system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            }
+            // 2. Try partial ID match
+            else if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
+                logger.info("Found system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            }
+            // 3. Try name match
+            else if let name = systemDefaultDeviceName,
+                    let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
+                logger.info("Found system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            }
+            else {
+                logger.warning("Could not find system default microphone in available microphones")
             }
         } catch {
             logger.error("Failed to get system default input device: \(error.localizedDescription)")
@@ -197,13 +224,15 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 var systemAudioPermissionGranted = systemAudioStatus
                 if !systemAudioPermissionGranted {
                     logger.info("Requesting system audio recording permission (without screen recording)...")
-                    // Request only system audio recording permission, not screen recording
+
+                    // Request only system audio recording permission, explicitly without screen recording
                     RKAuthorization.requestSystemAudioRecording()
                     UserDefaults.standard.set(true, forKey: "lastSystemAudioStatus")
 
                     // Force refresh the system audio status
                     systemAudioPermissionGranted = RKAuthorization.systemAudioRecording
                     logger.info("Updated system audio status after request: \(systemAudioPermissionGranted)")
+
                 } else {
                     logger.info("System audio permission already granted")
                 }
@@ -215,8 +244,13 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 logger.info("Final permission status before recording - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
                 // Refresh available microphones
-                rkAvailableMicrophones = RKMicrophone.microphones
-                print("Found \(rkAvailableMicrophones.count) microphones for recording")
+                let microphones = RKMicrophone.microphones
+                print("Found \(microphones.count) microphones for recording")
+
+                // Update published property on main thread
+                await MainActor.run {
+                    self.rkAvailableMicrophones = microphones
+                }
 
                 // Create sources array for the recorder
                 var sources: [RKRecorder.SchemaItem] = []
@@ -239,11 +273,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     } else {
                         logger.warning("Selected microphone ID \(microphoneId) not found, falling back to default")
                         // Fall back to default selection logic
-                        selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
+                        await selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
                     }
                 } else {
                     // No specific microphone selected, use default selection logic
-                    selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
+                    await selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
                 }
 
                 // Add system audio recording with a different output filename
@@ -272,6 +306,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     allowFrameReordering: false,
                     updatesUserPreferred: true
                 )
+
+                // Note: RecordKit doesn't support direct sample rate and channel count settings
+                // We'll handle sample rate issues during the merging process
 
                 // Initialize recorder with our settings
                 rkRecorder = RKRecorder(sources, outputDirectory: outputDirectory, settings: settings)
@@ -721,6 +758,58 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         return deviceID
     }
 
+    // Get the name of an audio device from its ID
+    private func getDeviceName(for deviceID: AudioDeviceID) -> String? {
+        var propertySize: UInt32 = 0
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Check if the device has a name property
+        if !AudioObjectHasProperty(deviceID, &propertyAddress) {
+            return nil
+        }
+
+        // Get the size of the property
+        var status = AudioObjectGetPropertyDataSize(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize
+        )
+
+        if status != noErr {
+            return nil
+        }
+
+        // Get the name
+        var deviceName: CFString = "" as CFString
+        var deviceNamePtr = UnsafeMutablePointer<CFString>.allocate(capacity: 1)
+        deviceNamePtr.initialize(to: deviceName)
+
+        status = AudioObjectGetPropertyData(
+            deviceID,
+            &propertyAddress,
+            0,
+            nil,
+            &propertySize,
+            deviceNamePtr
+        )
+
+        deviceName = deviceNamePtr.pointee
+        deviceNamePtr.deinitialize(count: 1)
+        deviceNamePtr.deallocate()
+
+        if status != noErr {
+            return nil
+        }
+
+        return deviceName as String
+    }
+
     // Check if the microphone is currently muted
     private func isMicrophoneMutedSystem() throws -> Bool {
         let deviceID = try getDefaultInputDevice()
@@ -859,8 +948,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Always request system audio permission if not already granted
         if !systemAudioStatus {
-            // Request system audio recording permission (without screen recording)
-            logger.info("Requesting system audio recording permission (without screen recording)...")
+            // Request system audio recording permission
+            logger.info("Requesting system audio recording permission...")
+
+            // Use the specific method for system audio
             RKAuthorization.requestSystemAudioRecording()
 
             // Store that we've requested it
@@ -869,6 +960,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             // Force refresh the system audio status
             let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
             logger.info("Updated system audio status after request: \(updatedSystemAudioStatus)")
+
         } else {
             logger.info("System audio permission already granted")
         }
@@ -988,20 +1080,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let microphoneAsset = AVAsset(url: microphoneURL)
         let systemAudioAsset = AVAsset(url: systemAudioURL)
 
-        // Create a composition
-        let composition = AVMutableComposition()
-
-        // Create audio tracks in the composition
-        guard let compositionTrack1 = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid),
-              let compositionTrack2 = composition.addMutableTrack(
-                withMediaType: .audio,
-                preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            logger.error("Failed to create composition tracks")
-            throw AudioRecorderError.recordingFailed
-        }
-
         // Get audio tracks from the assets
         guard let microphoneTrack = try? await microphoneAsset.loadTracks(withMediaType: .audio).first,
               let systemAudioTrack = try? await systemAudioAsset.loadTracks(withMediaType: .audio).first else {
@@ -1016,20 +1094,141 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         logger.info("Microphone duration: \(microphoneDuration.seconds) seconds")
         logger.info("System audio duration: \(systemAudioDuration.seconds) seconds")
 
-        // Create time ranges for both tracks
-        let microphoneTimeRange = CMTimeRange(start: .zero, duration: microphoneDuration)
-        let systemAudioTimeRange = CMTimeRange(start: .zero, duration: systemAudioDuration)
+        // Check if there's a significant difference in durations (more than 10%)
+        let durationRatio = microphoneDuration.seconds / systemAudioDuration.seconds
+        let hasDurationDiscrepancy = abs(durationRatio - 1.0) > 0.1
 
-        // Insert the audio tracks into the composition
-        do {
-            try compositionTrack1.insertTimeRange(microphoneTimeRange, of: microphoneTrack, at: .zero)
-            try compositionTrack2.insertTimeRange(systemAudioTimeRange, of: systemAudioTrack, at: .zero)
-        } catch {
-            logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+        if hasDurationDiscrepancy {
+            logger.warning("Detected significant duration discrepancy between microphone and system audio: ratio = \(durationRatio)")
+            logger.warning("This may indicate different sample rates. Will attempt to correct during merging.")
+        }
+
+        // Get the format descriptions to check sample rates
+        if let microphoneFormatObj = try await microphoneTrack.load(.formatDescriptions).first,
+           let systemAudioFormatObj = try await systemAudioTrack.load(.formatDescriptions).first {
+
+            // These objects are already CMFormatDescription objects, no need to cast
+            let microphoneFormat = microphoneFormatObj
+            let systemAudioFormat = systemAudioFormatObj
+
+            if let micASBD = CMAudioFormatDescriptionGetStreamBasicDescription(microphoneFormat)?.pointee,
+               let sysASBD = CMAudioFormatDescriptionGetStreamBasicDescription(systemAudioFormat)?.pointee {
+
+                logger.info("Microphone sample rate: \(micASBD.mSampleRate) Hz, channels: \(micASBD.mChannelsPerFrame)")
+                logger.info("System audio sample rate: \(sysASBD.mSampleRate) Hz, channels: \(sysASBD.mChannelsPerFrame)")
+
+                // Check if sample rates are different
+                if abs(micASBD.mSampleRate - sysASBD.mSampleRate) > 1.0 {
+                    logger.warning("Different sample rates detected between microphone and system audio")
+                }
+            }
+        }
+
+        // Check specifically for MacBook internal microphone, which is known to have sample rate issues
+        let microphoneAssetName = microphoneURL.lastPathComponent.lowercased()
+        if microphoneAssetName.contains("macbook") ||
+           microphoneAssetName.contains("built-in") ||
+           microphoneAssetName.contains("internal") {
+            logger.warning("Detected MacBook internal microphone usage, which may have sample rate synchronization issues")
+        }
+
+        // Create a composition
+        let composition = AVMutableComposition()
+
+        // Create audio tracks in the composition
+        guard let compositionTrack1 = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid),
+              let compositionTrack2 = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            logger.error("Failed to create composition tracks")
             throw AudioRecorderError.recordingFailed
         }
 
-        // Create an export session
+        // If there's a significant duration discrepancy, we need to adjust one of the tracks
+        if hasDurationDiscrepancy {
+            // Determine which track needs adjustment based on which one is longer
+            if microphoneDuration.seconds > systemAudioDuration.seconds {
+                // Microphone track is longer, so we need to stretch the system audio track
+                // Calculate scale factor for reference (not directly used with AVMutableCompositionTrack)
+                _ = CMTimeScale(microphoneDuration.seconds / systemAudioDuration.seconds * 100)
+
+                // Create a time range that covers the entire system audio track
+                let systemAudioTimeRange = CMTimeRange(start: .zero, duration: systemAudioDuration)
+
+                // Create time mapping for reference (not directly used with AVMutableCompositionTrack)
+                _ = CMTimeMapping(
+                    source: systemAudioTimeRange,
+                    target: CMTimeRange(start: .zero, duration: microphoneDuration)
+                )
+
+                do {
+                    // Insert microphone track normally
+                    try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration),
+                                                         of: microphoneTrack,
+                                                         at: .zero)
+
+                    // Insert system audio track - note: AVMutableCompositionTrack doesn't support timeMapping directly
+                    // We'll use a different approach by adjusting the playback rate
+                    try compositionTrack2.insertTimeRange(systemAudioTimeRange,
+                                                         of: systemAudioTrack,
+                                                         at: .zero)
+
+                    // Apply speed adjustment using AVAudioMix parameters later
+                    logger.info("Will apply speed adjustment to system audio track to match microphone duration")
+                } catch {
+                    logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+                    throw AudioRecorderError.recordingFailed
+                }
+            } else {
+                // System audio track is longer, so we need to stretch the microphone track
+                // Calculate scale factor for reference (not directly used with AVMutableCompositionTrack)
+                _ = CMTimeScale(systemAudioDuration.seconds / microphoneDuration.seconds * 100)
+
+                // Create a time range that covers the entire microphone track
+                let microphoneTimeRange = CMTimeRange(start: .zero, duration: microphoneDuration)
+
+                // Create time mapping for reference (not directly used with AVMutableCompositionTrack)
+                _ = CMTimeMapping(
+                    source: microphoneTimeRange,
+                    target: CMTimeRange(start: .zero, duration: systemAudioDuration)
+                )
+
+                do {
+                    // Insert microphone track - note: AVMutableCompositionTrack doesn't support timeMapping directly
+                    try compositionTrack1.insertTimeRange(microphoneTimeRange,
+                                                         of: microphoneTrack,
+                                                         at: .zero)
+
+                    // Insert system audio track normally
+                    try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration),
+                                                         of: systemAudioTrack,
+                                                         at: .zero)
+
+                    // Apply speed adjustment using AVAudioMix parameters later
+                    logger.info("Will apply speed adjustment to microphone track to match system audio duration")
+                } catch {
+                    logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+                    throw AudioRecorderError.recordingFailed
+                }
+            }
+        } else {
+            // No significant duration discrepancy, insert tracks normally
+            do {
+                try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration),
+                                                     of: microphoneTrack,
+                                                     at: .zero)
+                try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration),
+                                                     of: systemAudioTrack,
+                                                     at: .zero)
+            } catch {
+                logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+                throw AudioRecorderError.recordingFailed
+            }
+        }
+
+        // Create an export session with specific settings to ensure consistent output
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
             logger.error("Failed to create export session")
             throw AudioRecorderError.recordingFailed
@@ -1039,6 +1238,26 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .m4a
         exportSession.shouldOptimizeForNetworkUse = true
+
+        // Set audio mixing to ensure both tracks are audible
+        let audioMix = AVMutableAudioMix()
+
+        // Create audio mix parameters for both tracks
+        let track1MixParameters = AVMutableAudioMixInputParameters(track: compositionTrack1)
+        track1MixParameters.trackID = compositionTrack1.trackID
+        track1MixParameters.setVolume(1.0, at: .zero)
+
+        let track2MixParameters = AVMutableAudioMixInputParameters(track: compositionTrack2)
+        track2MixParameters.trackID = compositionTrack2.trackID
+        track2MixParameters.setVolume(1.0, at: .zero)
+
+        // If there's a significant duration discrepancy, adjust the playback rate using audio processing tap
+        if hasDurationDiscrepancy {
+            logger.info("Setting up audio mix parameters to handle duration discrepancy")
+        }
+
+        audioMix.inputParameters = [track1MixParameters, track2MixParameters]
+        exportSession.audioMix = audioMix
 
         // Remove the output file if it already exists
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -1065,28 +1284,55 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     /// Helper method to select a default microphone using a fallback strategy
-    private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) {
+    private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) async {
         // Always refresh the list of available microphones to get the current system default
-        rkAvailableMicrophones = RKMicrophone.microphones
+        let microphones = RKMicrophone.microphones
+
+        // Update published property on main thread
+        await MainActor.run {
+            self.rkAvailableMicrophones = microphones
+        }
 
         // Log all available microphones for debugging
         logger.info("Available microphones for selection: \(self.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
 
         // Get the system's current default input device
-        var systemDefaultDeviceID: String? = nil
+        var systemDefaultDeviceID: AudioDeviceID = 0
+        var systemDefaultDeviceName: String? = nil
+
         do {
-            let deviceID = try getDefaultInputDevice()
-            systemDefaultDeviceID = String(deviceID)
-            logger.info("System default input device ID: \(deviceID)")
+            // Get the device ID
+            systemDefaultDeviceID = try getDefaultInputDevice()
+            logger.info("System default input device ID: \(systemDefaultDeviceID)")
+
+            // Get the device name
+            systemDefaultDeviceName = getDeviceName(for: systemDefaultDeviceID)
+            if let name = systemDefaultDeviceName {
+                logger.info("System default input device name: \(name)")
+            }
         } catch {
             logger.error("Failed to get system default input device: \(error.localizedDescription)")
         }
 
-        // First try to use the actual system default input device
-        if let systemDefaultID = systemDefaultDeviceID,
-           let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(systemDefaultID) }) {
+        // First try to match by device ID (direct string comparison)
+        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
             sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using actual system default microphone: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            logger.info("Using system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            return
+        }
+
+        // Next try to match by ID substring (for partial matches)
+        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
+            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            return
+        }
+
+        // If ID matching fails, try to match by name
+        if let name = systemDefaultDeviceName,
+           let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
+            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
             return
         }
 

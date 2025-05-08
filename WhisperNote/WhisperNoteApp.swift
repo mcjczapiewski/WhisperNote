@@ -37,9 +37,11 @@ struct WhisperNoteApp: App {
             logger.info("Updated microphone status after request: \(updatedMicStatus.rawValue)")
         }
 
-        // Request system audio recording permission (without screen recording)
+        // Request system audio recording permission
         if !systemAudioStatus {
-            logger.info("Requesting system audio recording permission (without screen recording)...")
+            logger.info("Requesting system audio recording permission...")
+
+            // Request system audio recording permission
             RKAuthorization.requestSystemAudioRecording()
 
             // Force refresh the system audio status

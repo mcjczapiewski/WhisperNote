@@ -10,7 +10,7 @@ struct AudioSetupGuideView: View {
             description: "WhisperNote needs certain permissions to record audio properly.",
             instructions: [
                 "1. When prompted, allow WhisperNote to access your microphone",
-                "2. When prompted, allow screen recording permission (needed for system audio)",
+                "2. When prompted, allow WhisperNote to access system audio (needed for system audio recording)",
                 "3. You may need to restart the app after granting permissions"
             ],
             image: "lock.shield"
@@ -27,7 +27,7 @@ struct AudioSetupGuideView: View {
         ),
         SetupStep(
             title: "System Audio Setup",
-            description: "WhisperNote can record system audio directly.",
+            description: "WhisperNote can record system audio directly if your system audio is not muted.",
             instructions: [
                 "1. Make sure your system audio is not muted",
                 "2. Adjust the volume to an appropriate level",

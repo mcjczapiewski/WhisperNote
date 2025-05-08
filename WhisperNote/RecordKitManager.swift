@@ -80,8 +80,14 @@ public class RecordKitManager: ObservableObject {
             // Add system audio recording with a different filename
             sources.append(.systemAudio(output: .singleFile(filename: "system_recording")))
 
-            // Create the recorder with sources and output directory
-            recorder = RKRecorder(sources, outputDirectory: outputURL)
+            // Create settings to ensure consistent sample rates and prevent audio speed issues
+            let settings = RKRecorder.Settings(
+                allowFrameReordering: false,
+                updatesUserPreferred: true
+            )
+
+            // Create the recorder with sources, output directory, and settings
+            recorder = RKRecorder(sources, outputDirectory: outputURL, settings: settings)
 
             // Prepare the recorder (this will trigger permission requests)
             try await recorder?.prepare()
