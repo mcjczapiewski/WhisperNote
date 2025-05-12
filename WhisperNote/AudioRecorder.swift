@@ -13,7 +13,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isPaused = false
     @Published var recordingDuration: TimeInterval = 0
     @Published var currentRecording: Recording?
-    @Published var isMicrophoneMuted = false
+    @Published var isMicrophoneMuted = false // Default to unmuted
 
     private var audioRecorder: AVAudioRecorder?
     private var systemAudioCapture = SystemAudioCapture()
@@ -42,7 +42,16 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     override init() {
         super.init()
         loadRecordings()
-        updateMicrophoneMuteState()
+
+        // Start with microphone unmuted
+        isMicrophoneMuted = false
+
+        // Try to set system microphone to unmuted at startup
+        do {
+            try setMicrophoneMuteSystem(muted: false)
+        } catch {
+            // Silently fail if we can't set the microphone state
+        }
 
         // Set up a timer to periodically check microphone state
         microphoneStateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -1319,8 +1328,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
 
         // Create an export session with specific settings to ensure consistent output
-        // Use a more optimized preset if the microphone file is significantly smaller
-        let exportPreset = hasSignificantSizeDifference ? AVAssetExportPresetMediumQuality : AVAssetExportPresetAppleM4A
+        // Use a more optimized preset to reduce file size
+        let exportPreset = AVAssetExportPresetMediumQuality // Use medium quality to reduce file size
 
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: exportPreset) else {
             logger.error("Failed to create export session")
@@ -1332,8 +1341,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         exportSession.outputFileType = .m4a
         exportSession.shouldOptimizeForNetworkUse = true
 
-        // Set audio mix time pitch algorithm to optimize quality
-        exportSession.audioTimePitchAlgorithm = .spectral
+        // Set audio mix time pitch algorithm to optimize quality while maintaining smaller file size
+        exportSession.audioTimePitchAlgorithm = .timeDomain // Use timeDomain instead of spectral for better compression
 
         // Set audio mixing to ensure both tracks are audible
         let audioMix = AVMutableAudioMix()

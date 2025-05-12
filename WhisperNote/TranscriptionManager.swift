@@ -147,12 +147,21 @@ class TranscriptionManager: ObservableObject {
                 // Print response body for debugging
                 let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
                 print("API Error Response: \(responseString)")
-                throw TranscriptionError.apiError(statusCode: httpResponse.statusCode)
+
+                // Try to extract error message from the response
+                var errorMessage: String? = nil
+                if let data = responseString.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let detail = json["detail"] as? [String: Any],
+                   let message = detail["message"] as? String {
+                    errorMessage = message
+                }
+
+                throw TranscriptionError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
             }
 
-            // Print the response for debugging
+            // Parse the response data
             let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-            print("API Success Response: \(responseString)")
 
             // Parse the response
             let decoder = JSONDecoder()
@@ -454,7 +463,7 @@ enum TranscriptionError: Error, LocalizedError {
     case missingApiKey
     case fileReadError
     case invalidResponse
-    case apiError(statusCode: Int)
+    case apiError(statusCode: Int, message: String?)
     case unknown(Error)
 
     var errorDescription: String? {
@@ -465,8 +474,12 @@ enum TranscriptionError: Error, LocalizedError {
             return "Failed to read audio file."
         case .invalidResponse:
             return "Received invalid response from ElevenLabs API."
-        case .apiError(let statusCode):
-            return "ElevenLabs API error (Status \(statusCode)). Please check your API key and try again."
+        case .apiError(let statusCode, let message):
+            if let message = message {
+                return "ElevenLabs API error (Status \(statusCode)): \(message)"
+            } else {
+                return "ElevenLabs API error (Status \(statusCode)). Please check your API key and try again."
+            }
         case .unknown(let error):
             return "Transcription failed: \(error.localizedDescription)"
         }
