@@ -275,19 +275,11 @@ struct RecordingView: View {
                                         // Note: refreshPreferred method doesn't exist in this version of RecordKit
                                         // We'll just use the current preferred microphone
 
-                                        // Refresh all available devices
-                                        await audioRecorder.refreshRecordKitDevices()
+                                        // Just load available microphones without full permission check
+                                        await audioRecorder.loadAvailableMicrophones()
 
                                         // Update UI on main thread
                                         await MainActor.run {
-                                            // Log all available microphones for debugging
-                                            print("Available microphones: \(audioRecorder.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
-
-                                            // If we have a preferred microphone, show it in the UI
-                                            if let preferredMic = RKMicrophone.preferred {
-                                                print("System preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
-                                            }
-
                                             showingNamePrompt = true
                                         }
                                     }
@@ -398,6 +390,13 @@ struct RecordingView: View {
             }
         }
         .padding()
+        .onAppear {
+            // Safely initialize audio-related components when the view appears
+            Task {
+                // Just load available microphones without full permission check
+                await audioRecorder.loadAvailableMicrophones()
+            }
+        }
         .alert(isPresented: $showingAlert) {
             Alert(
                 title: Text("Recording Error"),

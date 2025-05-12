@@ -49,9 +49,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self?.updateMicrophoneMuteState()
         }
 
-        // Initialize RecordKit
+        // Initialize RecordKit - only if permissions haven't been checked at startup
         Task {
-            await refreshRecordKitDevices()
+            // Check if permissions were already checked at app startup
+            let permissionsChecked = UserDefaults.standard.bool(forKey: "permissionsCheckedAtStartup")
+
+            if !permissionsChecked {
+                // If not checked yet, do a full refresh
+                await refreshRecordKitDevices()
+            } else {
+                // If already checked, just load the devices without permission checks
+                await loadAvailableMicrophones()
+            }
         }
     }
 
@@ -80,6 +89,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         logger.info("Updated authorization status - Microphone: \(updatedMicStatus.rawValue), System Audio: \(updatedSystemAudioStatus)")
 
+        // Load available microphones
+        await loadAvailableMicrophones()
+    }
+
+    /// Load available microphones without checking permissions
+    func loadAvailableMicrophones() async {
         // Get available microphones using the non-deprecated API
         let microphones = RKMicrophone.microphones
         logger.info("Found \(microphones.count) microphones")
@@ -88,10 +103,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         await MainActor.run {
             self.rkAvailableMicrophones = microphones
         }
-
-        // Force refresh the preferred microphone to match system settings
-        // Note: refreshPreferred method doesn't exist in this version of RecordKit
-        // We'll just use the current preferred microphone
 
         // Get the system's current default input device
         var systemDefaultDeviceID: AudioDeviceID = 0
@@ -110,18 +121,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
             // Try to find this device in our available microphones using multiple matching strategies
 
-            // 1. Try exact ID match
-            if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
+            // Try name match first (most reliable)
+            if let name = systemDefaultDeviceName,
+               let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
+                logger.info("Found system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            }
+            // Try exact ID match
+            else if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
                 logger.info("Found system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
             }
-            // 2. Try partial ID match
+            // Try partial ID match
             else if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
                 logger.info("Found system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            }
-            // 3. Try name match
-            else if let name = systemDefaultDeviceName,
-                    let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
-                logger.info("Found system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
             }
             else {
                 logger.warning("Could not find system default microphone in available microphones")
@@ -273,55 +284,22 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Start a Task to handle the async RecordKit operations
         Task {
             do {
-                // Check current authorization status
-                let micStatus = RKAuthorization.microphone
-                let systemAudioStatus = RKAuthorization.systemAudioRecording
+                // Check permissions using our consolidated method
+                let micPermissionGranted = await checkAndRequestPermissions()
 
-                logger.info("Recording authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-                // Only request microphone permission if not already granted
-                var micPermissionGranted = micStatus == .authorized
                 if !micPermissionGranted {
-                    micPermissionGranted = await RKAuthorization.requestMicrophoneAccess()
-                    logger.info("Microphone permission request result: \(micPermissionGranted)")
-
-                    // Force refresh the microphone status
-                    let updatedMicStatus = RKAuthorization.microphone
-                    logger.info("Updated microphone status after request: \(updatedMicStatus.rawValue)")
-
-                    // Update our local variable based on the refreshed status
-                    micPermissionGranted = updatedMicStatus == .authorized
-
-                    if !micPermissionGranted {
-                        await MainActor.run {
-                            logger.error("Microphone permission denied")
-                        }
-                        throw AudioRecorderError.permissionDenied
+                    await MainActor.run {
+                        logger.error("Microphone permission denied")
                     }
+                    throw AudioRecorderError.permissionDenied
                 }
 
-                // Always check system audio permission
-                var systemAudioPermissionGranted = systemAudioStatus
+                // Check system audio permission
+                let systemAudioPermissionGranted = RKAuthorization.systemAudioRecording
                 if !systemAudioPermissionGranted {
-                    logger.info("Requesting system audio recording permission (without screen recording)...")
-
-                    // Request only system audio recording permission, explicitly without screen recording
-                    RKAuthorization.requestSystemAudioRecording()
-                    UserDefaults.standard.set(true, forKey: "lastSystemAudioStatus")
-
-                    // Force refresh the system audio status
-                    systemAudioPermissionGranted = RKAuthorization.systemAudioRecording
-                    logger.info("Updated system audio status after request: \(systemAudioPermissionGranted)")
-
-                } else {
-                    logger.info("System audio permission already granted")
+                    logger.info("System audio permission is required for recording")
+                    throw AudioRecorderError.permissionDenied
                 }
-
-                // Final check of all permissions after requests
-                let finalMicStatus = RKAuthorization.microphone
-                let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
-
-                logger.info("Final permission status before recording - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
                 // Refresh available microphones
                 let microphones = RKMicrophone.microphones
@@ -409,9 +387,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                     self.isRecording = true
                     self.isPaused = false
                     self.rkRecordingStartTime = Date()
-
-                    // Add device property listener
-                    self.addDevicePropertyListener()
 
                     // Create a new recording object (placeholder until recording is complete)
                     let outputDirectory = rkRecordingURL!.deletingLastPathComponent()
@@ -684,9 +659,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                         isPaused = false
                         durationTimer?.invalidate()
 
-                        // Remove device property listener
-                        removeDevicePropertyListener()
-
                         // Update the final duration
                         if let startTime = startTime {
                             accumulatedTime += Date().timeIntervalSince(startTime)
@@ -846,6 +818,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     // Get the name of an audio device from its ID
     private func getDeviceName(for deviceID: AudioDeviceID) -> String? {
+        // Safety check - don't proceed with invalid device IDs
+        if deviceID == 0 {
+            return nil
+        }
+
         var propertySize: UInt32 = 0
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceNameCFString,
@@ -871,29 +848,25 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return nil
         }
 
-        // Get the name
-        var deviceName: CFString = "" as CFString
-        let deviceNamePtr = UnsafeMutablePointer<CFString>.allocate(capacity: 1)
-        deviceNamePtr.initialize(to: deviceName)
-
-        status = AudioObjectGetPropertyData(
-            deviceID,
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize,
-            deviceNamePtr
-        )
-
-        deviceName = deviceNamePtr.pointee
-        deviceNamePtr.deinitialize(count: 1)
-        deviceNamePtr.deallocate()
+        // Use a safer approach with withUnsafeMutablePointer
+        var deviceName: CFString? = nil
+        withUnsafeMutablePointer(to: &deviceName) { ptr in
+            status = AudioObjectGetPropertyData(
+                deviceID,
+                &propertyAddress,
+                0,
+                nil,
+                &propertySize,
+                ptr
+            )
+        }
 
         if status != noErr {
             return nil
         }
 
-        return deviceName as String
+        // Convert to Swift string if possible
+        return deviceName as String?
     }
 
     // Check if the microphone is currently muted
@@ -992,6 +965,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func updateMicrophoneMuteState() {
+        // Skip this check if we're not recording to avoid unnecessary device access
+        // This helps prevent range errors when switching tabs
+        if !isRecording && !isPaused {
+            return
+        }
+
         do {
             // Get the system microphone mute state
             let systemMuted = try isMicrophoneMutedSystem()
@@ -1007,6 +986,25 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     // Check and request all necessary permissions
     func checkAndRequestPermissions() async -> Bool {
+        // Check if permissions were already checked at app startup
+        let permissionsChecked = UserDefaults.standard.bool(forKey: "permissionsCheckedAtStartup")
+
+        // If permissions were already checked at startup, just check the current status
+        if permissionsChecked {
+            // Check current authorization status
+            let micStatus = RKAuthorization.microphone
+            let systemAudioStatus = RKAuthorization.systemAudioRecording
+
+            // Only log if we don't have all permissions
+            if micStatus != .authorized || !systemAudioStatus {
+                logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
+            }
+
+            // Return true if we have microphone permission
+            return micStatus == .authorized
+        }
+
+        // If permissions weren't checked at startup, do a full check
         logger.info("Checking and requesting permissions...")
 
         // Check current authorization status
@@ -1014,9 +1012,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
         logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-        // Get the last known status from UserDefaults (for reference only)
-        _ = UserDefaults.standard.bool(forKey: "lastSystemAudioStatus")
 
         // Only request microphone permission if not already granted
         var micPermissionGranted = micStatus == .authorized
@@ -1046,9 +1041,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             // Force refresh the system audio status
             let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
             logger.info("Updated system audio status after request: \(updatedSystemAudioStatus)")
-
-        } else {
-            logger.info("System audio permission already granted")
         }
 
         // Final check of all permissions after requests
@@ -1056,6 +1048,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
 
         logger.info("Final permission status - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
+
+        // Set the flag to indicate that permissions have been checked
+        UserDefaults.standard.set(true, forKey: "permissionsCheckedAtStartup")
 
         // Return true if we have microphone permission
         return finalMicStatus == .authorized
@@ -1396,16 +1391,26 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     /// Helper method to select a default microphone using a fallback strategy
     private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) async {
-        // Always refresh the list of available microphones to get the current system default
-        let microphones = RKMicrophone.microphones
+        // Use the already loaded microphones instead of refreshing again
+        let microphones = self.rkAvailableMicrophones
 
-        // Update published property on main thread
-        await MainActor.run {
-            self.rkAvailableMicrophones = microphones
+        // If we don't have any microphones loaded yet, load them now
+        if microphones.isEmpty {
+            // Get available microphones using the non-deprecated API
+            let freshMicrophones = RKMicrophone.microphones
+
+            // Update published property on main thread
+            await MainActor.run {
+                self.rkAvailableMicrophones = freshMicrophones
+            }
         }
 
-        // Log all available microphones for debugging
-        logger.info("Available microphones for selection: \(self.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+        // Log all available microphones for debugging (only if we have a reasonable number)
+        if self.rkAvailableMicrophones.count < 10 {
+            logger.info("Available microphones for selection: \(self.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
+        } else {
+            logger.info("Found \(self.rkAvailableMicrophones.count) available microphones for selection")
+        }
 
         // Get the system's current default input device
         var systemDefaultDeviceID: AudioDeviceID = 0
@@ -1414,32 +1419,14 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         do {
             // Get the device ID
             systemDefaultDeviceID = try getDefaultInputDevice()
-            logger.info("System default input device ID: \(systemDefaultDeviceID)")
 
             // Get the device name
             systemDefaultDeviceName = getDeviceName(for: systemDefaultDeviceID)
-            if let name = systemDefaultDeviceName {
-                logger.info("System default input device name: \(name)")
-            }
         } catch {
             logger.error("Failed to get system default input device: \(error.localizedDescription)")
         }
 
-        // First try to match by device ID (direct string comparison)
-        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
-            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            return
-        }
-
-        // Next try to match by ID substring (for partial matches)
-        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
-            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            return
-        }
-
-        // If ID matching fails, try to match by name
+        // Try name match first (most reliable)
         if let name = systemDefaultDeviceName,
            let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
             sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
@@ -1447,10 +1434,21 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             return
         }
 
-        // If that fails, try to use RecordKit's preferred microphone
-        // Note: refreshPreferred method doesn't exist in this version of RecordKit
-        // We'll just use the current preferred microphone
+        // Try exact ID match
+        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
+            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            return
+        }
 
+        // Try partial ID match
+        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
+            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
+            logger.info("Using system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
+            return
+        }
+
+        // If that fails, try to use RecordKit's preferred microphone
         if let preferredMic = RKMicrophone.preferred {
             // Use system's preferred microphone from RecordKit
             sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))

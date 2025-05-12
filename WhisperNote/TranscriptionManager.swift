@@ -109,11 +109,9 @@ class TranscriptionManager: ObservableObject {
         // Optional parameters
 
         // Add language_code parameter (optional)
-        // Convert language code to ISO 639-1 (two-letter) format if needed
-        let isoLanguageCode = convertToISO639_1(language)
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
         bodyData.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("\(isoLanguageCode)\r\n".data(using: .utf8)!)
+        bodyData.append("\(language)\r\n".data(using: .utf8)!)
 
         // Add timestamps_granularity parameter (optional)
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -406,118 +404,6 @@ extension Character {
     var isEndOfSentence: Bool {
         return self == "." || self == "?" || self == "!"
     }
-}
-
-// Helper method to convert language codes to ISO 639-1 (two-letter) format
-private func convertToISO639_1(_ languageCode: String) -> String {
-    // Dictionary mapping three-letter codes to two-letter codes
-    let languageCodeMap: [String: String] = [
-        "eng": "en",
-        "fra": "fr",
-        "deu": "de",
-        "spa": "es",
-        "ita": "it",
-        "por": "pt",
-        "rus": "ru",
-        "jpn": "ja",
-        "kor": "ko",
-        "cmn": "zh", // Mandarin Chinese
-        "ara": "ar",
-        "hin": "hi",
-        "ben": "bn",
-        "nld": "nl",
-        "tur": "tr",
-        "pol": "pl",
-        "swe": "sv",
-        "fin": "fi",
-        "dan": "da",
-        "nor": "no",
-        "ces": "cs", // Czech
-        "hun": "hu",
-        "ell": "el", // Greek
-        "heb": "he",
-        "ukr": "uk",
-        "vie": "vi",
-        "tha": "th",
-        "ind": "id",
-        "msa": "ms", // Malay
-        "ron": "ro", // Romanian
-        "afr": "af",
-        "bul": "bg",
-        "cat": "ca",
-        "hrv": "hr", // Croatian
-        "est": "et",
-        "fil": "tl", // Filipino/Tagalog
-        "gle": "ga", // Irish
-        "lav": "lv", // Latvian
-        "lit": "lt", // Lithuanian
-        "mkd": "mk", // Macedonian
-        "slk": "sk", // Slovak
-        "slv": "sl", // Slovenian
-        "srp": "sr", // Serbian
-        "swa": "sw", // Swahili
-        "cym": "cy", // Welsh
-        "zul": "zu", // Zulu
-        "urd": "ur", // Urdu
-        "fas": "fa", // Persian
-        "aze": "az", // Azerbaijani
-        "kat": "ka", // Georgian
-        "hye": "hy", // Armenian
-        "asm": "as", // Assamese
-        "guj": "gu", // Gujarati
-        "kan": "kn", // Kannada
-        "mal": "ml", // Malayalam
-        "mar": "mr", // Marathi
-        "nep": "ne", // Nepali
-        "ori": "or", // Odia
-        "pan": "pa", // Punjabi
-        "tam": "ta", // Tamil
-        "tel": "te", // Telugu
-        "uzb": "uz", // Uzbek
-        "khm": "km", // Khmer
-        "lao": "lo", // Lao
-        "mon": "mn", // Mongolian
-        "mya": "my", // Burmese
-        "sin": "si", // Sinhala
-        "kaz": "kk", // Kazakh
-        "kir": "ky", // Kyrgyz
-        "tgk": "tg", // Tajik
-        "tur": "tr", // Turkish
-        "bel": "be", // Belarusian
-        "bos": "bs", // Bosnian
-        "glg": "gl", // Galician
-        "isl": "is", // Icelandic
-        "ltz": "lb", // Luxembourgish
-        "oci": "oc", // Occitan
-        "ast": "ast", // Asturian (no ISO 639-1 code, keep as is)
-        "yue": "yue", // Cantonese (no ISO 639-1 code, keep as is)
-        "ceb": "ceb", // Cebuano (no ISO 639-1 code, keep as is)
-        "nya": "ny", // Chichewa
-        "ful": "ff", // Fulah
-        "lug": "lg", // Ganda
-        "hau": "ha", // Hausa
-        "ibo": "ig", // Igbo
-        "jav": "jv", // Javanese
-        "kea": "kea", // Kabuverdianu (no ISO 639-1 code, keep as is)
-        "kur": "ku", // Kurdish
-        "lin": "ln", // Lingala
-        "luo": "luo", // Luo (no ISO 639-1 code, keep as is)
-        "mri": "mi", // Māori
-        "nso": "nso", // Northern Sotho (no ISO 639-1 code, keep as is)
-        "pus": "ps", // Pashto
-        "sna": "sn", // Shona
-        "snd": "sd", // Sindhi
-        "som": "so", // Somali
-        "umb": "umb", // Umbundu (no ISO 639-1 code, keep as is)
-        "wol": "wo", // Wolof
-        "xho": "xh" // Xhosa
-    ]
-
-    // If the language code contains a hyphen (e.g., "en-US"), extract just the first part
-    let baseCode = languageCode.split(separator: "-").first.map(String.init) ?? languageCode
-
-    // Return the mapped two-letter code if available, otherwise return the original code
-    return languageCodeMap[baseCode.lowercased()] ?? baseCode
 }
 
 // MARK: - ElevenLabs API Response

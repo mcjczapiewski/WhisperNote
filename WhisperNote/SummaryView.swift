@@ -437,7 +437,7 @@ struct RegenerateSummaryView: View {
     @Binding var errorMessage: String
     @Binding var showingError: Bool
     @ObservedObject var summaryManager: SummaryManager
-    @State private var selectedModel: String = ""
+    @State private var selectedModel: String = "openai/gpt-4.1-mini" // Initialize with a default value
 
     private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
 
@@ -453,10 +453,9 @@ struct RegenerateSummaryView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Picker("Select LLM Model", selection: $selectedModel) {
-                    Text("GPT-4.1 Mini").tag("openai/gpt-4.1-mini")
-                    Text("Gemini 2.5 Flash").tag("google/gemini-2.5-flash-preview")
-                    Text("DeepSeek Chat v3").tag("deepseek/deepseek-chat-v3-0324")
-                    Text("Gemini 2.5 Pro").tag("google/gemini-2.5-pro-exp-03-25")
+                    ForEach(llmModels, id: \.self) { model in
+                        Text(modelDisplayName(for: model)).tag(model)
+                    }
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity)
@@ -518,12 +517,43 @@ struct RegenerateSummaryView: View {
         .onAppear {
             // Initialize with the default model or the model from the selected summary
             if let summary = selectedSummary {
-                selectedModel = summary.model
+                // Only update if the model is valid (not empty)
+                if !summary.model.isEmpty {
+                    selectedModel = summary.model
+                } else {
+                    // Fallback to default model if summary model is empty
+                    selectedModel = summaryManager.defaultModel
+                }
                 customPrompt = summary.prompt
             } else {
+                // Make sure we have a valid model selection
                 selectedModel = summaryManager.defaultModel
                 customPrompt = summaryManager.getDefaultPrompt()
             }
+
+            // Final safety check - if selectedModel is still empty, use the first model in the list
+            if selectedModel.isEmpty && !llmModels.isEmpty {
+                selectedModel = llmModels[0]
+            }
+        }
+    }
+}
+
+// Helper function for RegenerateSummaryView
+extension RegenerateSummaryView {
+    // Convert model ID to user-friendly display name
+    private func modelDisplayName(for modelId: String) -> String {
+        switch modelId {
+        case "openai/gpt-4.1-mini":
+            return "GPT-4.1 Mini"
+        case "google/gemini-2.5-flash-preview":
+            return "Gemini 2.5 Flash"
+        case "deepseek/deepseek-chat-v3-0324":
+            return "DeepSeek Chat v3"
+        case "google/gemini-2.5-pro-exp-03-25":
+            return "Gemini 2.5 Pro"
+        default:
+            return modelId
         }
     }
 }

@@ -182,7 +182,7 @@ struct TranscriptView: View {
         - [text](link) for any links
 
         Make sure to use proper Markdown formatting to create a well-structured, readable summary.
-        The summary should be in the same language as the TRANSCRIPT.
+        IMPORTANT: The summary should be in the same language as the TRANSCRIPT.
         """
     }
 }

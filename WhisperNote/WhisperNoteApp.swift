@@ -24,7 +24,7 @@ struct WhisperNoteApp: App {
         let micStatus = RKAuthorization.microphone
         let systemAudioStatus = RKAuthorization.systemAudioRecording
 
-        logger.info("App startup authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
+        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Request microphone permission if not already granted
         var micPermissionGranted = micStatus == .authorized
@@ -57,6 +57,9 @@ struct WhisperNoteApp: App {
 
         // Store the current permission status in UserDefaults
         UserDefaults.standard.set(finalSystemAudioStatus, forKey: "lastSystemAudioStatus")
+
+        // Set a flag to indicate that permissions have been checked at startup
+        UserDefaults.standard.set(true, forKey: "permissionsCheckedAtStartup")
     }
 
     var body: some Scene {
