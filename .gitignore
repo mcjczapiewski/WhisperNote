@@ -1,73 +1,4 @@
-# Xcode
-#
-# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
-
-## User settings
-xcuserdata/
-*.xcuserstate
-project.xcworkspace/
-xcuserdata/
-*.xcscmblueprint
-*.xccheckout
-
-## Obj-C/Swift specific
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
-
-## Playgrounds
-timeline.xctimeline
-playground.xcworkspace
-
-# Swift Package Manager
-#
-# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
-Packages/
-Package.pins
-Package.resolved
-.build/
-.swiftpm/
-
-# CocoaPods
-#
-# We recommend against adding the Pods directory to your .gitignore. However
-# you should judge for yourself, the pros and cons are mentioned at:
-# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
-#
-Pods/
-#
-# Add this line if you want to avoid checking in source code from the Xcode workspace
-# *.xcworkspace
-
-# Carthage
-#
-# Add this line if you want to avoid checking in source code from Carthage dependencies.
-Carthage/Checkouts
-Carthage/Build/
-
-# Accio dependency management
-Dependencies/
-.accio/
-
-# fastlane
-#
-# It is recommended to not store the screenshots in the git repo.
-# Instead, use fastlane to re-generate the screenshots whenever they are needed.
-# For more information about the recommended setup visit:
-# https://docs.fastlane.tools/best-practices/source-control/#source-control
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
-# Code Injection
-#
-# After new code Injection tools there's a generated folder /iOSInjectionProject
-# https://github.com/johnno1962/injectionforxcode
-iOSInjectionProject/
-
-# macOS specific
+# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -80,25 +11,78 @@ Icon
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
-
-# Directories potentially created on remote AFP share
 .AppleDB
 .AppleDesktop
 Network Trash Folder
 Temporary Items
 .apdisk
 
-# WhisperNote specific
-WhisperNote/Files/Recordings/
-WhisperNote/Files/Transcripts/
-WhisperNote/Files/Summaries/
+# Xcode user state
+**/xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
 
-# Build artifacts
+# Xcode and Swift build artifacts
 DerivedData/
 build/
+.build/
+.swiftpm/
+Packages/
+*.hmap
 *.o
 *.LinkFileList
-*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
 
-# Logs
+# Swift Package Manager
+Package.pins
+# Keep Package.resolved tracked for this app's reproducible dependencies.
+
+# Dependency managers
+Pods/
+Carthage/Checkouts/
+Carthage/Build/
+Dependencies/
+.accio/
+
+# Playgrounds and injection tooling
+timeline.xctimeline
+playground.xcworkspace/
+iOSInjectionProject/
+
+# Local editor settings
+.vscode/
+.idea/
+
+# Local secrets and machine-specific config
+.env
+.env.*
+*.local
+Local.xcconfig
+Secrets.xcconfig
+*.private.xcconfig
+
+# WhisperNote generated user data
+WhisperNote/Files/
+Files/
+Recordings/
+Transcripts/
+Summaries/
+
+# Captured/exported media and logs
+*.m4a
+*.wav
+*.mp3
+*.aiff
+*.aif
+*.mp4
+*.mov
 *.log
+
+# fastlane generated output
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
