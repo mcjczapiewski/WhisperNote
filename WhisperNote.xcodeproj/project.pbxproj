@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BB01BB01BB01BB01BB01BB01 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */; };
 		1A1A1A1A1A1A1A1A1A1A1A1A /* WhisperNoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2A2A2A2A2A2A2A2A2A2A2A /* WhisperNoteApp.swift */; };
 		1B1B1B1B1B1B1B1B1B1B1B1B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2B2B2B2B2B2B2B2B2B2B2B /* ContentView.swift */; };
 		1C1C1C1C1C1C1C1C1C1C1C1C /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C2C2C2C2C2C2C2C2C2C2C /* RecordingView.swift */; };
@@ -25,6 +26,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		04391e39b44d41c58a6485d9 /* TextDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDocument.swift; sourceTree = "<group>"; };
 		0A0A0A0A0A0A0A0A0A0A0A0A /* WhisperNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WhisperNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A2A2A2A2A2A2A2A2A2A2A2A /* WhisperNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperNoteApp.swift; sourceTree = "<group>"; };
@@ -88,6 +90,7 @@
 				4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */,
 				4D4D4D4D4D4D4D4D4D4D4D4D /* SummaryManager.swift */,
 				5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */,
+				AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */,
 			);
 			path = WhisperNote;
 			sourceTree = "<group>";
@@ -154,6 +157,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB01BB01BB01BB01BB01BB01 /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,22 +310,32 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = G755Z778V4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WhisperNote/Info.plist;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "WhisperNote needs permission to control system audio settings.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "WhisperNote does not use the camera but may request this permission for audio capture.";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSFileProviderDomainUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WhisperNote needs access to your microphone to record audio for transcription.";
+				INFOPLIST_KEY_NSSystemAdministrationUsageDescription = "WhisperNote needs permission to access system audio settings.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.WhisperNote;
+				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -332,22 +346,32 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = G755Z778V4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WhisperNote/Info.plist;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "WhisperNote needs permission to control system audio settings.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "WhisperNote does not use the camera but may request this permission for audio capture.";
+				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
+				INFOPLIST_KEY_NSFileProviderDomainUsageDescription = "WhisperNote needs access to save recordings to your selected folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "WhisperNote needs access to your microphone to record audio for transcription.";
+				INFOPLIST_KEY_NSSystemAdministrationUsageDescription = "WhisperNote needs permission to access system audio settings.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.WhisperNote;
+				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
