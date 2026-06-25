@@ -33,20 +33,16 @@ class SummaryManager: ObservableObject {
         )
 
         // Add to summaries and save
-        DispatchQueue.main.async {
-            self.summaries.append(pendingSummary)
-            self.saveSummaries()
-        }
+        summaries.append(pendingSummary)
+        saveSummaries()
 
         // Update status to in progress
         var inProgressSummary = pendingSummary
         inProgressSummary.status = .inProgress
 
-        DispatchQueue.main.async {
-            if let index = self.summaries.firstIndex(where: { $0.id == pendingSummary.id }) {
-                self.summaries[index] = inProgressSummary
-                self.saveSummaries()
-            }
+        if let index = summaries.firstIndex(where: { $0.id == pendingSummary.id }) {
+            summaries[index] = inProgressSummary
+            saveSummaries()
         }
 
         do {
@@ -56,11 +52,9 @@ class SummaryManager: ObservableObject {
             completedSummary.content = summaryContent
             completedSummary.status = .completed
 
-            DispatchQueue.main.async {
-                if let index = self.summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
-                    self.summaries[index] = completedSummary
-                    self.saveSummaries()
-                }
+            if let index = summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
+                summaries[index] = completedSummary
+                saveSummaries()
             }
 
             return completedSummary
@@ -68,11 +62,9 @@ class SummaryManager: ObservableObject {
             var failedSummary = inProgressSummary
             failedSummary.status = .failed
 
-            DispatchQueue.main.async {
-                if let index = self.summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
-                    self.summaries[index] = failedSummary
-                    self.saveSummaries()
-                }
+            if let index = summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
+                summaries[index] = failedSummary
+                saveSummaries()
             }
 
             if let summaryError = error as? SummaryError {

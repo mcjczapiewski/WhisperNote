@@ -24,7 +24,7 @@ Four clean layers. Each layer owns its concerns; the UI layer consumes the other
 
 | Layer       | Files                                                                                                                                      | Responsibility                                   |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| Audio       | `AudioRecorder.swift`, `RecordKitManager.swift`, `SystemAudioCapture.swift`                                                                | Capture mic + system audio, merge to single .m4a |
+| Audio       | `AudioRecorder.swift`, `SystemAudioCapture.swift`                                                                                          | RecordKit capture/merge plus audio-device helpers |
 | API clients | `TranscriptionManager.swift`, `SummaryManager.swift`                                                                                       | ElevenLabs STT, OpenRouter LLM                   |
 | Persistence | `DirectoryManager.swift`, `Models.swift`, `TextDocument.swift`                                                                             | JSON storage, file paths, export                 |
 | UI          | `ContentView.swift`, `RecordingView.swift`, `TranscriptView.swift`, `SummaryView.swift`, `SettingsView.swift`, `AudioSetupGuideView.swift` | SwiftUI 4-tab interface                          |

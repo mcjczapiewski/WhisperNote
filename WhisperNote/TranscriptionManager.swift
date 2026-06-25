@@ -33,20 +33,16 @@ class TranscriptionManager: ObservableObject {
         )
 
         // Add to transcripts and save
-        DispatchQueue.main.async {
-            self.transcripts.append(pendingTranscript)
-            self.saveTranscripts()
-        }
+        transcripts.append(pendingTranscript)
+        saveTranscripts()
 
         // Update status to in progress
         var inProgressTranscript = pendingTranscript
         inProgressTranscript.status = .inProgress
 
-        DispatchQueue.main.async {
-            if let index = self.transcripts.firstIndex(where: { $0.id == pendingTranscript.id }) {
-                self.transcripts[index] = inProgressTranscript
-                self.saveTranscripts()
-            }
+        if let index = transcripts.firstIndex(where: { $0.id == pendingTranscript.id }) {
+            transcripts[index] = inProgressTranscript
+            saveTranscripts()
         }
 
         do {
@@ -58,22 +54,18 @@ class TranscriptionManager: ObservableObject {
             completedTranscript.jsonFilePath = result.jsonPath
             completedTranscript.status = .completed
 
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
-                    self.transcripts[index] = completedTranscript
-                    self.saveTranscripts()
-                }
+            if let index = transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
+                transcripts[index] = completedTranscript
+                saveTranscripts()
             }
             return completedTranscript
         } catch {
             var failedTranscript = inProgressTranscript
             failedTranscript.status = .failed
 
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
-                    self.transcripts[index] = failedTranscript
-                    self.saveTranscripts()
-                }
+            if let index = transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
+                transcripts[index] = failedTranscript
+                saveTranscripts()
             }
 
             if let transcriptionError = error as? TranscriptionError {
@@ -100,10 +92,8 @@ class TranscriptionManager: ObservableObject {
             status: .inProgress
         )
 
-        DispatchQueue.main.async {
-            self.transcripts.append(groupTranscript)
-            self.saveTranscripts()
-        }
+        transcripts.append(groupTranscript)
+        saveTranscripts()
 
         do {
             // ponytail: sequential to respect ElevenLabs rate limits; switch to a TaskGroup if batch latency matters
@@ -125,21 +115,17 @@ class TranscriptionManager: ObservableObject {
             groupTranscript.status = .completed
 
             let finished = groupTranscript
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == finished.id }) {
-                    self.transcripts[index] = finished
-                    self.saveTranscripts()
-                }
+            if let index = transcripts.firstIndex(where: { $0.id == finished.id }) {
+                transcripts[index] = finished
+                saveTranscripts()
             }
             return finished
         } catch {
             groupTranscript.status = .failed
             let failed = groupTranscript
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == failed.id }) {
-                    self.transcripts[index] = failed
-                    self.saveTranscripts()
-                }
+            if let index = transcripts.firstIndex(where: { $0.id == failed.id }) {
+                transcripts[index] = failed
+                saveTranscripts()
             }
             if let transcriptionError = error as? TranscriptionError {
                 throw transcriptionError
@@ -268,9 +254,6 @@ class TranscriptionManager: ObservableObject {
                 throw TranscriptionError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
             }
 
-            // Parse the response data
-            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-
             // Parse the response
             let decoder = JSONDecoder()
 
@@ -330,12 +313,6 @@ class TranscriptionManager: ObservableObject {
             transcripts.remove(at: index)
             saveTranscripts()
         }
-    }
-
-    // Delete multiple transcripts by ID
-    func deleteTranscripts(ids: [UUID]) {
-        transcripts.removeAll(where: { ids.contains($0.id) })
-        saveTranscripts()
     }
 
     // Update transcript content
@@ -506,37 +483,12 @@ struct ElevenLabsTranscriptionResponse: Codable {
     let language_probability: Double?
     let words: [ElevenLabsWord]?
 
-    // For backward compatibility
-    var language: String? {
-        return language_code
-    }
-
-    var confidence: Double? {
-        return language_probability
-    }
-
     struct ElevenLabsWord: Codable {
         let text: String
         let start: Double
         let end: Double
         let type: String?
         let speaker_id: String?
-        let characters: [ElevenLabsCharacter]?
-
-        // For backward compatibility
-        var word: String {
-            return text
-        }
-
-        var confidence: Double {
-            return 1.0 // Default confidence since it's not provided in the new API
-        }
-    }
-
-    struct ElevenLabsCharacter: Codable {
-        let text: String
-        let start: Double
-        let end: Double
     }
 }
 

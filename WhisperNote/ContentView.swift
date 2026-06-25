@@ -42,7 +42,7 @@ struct ContentView: View {
         .padding()
         .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
         .task {
-            await WhisperNoteApp.checkAndRequestAllPermissions()
+            _ = await audioRecorder.checkAndRequestPermissions()
         }
     }
 }

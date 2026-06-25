@@ -3,11 +3,10 @@ import AVFoundation
 import SwiftUI
 import AppKit
 import CoreAudio
-import CoreAudioKit
 import RecordKit
 import os.log
 
-class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
+class AudioRecorder: NSObject, ObservableObject {
     @Published var recordings: [Recording] = []
     @Published var isRecording = false
     @Published var isPaused = false
@@ -16,14 +15,10 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var isMicrophoneMuted = false // Default to unmuted
     @Published var lastError: String? // Surfaced to the UI (stop/merge/import failures)
 
-    private var audioRecorder: AVAudioRecorder?
-    private var systemAudioCapture = SystemAudioCapture()
     private var durationTimer: Timer?
     private var microphoneStateTimer: Timer?
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
-    private var devicePropertyListener: UInt32 = 0
-    private var isListeningForDeviceChanges = false
 
     @AppStorage("audioQuality") private var audioQuality = "high"
     private let audioFormat = "m4a"
@@ -59,18 +54,9 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             self?.updateMicrophoneMuteState()
         }
 
-        // Initialize RecordKit - only if permissions haven't been checked at startup
+        // Load devices without prompting; ContentView triggers the permission flow after launch.
         Task {
-            // Check if permissions were already checked at app startup
-            let permissionsChecked = UserDefaults.standard.bool(forKey: "permissionsCheckedAtStartup")
-
-            if !permissionsChecked {
-                // If not checked yet, do a full refresh
-                await refreshRecordKitDevices()
-            } else {
-                // If already checked, just load the devices without permission checks
-                await loadAvailableMicrophones()
-            }
+            await loadAvailableMicrophones()
         }
     }
 
@@ -161,84 +147,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     deinit {
         microphoneStateTimer?.invalidate()
-        removeDevicePropertyListener()
-    }
-
-    // Add a listener for audio device property changes
-    private func addDevicePropertyListener() {
-        // Only add if not already listening
-        if isListeningForDeviceChanges {
-            return
-        }
-
-        // Get the default input device
-        do {
-            let deviceID = try getDefaultInputDevice()
-
-            // Set up the property address
-            var propertyAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceIsAlive,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-
-            // Add the property listener
-            let status = AudioObjectAddPropertyListener(
-                deviceID,
-                &propertyAddress,
-                { (_, _, _, _) -> OSStatus in
-                    // This is a callback that will be called when the device changes
-                    // We don't need to do anything here as we're just using it to track the device
-                    return noErr
-                },
-                nil
-            )
-
-            if status == noErr {
-                isListeningForDeviceChanges = true
-                devicePropertyListener = deviceID
-                logger.info("Added device property listener for device ID: \(deviceID)")
-            } else {
-                logger.error("Failed to add device property listener: \(status)")
-            }
-        } catch {
-            logger.error("Failed to get default input device for property listener: \(error.localizedDescription)")
-        }
-    }
-
-    // Remove the device property listener
-    private func removeDevicePropertyListener() {
-        // Only remove if we're listening
-        if !isListeningForDeviceChanges || devicePropertyListener == 0 {
-            return
-        }
-
-        // Set up the property address
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        // Remove the property listener
-        let status = AudioObjectRemovePropertyListener(
-            self.devicePropertyListener,
-            &propertyAddress,
-            { (_, _, _, _) -> OSStatus in
-                return noErr
-            },
-            nil
-        )
-
-        if status == noErr {
-            logger.info("Removed device property listener for device ID: \(self.devicePropertyListener)")
-        } else {
-            logger.error("Failed to remove device property listener: \(status)")
-        }
-
-        // Reset the state
-        isListeningForDeviceChanges = false
-        devicePropertyListener = 0
     }
 
     func startRecording(name: String, microphoneId: String = "") throws {
@@ -722,15 +630,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
     }
 
-    // MARK: - AVAudioRecorderDelegate
-
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            // Handle recording failure
-            print("Recording failed")
-        }
-    }
-
     // MARK: - Persistence
 
     private func saveRecordings() {
@@ -1026,6 +925,8 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
             }
 
+            UserDefaults.standard.set(systemAudioStatus, forKey: "lastSystemAudioStatus")
+
             // Return true if we have microphone permission
             return micStatus == .authorized
         }
@@ -1040,17 +941,13 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
 
         // Only request microphone permission if not already granted
-        var micPermissionGranted = micStatus == .authorized
-        if !micPermissionGranted {
-            micPermissionGranted = await RKAuthorization.requestMicrophoneAccess()
+        if micStatus != .authorized {
+            let micPermissionGranted = await RKAuthorization.requestMicrophoneAccess()
             logger.info("Microphone permission request result: \(micPermissionGranted)")
 
             // Force refresh the microphone status
             let updatedMicStatus = RKAuthorization.microphone
             logger.info("Updated microphone status after request: \(updatedMicStatus.rawValue)")
-
-            // Update our local variable based on the refreshed status
-            micPermissionGranted = updatedMicStatus == .authorized
         }
 
         // Always request system audio permission if not already granted
@@ -1060,9 +957,6 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
             // Use the specific method for system audio
             RKAuthorization.requestSystemAudioRecording()
-
-            // Store that we've requested it
-            UserDefaults.standard.set(true, forKey: "lastSystemAudioStatus")
 
             // Force refresh the system audio status
             let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
@@ -1075,8 +969,13 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         logger.info("Final permission status - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
 
+        // Store the current permission status in UserDefaults
+        UserDefaults.standard.set(finalSystemAudioStatus, forKey: "lastSystemAudioStatus")
+
         // Set the flag to indicate that permissions have been checked
         UserDefaults.standard.set(true, forKey: "permissionsCheckedAtStartup")
+
+        await loadAvailableMicrophones()
 
         // Return true if we have microphone permission
         return finalMicStatus == .authorized
@@ -1090,70 +989,12 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         return status
     }
 
-    // For backward compatibility, but we no longer require screen recording permission
-    func hasScreenRecordingPermission() -> Bool {
-        return true
-    }
-
     // Check if the app has been granted microphone permission
     func hasMicrophonePermission() -> Bool {
         // Force a fresh check of the permission status
         let status = RKAuthorization.microphone
         logger.info("Current microphone permission status: \(status.rawValue)")
         return status == .authorized
-    }
-
-    // Check if system audio capture is likely to work
-    func checkSystemAudioCapture() -> (isReady: Bool, message: String) {
-        // Refresh RecordKit devices
-        Task {
-            await refreshRecordKitDevices()
-        }
-
-        // Check all permission statuses
-        let micStatus = RKAuthorization.microphone
-        let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-        logger.info("Checking system audio capture readiness - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-        // Build a status message with all permission states
-        var statusMessage = """
-        Current permission status:
-        - Microphone: \(micStatus == .authorized ? "✓ Granted" : "❌ Missing")
-        - System Audio: \(systemAudioStatus ? "✓ Granted" : "❌ Missing")
-        """
-
-        // Check microphone permission status
-        if micStatus == .denied {
-            return (false, "\(statusMessage)\n\nMicrophone access is denied. Please enable it in System Settings > Privacy & Security > Microphone, then restart the app.")
-        }
-
-        // Check system audio permission
-        if !systemAudioStatus {
-            return (false, "\(statusMessage)\n\nSystem audio recording permission is required. Grant it in System Settings > Privacy & Security, then quit and reopen WhisperNote — the permission only takes effect after a restart.")
-        }
-
-        // Check if we have microphones available
-        let hasMicrophones = !rkAvailableMicrophones.isEmpty
-        if !hasMicrophones {
-            return (false, "\(statusMessage)\n\nNo microphones detected. Please check your audio devices.")
-        }
-
-        // Add microphone information to the status message
-        statusMessage += "\n\nAvailable microphones: \(rkAvailableMicrophones.count)"
-        if let preferredMic = RKMicrophone.preferred {
-            statusMessage += "\nPreferred microphone: \(preferredMic.localizedName)"
-        }
-
-        // Check if Bluetooth headphones are connected
-        let hasBluetoothHeadphones = SystemAudioCapture.isBluetoothHeadphonesConnected()
-        if hasBluetoothHeadphones {
-            statusMessage += "\n\nBluetooth headphones detected. This may affect audio quality."
-            return (true, "\(statusMessage)\n\nRecordKit is ready to record, but be aware that Bluetooth headphones may cause issues with system audio capture.")
-        }
-
-        // If we get here, everything looks good
-        return (true, "\(statusMessage)\n\nSystem audio capture is properly configured. RecordKit will record both microphone and system audio.")
     }
 
     /// Merge two audio files into a single file
@@ -1503,27 +1344,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 }
 
 enum AudioRecorderError: Error, LocalizedError {
-    case sessionSetupFailed
     case recordingFailed
     case permissionDenied
-    case systemAudioCaptureFailed
     case directoryError
-    case bluetoothDeviceIssue
     case fileNotFound
     case fileOperationFailed
 
     var errorDescription: String? {
         switch self {
-        case .sessionSetupFailed:
-            return "Failed to set up audio session. Please check microphone permissions."
         case .recordingFailed:
             return "Failed to start recording. Please try again."
         case .permissionDenied:
             return "Permission denied. Please check that WhisperNote has all required permissions in System Settings > Privacy & Security, then restart the app."
-        case .systemAudioCaptureFailed:
-            return "Failed to capture system audio. Please check your system audio settings."
-        case .bluetoothDeviceIssue:
-            return "There was an issue with Bluetooth audio device. Please try using a different audio output device."
         case .directoryError:
             return "There was an issue with the recording directory or file. This could be because a file with the same name already exists or the directory couldn't be created. The app will try to use different filenames for microphone and system audio to avoid conflicts. Please try again with a different recording name if the issue persists."
         case .fileNotFound:
