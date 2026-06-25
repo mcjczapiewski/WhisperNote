@@ -5,7 +5,7 @@ import SwiftUI
 class SummaryManager: ObservableObject {
     @Published var summaries: [Summary] = []
     @AppStorage("openrouterApiKey") private var apiKey = ""
-    @AppStorage("defaultLLMModel") var defaultModel = "openai/gpt-4.1-mini"
+    @AppStorage("defaultLLMModel") var defaultModel = defaultLLMModelId
 
     private let directoryManager = DirectoryManager.shared
 
@@ -49,47 +49,9 @@ class SummaryManager: ObservableObject {
             }
         }
 
-        // Prepare the request
-        let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.addValue("WhisperNote/1.0.0", forHTTPHeaderField: "HTTP-Referer")
-
-        // Create the request body
-        let fullPrompt = "\(prompt)\n\nTRANSCRIPT=\n\(transcript.content)"
-
-        let requestBody: [String: Any] = [
-            "model": modelToUse,
-            "messages": [
-                ["role": "user", "content": fullPrompt]
-            ]
-        ]
-
-        let jsonData = try JSONSerialization.data(withJSONObject: requestBody)
-        request.httpBody = jsonData
-
         do {
-            let (responseData, response) = try await URLSession.shared.data(for: request)
+            let summaryContent = try await callOpenRouterAPI(prompt: prompt, model: modelToUse, transcript: transcript)
 
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw SummaryError.invalidResponse
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                throw SummaryError.apiError(statusCode: httpResponse.statusCode)
-            }
-
-            // Parse the response
-            let decoder = JSONDecoder()
-            let summaryResponse = try decoder.decode(OpenRouterResponse.self, from: responseData)
-
-            guard let summaryContent = summaryResponse.choices.first?.message.content else {
-                throw SummaryError.emptyResponse
-            }
-
-            // Create completed summary
             var completedSummary = inProgressSummary
             completedSummary.content = summaryContent
             completedSummary.status = .completed
@@ -103,7 +65,6 @@ class SummaryManager: ObservableObject {
 
             return completedSummary
         } catch {
-            // Update summary status to failed
             var failedSummary = inProgressSummary
             failedSummary.status = .failed
 
@@ -120,6 +81,62 @@ class SummaryManager: ObservableObject {
                 throw SummaryError.unknown(error)
             }
         }
+    }
+
+    func retryGenerateSummary(id: UUID, transcript: Transcript) async throws -> Summary {
+        guard let idx = summaries.firstIndex(where: { $0.id == id }) else {
+            throw SummaryError.invalidResponse
+        }
+        let prompt = summaries[idx].prompt
+        let model  = summaries[idx].model
+        summaries[idx].status = .inProgress
+        saveSummaries()
+        do {
+            let content = try await callOpenRouterAPI(prompt: prompt, model: model, transcript: transcript)
+            if let i = summaries.firstIndex(where: { $0.id == id }) {
+                summaries[i].content = content
+                summaries[i].status = .completed
+                saveSummaries()
+                return summaries[i]
+            }
+            throw SummaryError.invalidResponse
+        } catch {
+            if let i = summaries.firstIndex(where: { $0.id == id }) {
+                summaries[i].status = .failed
+                saveSummaries()
+            }
+            if let e = error as? SummaryError { throw e }
+            throw SummaryError.unknown(error)
+        }
+    }
+
+    private func callOpenRouterAPI(prompt: String, model: String, transcript: Transcript) async throws -> String {
+        let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("WhisperNote/1.0.0", forHTTPHeaderField: "HTTP-Referer")
+
+        let fullPrompt = "\(prompt)\n\nTRANSCRIPT=\n\(transcript.content)"
+        let requestBody: [String: Any] = [
+            "model": model,
+            "messages": [["role": "user", "content": fullPrompt]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SummaryError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw SummaryError.apiError(statusCode: httpResponse.statusCode)
+        }
+        let summaryResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
+        guard let content = summaryResponse.choices.first?.message.content else {
+            throw SummaryError.emptyResponse
+        }
+        return content
     }
 
     func getDefaultPrompt(meetingType: String = "meeting", audience: String = "all participants") -> String {

@@ -8,15 +8,18 @@ struct WhisperNoteApp: App {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "WhisperNoteApp")
 
     init() {
-        // We need to use a static method to avoid capturing self in the Task
-        // Check and request all permissions at app startup
-        Task {
-            await WhisperNoteApp.checkAndRequestAllPermissions()
+        // Migrate stale defaultLLMModel stored value to a valid model id.
+        // ponytail: one-time migration, no abstraction needed
+        let key = "defaultLLMModel"
+        let stored = UserDefaults.standard.string(forKey: key)
+        if stored == nil || !llmModels.contains(where: { $0.id == stored }) {
+            UserDefaults.standard.set(defaultLLMModelId, forKey: key)
         }
     }
 
-    /// Check and request all necessary permissions at app startup
-    private static func checkAndRequestAllPermissions() async {
+    /// Check and request all necessary permissions at app startup.
+    /// Called from ContentView.task so macOS has registered the process and status reads correctly.
+    static func checkAndRequestAllPermissions() async {
         // Create a logger for this static method
         let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "WhisperNoteApp")
 
@@ -69,6 +72,7 @@ struct WhisperNoteApp: App {
                 .environmentObject(audioRecorder)
         }
         .windowStyle(HiddenTitleBarWindowStyle())
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
         }

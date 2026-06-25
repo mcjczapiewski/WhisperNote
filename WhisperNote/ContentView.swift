@@ -40,5 +40,9 @@ struct ContentView: View {
                 .tag(3)
         }
         .padding()
+        .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
+        .task {
+            await WhisperNoteApp.checkAndRequestAllPermissions()
+        }
     }
 }

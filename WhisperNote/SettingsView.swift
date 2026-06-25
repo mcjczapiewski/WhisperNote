@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
     @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
-    @AppStorage("defaultLLMModel") private var defaultLLMModel = "openai/gpt-4.1-mini"
+    @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
 
@@ -13,7 +13,6 @@ struct SettingsView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
 
-    private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
     private let audioQualities = ["low", "medium", "high"]
 
     init() {
@@ -70,8 +69,8 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
 
                     Picker("Default LLM Model", selection: $defaultLLMModel) {
-                        ForEach(llmModels, id: \.self) { model in
-                            Text(model).tag(model)
+                        ForEach(llmModels) { model in
+                            Text(model.displayName).tag(model.id)
                         }
                     }
                     .pickerStyle(MenuPickerStyle())

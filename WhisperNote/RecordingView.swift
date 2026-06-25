@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import RecordKit
+import UniformTypeIdentifiers
 
 struct RecordingView: View {
     @EnvironmentObject var audioRecorder: AudioRecorder
@@ -13,10 +14,14 @@ struct RecordingView: View {
     @State private var recordingToDelete: Recording?
     @State private var showingLanguageSelector = false
     @State private var recordingToTranscribe: Recording?
-    @State private var selectedLanguage = "eng"
+    @State private var groupToTranscribe: UUID?
+    @State private var groupToDelete: UUID?
+    @State private var showingGroupDeleteConfirmation = false
+    @AppStorage("lastTranscriptionLanguage") private var selectedLanguage = "eng"
     @State private var showingAudioWarning = false
     @State private var audioWarningMessage = ""
     @State private var selectedMicrophoneId: String = ""
+    @State private var showingImporter = false
 
     private let languages = [
         ("afr", "Afrikaans"),
@@ -177,10 +182,9 @@ struct RecordingView: View {
                 .padding()
             } else {
                 VStack(spacing: 20) {
-                    Image(systemName: "mic.circle")
+                    Image(nsImage: NSApplication.shared.applicationIconImage)
                         .resizable()
                         .frame(width: 100, height: 100)
-                        .foregroundColor(.blue)
 
                     Text("Ready to Record")
                         .font(.title)
@@ -261,7 +265,7 @@ struct RecordingView: View {
                                         System Audio: \(updatedSystemAudioPermission ? "✓ Granted" : "❌ Missing")
 
                                         You can proceed with recording, but some features may not work properly.
-                                        To fix this, please grant all permissions in System Settings and restart the app.
+                                        To fix this, grant System Audio Recording in System Settings > Privacy & Security, then quit and reopen WhisperNote — the permission only takes effect after a restart.
                                         """
                                         showingAudioWarning = true
                                     }
@@ -307,6 +311,11 @@ struct RecordingView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                     .padding(.top, 20)
+
+                    Button(action: { showingImporter = true }) {
+                        Label("Import Audio File", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .padding()
             }
@@ -320,70 +329,76 @@ struct RecordingView: View {
                     .padding(.leading)
 
                 List {
-                    ForEach(audioRecorder.recordings) { recording in
-                        HStack {
-                            Image(systemName: "waveform")
-                                .foregroundColor(.blue)
+                    let ungrouped = audioRecorder.recordings.filter { $0.groupId == nil }
+                    let grouped = Dictionary(grouping: audioRecorder.recordings.filter { $0.groupId != nil },
+                                             by: { $0.groupId! })
 
-                            VStack(alignment: .leading) {
-                                Text(recording.name)
-                                    .font(.headline)
-
-                                Text(recording.date, style: .date)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                    ForEach(Array(grouped.keys), id: \.self) { gid in
+                        let members = grouped[gid] ?? []
+                        DisclosureGroup {
+                            ForEach(members) { recording in
+                                recordingRow(recording)
                             }
+                        } label: {
+                            HStack {
+                                Image(systemName: "folder")
+                                    .foregroundColor(.blue)
 
-                            Spacer()
-
-                            Button(action: {
-                                recordingToDelete = recording
-                                showingDeleteConfirmation = true
-                            }) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal, 5)
-
-                            Button(action: {
-                                // Show language selector before starting transcription
-                                recordingToTranscribe = recording
-                                selectedLanguage = "eng" // Reset to default
-                                showingLanguageSelector = true
-                            }) {
-                                HStack {
-                                    Text("Transcribe")
+                                VStack(alignment: .leading) {
+                                    Text(members.first?.groupName ?? "Imported batch")
+                                        .font(.headline)
+                                    Text("\(members.count) files")
                                         .font(.caption)
-
-                                    // Show a small indicator if any transcription is in progress for this recording
-                                    if transcriptionManager.transcripts.contains(where: {
-                                        $0.recordingId == recording.id && $0.status == .inProgress
-                                    }) {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                            .frame(width: 10, height: 10)
-                                    }
+                                        .foregroundColor(.secondary)
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(5)
+
+                                Spacer()
+
+                                Button(action: {
+                                    groupToDelete = gid
+                                    showingGroupDeleteConfirmation = true
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .padding(.horizontal, 5)
+
+                                Button(action: {
+                                    recordingToTranscribe = nil
+                                    groupToTranscribe = gid
+                                    showingLanguageSelector = true
+                                }) {
+                                    HStack {
+                                        Text("Transcribe")
+                                            .font(.caption)
+
+                                        if transcriptionManager.transcripts.contains(where: {
+                                            $0.recordingId == gid && $0.status == .inProgress
+                                        }) {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .frame(width: 10, height: 10)
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(5)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                                .disabled(
+                                    transcriptionManager.transcripts.contains(where: {
+                                        $0.recordingId == gid && ($0.status == .completed || $0.status == .inProgress)
+                                    })
+                                )
                             }
-                            .buttonStyle(PlainButtonStyle())
-                            .disabled(
-                                // Disable if there's a completed transcript for this recording
-                                transcriptionManager.transcripts.contains(where: {
-                                    $0.recordingId == recording.id && $0.status == .completed
-                                }) ||
-                                // Or if transcription is in progress
-                                transcriptionManager.transcripts.contains(where: {
-                                    $0.recordingId == recording.id && $0.status == .inProgress
-                                })
-                            )
                         }
-                        .padding(.vertical, 5)
+                    }
+
+                    ForEach(ungrouped) { recording in
+                        recordingRow(recording)
                     }
                 }
                 .frame(height: 200)
@@ -619,12 +634,29 @@ struct RecordingView: View {
                 HStack {
                     Button("Cancel") {
                         recordingToTranscribe = nil
+                        groupToTranscribe = nil
                         showingLanguageSelector = false
                     }
                     .keyboardShortcut(.cancelAction)
 
                     Button("Start Transcription") {
-                        if let recording = recordingToTranscribe {
+                        let language = selectedLanguage
+                        if let gid = groupToTranscribe {
+                            let members = audioRecorder.recordings.filter { $0.groupId == gid }
+                            let groupName = members.first?.groupName ?? "Imported batch"
+                            groupToTranscribe = nil
+                            showingLanguageSelector = false
+                            Task {
+                                do {
+                                    let transcriptionTask = try await transcriptionManager.transcribeGroup(members, groupId: gid, groupName: groupName, language: language)
+                                    print("Group transcription completed: \(transcriptionTask.id)")
+                                } catch {
+                                    alertMessage = error.localizedDescription
+                                    showingAlert = true
+                                }
+                            }
+                        } else if let recording = recordingToTranscribe {
+                            recordingToTranscribe = nil
                             showingLanguageSelector = false
 
                             // Start transcription process with selected language
@@ -632,7 +664,7 @@ struct RecordingView: View {
                                 do {
                                     // Create a local variable for this specific transcription task
                                     // This allows multiple transcription tasks to run concurrently
-                                    let transcriptionTask = try await transcriptionManager.transcribeRecording(recording, language: selectedLanguage)
+                                    let transcriptionTask = try await transcriptionManager.transcribeRecording(recording, language: language)
                                     print("Transcription completed: \(transcriptionTask.id)")
                                 } catch {
                                     alertMessage = error.localizedDescription
@@ -648,7 +680,107 @@ struct RecordingView: View {
             .frame(width: 450, height: 220)
             .padding()
         }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                audioRecorder.importRecordings(from: urls)
+            case .failure(let error):
+                alertMessage = error.localizedDescription
+                showingAlert = true
+            }
+        }
+        .alert("Delete Group", isPresented: $showingGroupDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                groupToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let gid = groupToDelete {
+                    audioRecorder.deleteGroup(groupId: gid)
+                    groupToDelete = nil
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete this imported group and all its files? This action cannot be undone.")
+        }
+        .onChange(of: audioRecorder.lastError) { error in
+            if let error {
+                alertMessage = error
+                showingAlert = true
+                audioRecorder.lastError = nil
+            }
+        }
 
+    }
+
+    @ViewBuilder
+    private func recordingRow(_ recording: Recording) -> some View {
+        HStack {
+            Image(systemName: "waveform")
+                .foregroundColor(.blue)
+
+            VStack(alignment: .leading) {
+                Text(recording.name)
+                    .font(.headline)
+
+                Text(recording.date, style: .date)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: {
+                recordingToDelete = recording
+                showingDeleteConfirmation = true
+            }) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, 5)
+
+            Button(action: {
+                // Show language selector before starting transcription
+                groupToTranscribe = nil
+                recordingToTranscribe = recording
+                showingLanguageSelector = true
+            }) {
+                HStack {
+                    Text("Transcribe")
+                        .font(.caption)
+
+                    // Show a small indicator if any transcription is in progress for this recording
+                    if transcriptionManager.transcripts.contains(where: {
+                        $0.recordingId == recording.id && $0.status == .inProgress
+                    }) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .frame(width: 10, height: 10)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(5)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(
+                // Disable if there's a completed transcript for this recording
+                transcriptionManager.transcripts.contains(where: {
+                    $0.recordingId == recording.id && $0.status == .completed
+                }) ||
+                // Or if transcription is in progress
+                transcriptionManager.transcripts.contains(where: {
+                    $0.recordingId == recording.id && $0.status == .inProgress
+                })
+            )
+        }
+        .padding(.vertical, 5)
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

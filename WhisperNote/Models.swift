@@ -8,9 +8,11 @@ struct Recording: Identifiable, Codable, Sendable {
     var duration: TimeInterval
     var filePath: URL
     var systemAudioFilePath: URL?
+    var groupId: UUID?
+    var groupName: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, date, duration, filePath, systemAudioFilePath
+        case id, name, date, duration, filePath, systemAudioFilePath, groupId, groupName
     }
 }
 
@@ -69,3 +71,19 @@ enum ProcessingStatus: String, Codable, Sendable {
     case completed
     case failed
 }
+
+// MARK: - LLM Models
+struct LLMModel: Identifiable {
+    let id: String       // OpenRouter model ID used as the stored value
+    let displayName: String
+}
+
+let llmModels: [LLMModel] = [
+    LLMModel(id: "deepseek/deepseek-v4-flash",    displayName: "DeepSeek v4 Flash — $0.089 / $0.224"),
+    LLMModel(id: "openai/gpt-4o-mini",            displayName: "GPT-4o Mini — $0.15 / $0.60"),
+    LLMModel(id: "google/gemini-3-flash-preview", displayName: "Gemini 3 Flash — $0.50 / $3"),
+    LLMModel(id: "z-ai/glm-5.2",                  displayName: "GLM-5.2 — $0.95 / $3"),
+    LLMModel(id: "x-ai/grok-4.3",                 displayName: "Grok 4.3 — $1.25 / $2.50"),
+]
+
+let defaultLLMModelId = "openai/gpt-4o-mini"

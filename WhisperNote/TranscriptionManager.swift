@@ -23,8 +23,6 @@ class TranscriptionManager: ObservableObject {
             throw TranscriptionError.fileReadError
         }
 
-        print("Transcribing with language: \(language)")
-
         // Create a pending transcript
         let pendingTranscript = Transcript(
             name: recording.name,
@@ -51,14 +49,124 @@ class TranscriptionManager: ObservableObject {
             }
         }
 
+        do {
+            let result = try await performTranscription(recording, language: language)
+
+            var completedTranscript = inProgressTranscript
+            completedTranscript.content = result.content
+            completedTranscript.formattedContent = result.formatted
+            completedTranscript.jsonFilePath = result.jsonPath
+            completedTranscript.status = .completed
+
+            DispatchQueue.main.async {
+                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
+                    self.transcripts[index] = completedTranscript
+                    self.saveTranscripts()
+                }
+            }
+            return completedTranscript
+        } catch {
+            var failedTranscript = inProgressTranscript
+            failedTranscript.status = .failed
+
+            DispatchQueue.main.async {
+                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
+                    self.transcripts[index] = failedTranscript
+                    self.saveTranscripts()
+                }
+            }
+
+            if let transcriptionError = error as? TranscriptionError {
+                throw transcriptionError
+            } else {
+                throw TranscriptionError.unknown(error)
+            }
+        }
+    }
+
+    /// Transcribe a batch of recordings into a SINGLE combined transcript.
+    /// Each file is sent to ElevenLabs individually; results are joined once all return.
+    /// The combined transcript uses `groupId` as its `recordingId`.
+    func transcribeGroup(_ recordings: [Recording], groupId: UUID, groupName: String, language: String = "eng") async throws -> Transcript {
+        guard !apiKey.isEmpty else {
+            throw TranscriptionError.missingApiKey
+        }
+
+        var groupTranscript = Transcript(
+            name: groupName,
+            date: Date(),
+            content: "",
+            recordingId: groupId,
+            status: .inProgress
+        )
+
+        DispatchQueue.main.async {
+            self.transcripts.append(groupTranscript)
+            self.saveTranscripts()
+        }
+
+        do {
+            // ponytail: sequential to respect ElevenLabs rate limits; switch to a TaskGroup if batch latency matters
+            var plainSections: [String] = []
+            var formattedSections: [String] = []
+            for recording in recordings {
+                let result = try await performTranscription(recording, language: language)
+                plainSections.append("─── \(recording.name) ───\n\(result.content)")
+                formattedSections.append("─── \(recording.name) ───\n\(result.formatted)")
+            }
+
+            let names = recordings.map { $0.name }.joined(separator: ", ")
+            let header = "Combined transcript from \(recordings.count) audio files: \(names)"
+            let combinedContent = header + "\n\n" + plainSections.joined(separator: "\n\n")
+            let combinedFormatted = header + "\n\n" + formattedSections.joined(separator: "\n\n")
+
+            groupTranscript.content = combinedContent
+            groupTranscript.formattedContent = combinedFormatted
+            groupTranscript.status = .completed
+
+            let finished = groupTranscript
+            DispatchQueue.main.async {
+                if let index = self.transcripts.firstIndex(where: { $0.id == finished.id }) {
+                    self.transcripts[index] = finished
+                    self.saveTranscripts()
+                }
+            }
+            return finished
+        } catch {
+            groupTranscript.status = .failed
+            let failed = groupTranscript
+            DispatchQueue.main.async {
+                if let index = self.transcripts.firstIndex(where: { $0.id == failed.id }) {
+                    self.transcripts[index] = failed
+                    self.saveTranscripts()
+                }
+            }
+            if let transcriptionError = error as? TranscriptionError {
+                throw transcriptionError
+            } else {
+                throw TranscriptionError.unknown(error)
+            }
+        }
+    }
+
+    /// Pure "audio in, text out": uploads a single recording to ElevenLabs and returns
+    /// the parsed result. Does NOT touch the `transcripts` array.
+    private func performTranscription(_ recording: Recording, language: String) async throws -> (content: String, formatted: String, jsonPath: URL?) {
+        guard !apiKey.isEmpty else {
+            throw TranscriptionError.missingApiKey
+        }
+        guard FileManager.default.fileExists(atPath: recording.filePath.path) else {
+            print("Audio file not found at path: \(recording.filePath.path)")
+            throw TranscriptionError.fileReadError
+        }
+
+        print("Transcribing with language: \(language)")
+
         // Prepare the request
         let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue(apiKey, forHTTPHeaderField: "xi-api-key")
-
-        // Print the API key for debugging (remove in production)
-        print("Using API key: \(apiKey)")
 
         // Create URLSession with a longer timeout
         let config = URLSessionConfiguration.default
@@ -74,7 +182,7 @@ class TranscriptionManager: ObservableObject {
         // Add model_id parameter
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
         bodyData.append("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("scribe_v1\r\n".data(using: .utf8)!) // Use the correct model ID from the docs
+        bodyData.append("scribe_v2\r\n".data(using: .utf8)!) // Use the correct model ID from the docs
 
         // Add file parameter
         bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -193,33 +301,8 @@ class TranscriptionManager: ObservableObject {
             // Format the transcript content based on speaker IDs and sentences
             let formattedContent = formatTranscriptContent(transcriptionResponse)
 
-            // Create completed transcript
-            var completedTranscript = inProgressTranscript
-            completedTranscript.content = transcriptionResponse.text
-            completedTranscript.formattedContent = formattedContent
-            completedTranscript.jsonFilePath = jsonFilePath
-            completedTranscript.status = .completed
-
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
-                    self.transcripts[index] = completedTranscript
-                    self.saveTranscripts()
-                }
-            }
-
-            return completedTranscript
+            return (content: transcriptionResponse.text, formatted: formattedContent, jsonPath: jsonFilePath)
         } catch {
-            // Update transcript status to failed
-            var failedTranscript = inProgressTranscript
-            failedTranscript.status = .failed
-
-            DispatchQueue.main.async {
-                if let index = self.transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
-                    self.transcripts[index] = failedTranscript
-                    self.saveTranscripts()
-                }
-            }
-
             if let transcriptionError = error as? TranscriptionError {
                 throw transcriptionError
             } else {

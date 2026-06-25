@@ -14,6 +14,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var recordingDuration: TimeInterval = 0
     @Published var currentRecording: Recording?
     @Published var isMicrophoneMuted = false // Default to unmuted
+    @Published var lastError: String? // Surfaced to the UI (stop/merge/import failures)
 
     private var audioRecorder: AVAudioRecorder?
     private var systemAudioCapture = SystemAudioCapture()
@@ -650,7 +651,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                                 return mergedURL
                             } catch {
                                 logger.error("Failed to merge audio files: \(error.localizedDescription)")
-                                // If merging fails, return the microphone audio file
+                                // Preserve the recording: keep the microphone audio and warn
+                                // the user rather than silently dropping system audio.
+                                await MainActor.run {
+                                    lastError = "Saved microphone audio, but system audio couldn't be merged: \(error.localizedDescription)"
+                                }
                                 return micAudioURL
                             }
                         } catch {
@@ -701,6 +706,18 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
                 }
             } catch {
                 logger.error("Error stopping RecordKit recording: \(error.localizedDescription)")
+                // Reset recording state so the UI isn't stuck "recording", and surface the error.
+                await MainActor.run {
+                    isRecording = false
+                    isPaused = false
+                    durationTimer?.invalidate()
+                    self.currentRecording = nil
+                    startTime = nil
+                    accumulatedTime = 0
+                    recordingDuration = 0
+                    rkRecorder = nil
+                    lastError = "Couldn't save the recording: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -1113,7 +1130,7 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         // Check system audio permission
         if !systemAudioStatus {
-            return (false, "\(statusMessage)\n\nSystem audio recording permission is required. Please grant this permission when prompted.")
+            return (false, "\(statusMessage)\n\nSystem audio recording permission is required. Grant it in System Settings > Privacy & Security, then quit and reopen WhisperNote — the permission only takes effect after a restart.")
         }
 
         // Check if we have microphones available
@@ -1245,93 +1262,24 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
             throw AudioRecorderError.recordingFailed
         }
 
-        // If there's a significant duration discrepancy, we need to adjust one of the tracks
-        if hasDurationDiscrepancy {
-            // Determine which track needs adjustment based on which one is longer
-            if microphoneDuration.seconds > systemAudioDuration.seconds {
-                // Microphone track is longer, so we need to stretch the system audio track
-                // Calculate scale factor for reference (not directly used with AVMutableCompositionTrack)
-                _ = CMTimeScale(microphoneDuration.seconds / systemAudioDuration.seconds * 100)
-
-                // Create a time range that covers the entire system audio track
-                let systemAudioTimeRange = CMTimeRange(start: .zero, duration: systemAudioDuration)
-
-                // Create time mapping for reference (not directly used with AVMutableCompositionTrack)
-                _ = CMTimeMapping(
-                    source: systemAudioTimeRange,
-                    target: CMTimeRange(start: .zero, duration: microphoneDuration)
-                )
-
-                do {
-                    // Insert microphone track normally
-                    try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration),
-                                                         of: microphoneTrack,
-                                                         at: .zero)
-
-                    // Insert system audio track - note: AVMutableCompositionTrack doesn't support timeMapping directly
-                    // We'll use a different approach by adjusting the playback rate
-                    try compositionTrack2.insertTimeRange(systemAudioTimeRange,
-                                                         of: systemAudioTrack,
-                                                         at: .zero)
-
-                    // Apply speed adjustment using AVAudioMix parameters later
-                    logger.info("Will apply speed adjustment to system audio track to match microphone duration")
-                } catch {
-                    logger.error("Failed to insert time ranges: \(error.localizedDescription)")
-                    throw AudioRecorderError.recordingFailed
-                }
-            } else {
-                // System audio track is longer, so we need to stretch the microphone track
-                // Calculate scale factor for reference (not directly used with AVMutableCompositionTrack)
-                _ = CMTimeScale(systemAudioDuration.seconds / microphoneDuration.seconds * 100)
-
-                // Create a time range that covers the entire microphone track
-                let microphoneTimeRange = CMTimeRange(start: .zero, duration: microphoneDuration)
-
-                // Create time mapping for reference (not directly used with AVMutableCompositionTrack)
-                _ = CMTimeMapping(
-                    source: microphoneTimeRange,
-                    target: CMTimeRange(start: .zero, duration: systemAudioDuration)
-                )
-
-                do {
-                    // Insert microphone track - note: AVMutableCompositionTrack doesn't support timeMapping directly
-                    try compositionTrack1.insertTimeRange(microphoneTimeRange,
-                                                         of: microphoneTrack,
-                                                         at: .zero)
-
-                    // Insert system audio track normally
-                    try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration),
-                                                         of: systemAudioTrack,
-                                                         at: .zero)
-
-                    // Apply speed adjustment using AVAudioMix parameters later
-                    logger.info("Will apply speed adjustment to microphone track to match system audio duration")
-                } catch {
-                    logger.error("Failed to insert time ranges: \(error.localizedDescription)")
-                    throw AudioRecorderError.recordingFailed
-                }
-            }
-        } else {
-            // No significant duration discrepancy, insert tracks normally
-            do {
-                try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration),
-                                                     of: microphoneTrack,
-                                                     at: .zero)
-                try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration),
-                                                     of: systemAudioTrack,
-                                                     at: .zero)
-            } catch {
-                logger.error("Failed to insert time ranges: \(error.localizedDescription)")
-                throw AudioRecorderError.recordingFailed
-            }
+        // Insert both tracks over their common (shorter) duration. AVAssetExportSession
+        // mixes all audio tracks in the output, and clamping to the shorter length keeps a
+        // sample-rate/length mismatch from corrupting the export.
+        // ponytail: drops the old CMTimeMapping "speed adjustment" path — it was built then
+        // discarded (AVMutableCompositionTrack can't apply a time map), so it never did anything.
+        let commonDuration = min(microphoneDuration, systemAudioDuration)
+        let commonTimeRange = CMTimeRange(start: .zero, duration: commonDuration)
+        do {
+            try compositionTrack1.insertTimeRange(commonTimeRange, of: microphoneTrack, at: .zero)
+            try compositionTrack2.insertTimeRange(commonTimeRange, of: systemAudioTrack, at: .zero)
+        } catch {
+            logger.error("Failed to insert time ranges: \(error.localizedDescription)")
+            throw AudioRecorderError.recordingFailed
         }
 
-        // Create an export session with specific settings to ensure consistent output
-        // Use a more optimized preset to reduce file size
-        let exportPreset = AVAssetExportPresetMediumQuality // Use medium quality to reduce file size
-
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: exportPreset) else {
+        // Audio-only preset. MediumQuality is a *video* preset and silently fails to export
+        // an audio-only composition — that was the root cause of the save-on-stop error.
+        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
             logger.error("Failed to create export session")
             throw AudioRecorderError.recordingFailed
         }
@@ -1378,10 +1326,11 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
         // Export the composition
         await exportSession.export()
 
-        // Check for export errors
-        if let error = exportSession.error {
-            logger.error("Export failed: \(error.localizedDescription)")
-            throw AudioRecorderError.recordingFailed
+        // Surface the real export error instead of masking it.
+        guard exportSession.status == .completed else {
+            let exportError = exportSession.error
+            logger.error("Export failed (status \(exportSession.status.rawValue)): \(exportError?.localizedDescription ?? "unknown")")
+            throw exportError ?? AudioRecorderError.recordingFailed
         }
 
         // Log the final file size
@@ -1396,6 +1345,71 @@ class AudioRecorder: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
         logger.info("Audio files successfully merged to: \(outputURL.path)")
         return outputURL
+    }
+
+    func importRecording(from sourceURL: URL) {
+        importRecordings(from: [sourceURL])
+    }
+
+    /// Import one or more audio files. When more than one file is given, they share a
+    /// single groupId/groupName so the UI can show them as one collapsible group.
+    func importRecordings(from urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let groupId: UUID? = urls.count > 1 ? UUID() : nil
+        let groupName: String? = groupId == nil ? nil : {
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            return "Imported batch — \(df.string(from: Date())) (\(urls.count) files)"
+        }()
+
+        Task {
+            var imported: [Recording] = []
+            for sourceURL in urls {
+                do {
+                    let recording = try await importSingle(from: sourceURL, groupId: groupId, groupName: groupName)
+                    imported.append(recording)
+                } catch {
+                    await MainActor.run {
+                        lastError = "Import failed for \(sourceURL.lastPathComponent): \(error.localizedDescription)"
+                    }
+                }
+            }
+            guard !imported.isEmpty else { return }
+            let importedFinal = imported
+            await MainActor.run {
+                recordings.append(contentsOf: importedFinal)
+                saveRecordings()
+            }
+        }
+    }
+
+    private func importSingle(from sourceURL: URL, groupId: UUID?, groupName: String?) async throws -> Recording {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let uniqueDir = directoryManager.getRecordingsDirectory()
+            .appendingPathComponent("import_\(dateFormatter.string(from: Date()))_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: uniqueDir, withIntermediateDirectories: true)
+
+        let ext = sourceURL.pathExtension.isEmpty ? "m4a" : sourceURL.pathExtension
+        let destURL = uniqueDir.appendingPathComponent("recording.\(ext)")
+        try FileManager.default.copyItem(at: sourceURL, to: destURL)
+
+        let duration = try await AVAsset(url: destURL).load(.duration).seconds
+        let name = sourceURL.deletingPathExtension().lastPathComponent
+        return Recording(name: name, date: Date(), duration: duration,
+                         filePath: destURL, systemAudioFilePath: nil,
+                         groupId: groupId, groupName: groupName)
+    }
+
+    /// Delete every recording belonging to a group.
+    func deleteGroup(groupId: UUID) {
+        let ids = recordings.filter { $0.groupId == groupId }.map { $0.id }
+        for id in ids {
+            deleteRecording(id: id)
+        }
     }
 
     /// Helper method to select a default microphone using a fallback strategy

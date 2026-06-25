@@ -251,6 +251,8 @@ struct SummaryDetailView: View {
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
     @Binding var selectedSummaryBinding: Summary?
+    @State private var showingRetryError = false
+    @State private var retryError = ""
 
     var body: some View {
         VStack {
@@ -291,6 +293,15 @@ struct SummaryDetailView: View {
                 }) {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
+
+                Button(action: {
+                    let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
+                    tv.string = selectedSummary.content
+                    NSPrintOperation(view: tv).run()
+                }) {
+                    Label("Print / PDF", systemImage: "printer")
+                }
+                .disabled(selectedSummary.status != .completed)
 
 Button(action: {
     // Store the current summary ID
@@ -351,11 +362,30 @@ Button(action: {
                         .padding(.top, 10)
 
                     Button("Retry") {
-                        // Retry summary generation
+                        Task {
+                            do {
+                                let id = selectedSummary.id
+                                let tm = TranscriptionManager()
+                                guard let transcript = tm.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) else {
+                                    throw NSError(domain: "SummaryView", code: 1,
+                                                 userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
+                                }
+                                let updated = try await summaryManager.retryGenerateSummary(id: id, transcript: transcript)
+                                selectedSummaryBinding = updated
+                            } catch {
+                                retryError = error.localizedDescription
+                                showingRetryError = true
+                            }
+                        }
                     }
                     .padding(.top, 10)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .alert("Retry Failed", isPresented: $showingRetryError) {
+                    Button("OK") { }
+                } message: {
+                    Text(retryError)
+                }
             }
         }
     }
@@ -437,9 +467,7 @@ struct RegenerateSummaryView: View {
     @Binding var errorMessage: String
     @Binding var showingError: Bool
     @ObservedObject var summaryManager: SummaryManager
-    @State private var selectedModel: String = "openai/gpt-4.1-mini" // Initialize with a default value
-
-    private let llmModels = ["openai/gpt-4.1-mini", "google/gemini-2.5-flash-preview", "deepseek/deepseek-chat-v3-0324", "google/gemini-2.5-pro-exp-03-25"]
+    @State private var selectedModel: String = defaultLLMModelId
 
     // Initialize the selected model when the view appears
     var body: some View {
@@ -453,8 +481,8 @@ struct RegenerateSummaryView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Picker("Select LLM Model", selection: $selectedModel) {
-                    ForEach(llmModels, id: \.self) { model in
-                        Text(modelDisplayName(for: model)).tag(model)
+                    ForEach(llmModels) { model in
+                        Text(model.displayName).tag(model.id)
                     }
                 }
                 .pickerStyle(MenuPickerStyle())
@@ -531,29 +559,9 @@ struct RegenerateSummaryView: View {
                 customPrompt = summaryManager.getDefaultPrompt()
             }
 
-            // Final safety check - if selectedModel is still empty, use the first model in the list
-            if selectedModel.isEmpty && !llmModels.isEmpty {
-                selectedModel = llmModels[0]
+            if selectedModel.isEmpty {
+                selectedModel = defaultLLMModelId
             }
-        }
-    }
-}
-
-// Helper function for RegenerateSummaryView
-extension RegenerateSummaryView {
-    // Convert model ID to user-friendly display name
-    private func modelDisplayName(for modelId: String) -> String {
-        switch modelId {
-        case "openai/gpt-4.1-mini":
-            return "GPT-4.1 Mini"
-        case "google/gemini-2.5-flash-preview":
-            return "Gemini 2.5 Flash"
-        case "deepseek/deepseek-chat-v3-0324":
-            return "DeepSeek Chat v3"
-        case "google/gemini-2.5-pro-exp-03-25":
-            return "Gemini 2.5 Pro"
-        default:
-            return modelId
         }
     }
 }

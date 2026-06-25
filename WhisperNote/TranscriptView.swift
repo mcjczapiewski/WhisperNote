@@ -19,8 +19,8 @@ struct TranscriptView: View {
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
-    @State private var selectedModel: String = "openai/gpt-4.1-mini"
-    @AppStorage("defaultLLMModel") private var defaultModel = "openai/gpt-4.1-mini"
+    @State private var selectedModel: String = defaultLLMModelId
+    @AppStorage("defaultLLMModel") private var defaultModel = defaultLLMModelId
 
     // MARK: - Main View
     var body: some View {
@@ -479,12 +479,15 @@ Button(action: {
                                 // Find the original recording
                                 let audioRecorder = AudioRecorder()
                                 let recordings = audioRecorder.recordings
+                                // ponytail: group transcripts use groupId as recordingId, so this single-recording
+                                // lookup misses them and Retry shows "Original recording not found"; wire group-retry only if needed.
                                 if let recording = recordings.first(where: { $0.id == selectedTranscript.recordingId }) {
                                     // Remove the failed transcript
                                     transcriptionManager.transcripts.removeAll(where: { $0.id == selectedTranscript.id })
 
-                                    // Create a new transcription
-                                    _ = try await transcriptionManager.transcribeRecording(recording)
+                                    // Create a new transcription and auto-select it
+                                    let completed = try await transcriptionManager.transcribeRecording(recording)
+                                    selectedTranscriptBinding = completed
                                 } else {
                                     throw NSError(domain: "TranscriptView", code: 1,
                                                  userInfo: [NSLocalizedDescriptionKey: "Original recording not found"])
@@ -596,10 +599,9 @@ struct SummaryParametersView: View {
 
                 Text("Language Model:")
                 Picker("Select LLM Model", selection: $selectedModel) {
-                    Text("GPT-4.1 Mini").tag("openai/gpt-4.1-mini")
-                    Text("Gemini 2.5 Flash").tag("google/gemini-2.5-flash-preview")
-                    Text("DeepSeek Chat v3").tag("deepseek/deepseek-chat-v3-0324")
-                    Text("Gemini 2.5 Pro").tag("google/gemini-2.5-pro-exp-03-25")
+                    ForEach(llmModels) { model in
+                        Text(model.displayName).tag(model.id)
+                    }
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity)
