@@ -468,6 +468,7 @@ struct RegenerateSummaryView: View {
     @Binding var showingError: Bool
     @ObservedObject var summaryManager: SummaryManager
     @State private var selectedModel: String = defaultLLMModelId
+    @State private var isEnhancingPrompt = false
 
     // Initialize the selected model when the view appears
     var body: some View {
@@ -498,6 +499,26 @@ struct RegenerateSummaryView: View {
                 .frame(minHeight: 200)
                 .border(Color.gray.opacity(0.2))
                 .padding(.horizontal)
+
+            HStack {
+                Button {
+                    enhancePrompt()
+                } label: {
+                    if isEnhancingPrompt {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Enhancing...")
+                        }
+                    } else {
+                        Text("Enhance Prompt")
+                    }
+                }
+                .disabled(isEnhancingPrompt || customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Spacer()
+            }
+            .padding(.horizontal)
 
             HStack {
                 Button("Cancel") {
@@ -536,11 +557,11 @@ struct RegenerateSummaryView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(customPrompt.isEmpty)
+                .disabled(isEnhancingPrompt || customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }
-        .frame(width: 500, height: 450)
+        .frame(width: 500, height: 500)
         .padding()
         .onAppear {
             // Initialize with the default model or the model from the selected summary
@@ -562,6 +583,23 @@ struct RegenerateSummaryView: View {
             if selectedModel.isEmpty {
                 selectedModel = defaultLLMModelId
             }
+        }
+    }
+
+    private func enhancePrompt() {
+        let promptToEnhance = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !promptToEnhance.isEmpty else { return }
+
+        isEnhancingPrompt = true
+        Task {
+            do {
+                customPrompt = try await summaryManager.enhancePrompt(promptToEnhance, model: selectedModel)
+            } catch {
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
+
+            isEnhancingPrompt = false
         }
     }
 }

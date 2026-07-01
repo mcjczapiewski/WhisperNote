@@ -272,7 +272,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.1"
     }
 }
 
@@ -299,6 +299,14 @@ struct ChangelogView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.1.1",
+                        date: "July 1, 2026",
+                        changes: [
+                            "Added prompt enhancement to the Regenerate Summary dialog in the Summaries tab."
+                        ]
+                    )
+
                     ChangelogSection(
                         version: "1.1",
                         date: "July 1, 2026",
