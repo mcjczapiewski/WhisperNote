@@ -7,9 +7,11 @@ class TranscriptionManager: ObservableObject {
     @AppStorage("elevenlabsApiKey") private var apiKey = ""
 
     private let directoryManager = DirectoryManager.shared
+    private let debugLogger = DebugLogger.shared
 
     init() {
         loadTranscripts()
+        migrateLegacyJSONArchives()
     }
 
     func transcribeRecording(_ recording: Recording, language: String = "eng") async throws -> Transcript {
@@ -147,6 +149,7 @@ class TranscriptionManager: ObservableObject {
         }
 
         print("Transcribing with language: \(language)")
+        debugLogger.log("Transcription started. recording=\(recording.name) file=\(recording.filePath.path) language=\(language)", area: .transcripts, contextURL: recording.filePath)
 
         // Prepare the request
         let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
@@ -154,25 +157,16 @@ class TranscriptionManager: ObservableObject {
         request.httpMethod = "POST"
         request.addValue(apiKey, forHTTPHeaderField: "xi-api-key")
 
-        // Create URLSession with a longer timeout
+        // Create URLSession with a longer timeout. Large files can spend a long
+        // time uploading before ElevenLabs starts processing the transcription.
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300 // 5 minutes for large files
+        config.timeoutIntervalForRequest = 3600
+        config.timeoutIntervalForResource = 7200
         let session = URLSession(configuration: config)
 
         // Create multipart form data
         let boundary = "---011000010111000001101001" // Use a fixed boundary as in the example
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var bodyData = Data()
-
-        // Add model_id parameter
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("scribe_v2\r\n".data(using: .utf8)!) // Use the correct model ID from the docs
-
-        // Add file parameter
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n".data(using: .utf8)!)
 
         // Set the correct content type based on the file extension
         let fileExtension = recording.filePath.pathExtension.lowercased()
@@ -187,69 +181,45 @@ class TranscriptionManager: ObservableObject {
             contentType = "application/octet-stream"
         }
 
-        bodyData.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        let audioFileSize = (try? FileManager.default.attributesOfItem(atPath: recording.filePath.path)[.size] as? NSNumber)?.int64Value ?? 0
+        print("Audio file size: \(ByteCountFormatter.string(fromByteCount: audioFileSize, countStyle: .file))")
 
+        let uploadFileURL: URL
         do {
-            print("Loading audio file from: \(recording.filePath.path)")
-            let audioData = try Data(contentsOf: recording.filePath)
-            print("Audio file size: \(ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))")
-            bodyData.append(audioData)
-            bodyData.append("\r\n".data(using: .utf8)!)
+            uploadFileURL = try await Task.detached(priority: .userInitiated) {
+                try Self.createMultipartUploadFile(recording: recording, language: language, boundary: boundary, contentType: contentType)
+            }.value
         } catch {
-            print("Error reading audio file: \(error.localizedDescription)")
+            print("Error preparing upload body: \(error.localizedDescription)")
+            debugLogger.log("Transcription upload body preparation failed. error=\(error.localizedDescription)", area: .transcripts, contextURL: recording.filePath)
             throw TranscriptionError.fileReadError
         }
+        defer { try? FileManager.default.removeItem(at: uploadFileURL) }
 
-        // Optional parameters
-
-        // Add language_code parameter (optional)
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("\(language)\r\n".data(using: .utf8)!)
-
-        // Add timestamps_granularity parameter (optional)
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"timestamps_granularity\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("word\r\n".data(using: .utf8)!)
-
-        // Add tag_audio_events parameter (optional)
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"tag_audio_events\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("false\r\n".data(using: .utf8)!)
-
-        // Add diarize parameter (optional)
-        bodyData.append("--\(boundary)\r\n".data(using: .utf8)!)
-        bodyData.append("Content-Disposition: form-data; name=\"diarize\"\r\n\r\n".data(using: .utf8)!)
-        bodyData.append("true\r\n".data(using: .utf8)!)
-
-        // Finalize the form data
-        bodyData.append("--\(boundary)--\r\n".data(using: .utf8)!)
-
-        // Set the content length
-        request.setValue("\(bodyData.count)", forHTTPHeaderField: "Content-Length")
-        request.httpBody = bodyData
+        let uploadFileSize = (try? FileManager.default.attributesOfItem(atPath: uploadFileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        request.setValue("\(uploadFileSize)", forHTTPHeaderField: "Content-Length")
+        debugLogger.log("ElevenLabs request prepared. audioBytes=\(audioFileSize) uploadBytes=\(uploadFileSize) contentType=\(contentType) timeoutRequest=\(config.timeoutIntervalForRequest) timeoutResource=\(config.timeoutIntervalForResource)", area: .transcripts, contextURL: recording.filePath)
 
         do {
-            // Use our custom session with longer timeout
-            let (responseData, response) = try await session.data(for: request)
+            let startedAt = Date()
+            let (responseData, response) = try await session.upload(for: request, fromFile: uploadFileURL)
+            let elapsed = Date().timeIntervalSince(startedAt)
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                debugLogger.log("ElevenLabs response invalid. elapsed=\(elapsed)", area: .transcripts, contextURL: recording.filePath)
                 throw TranscriptionError.invalidResponse
             }
+
+            debugLogger.log("ElevenLabs response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .transcripts, contextURL: recording.filePath)
 
             guard httpResponse.statusCode == 200 else {
                 // Print response body for debugging
                 let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
                 print("API Error Response: \(responseString)")
+                debugLogger.log("ElevenLabs API error. status=\(httpResponse.statusCode) body=\(Self.truncateForLog(responseString))", area: .transcripts, contextURL: recording.filePath)
 
                 // Try to extract error message from the response
-                var errorMessage: String? = nil
-                if let data = responseString.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let detail = json["detail"] as? [String: Any],
-                   let message = detail["message"] as? String {
-                    errorMessage = message
-                }
+                let errorMessage = Self.extractAPIErrorMessage(from: responseData)
 
                 throw TranscriptionError.apiError(statusCode: httpResponse.statusCode, message: errorMessage)
             }
@@ -263,6 +233,7 @@ class TranscriptionManager: ObservableObject {
                 transcriptionResponse = try decoder.decode(ElevenLabsTranscriptionResponse.self, from: responseData)
             } catch {
                 print("Error decoding response: \(error)")
+                debugLogger.log("ElevenLabs response decode failed. error=\(error.localizedDescription) body=\(Self.truncateForLog(String(data: responseData, encoding: .utf8) ?? "Unable to decode response"))", area: .transcripts, contextURL: recording.filePath)
 
                 // Try alternative format (simple string)
                 if let simpleResponse = try? decoder.decode([String: String].self, from: responseData),
@@ -271,27 +242,110 @@ class TranscriptionManager: ObservableObject {
                         text: text,
                         language_code: nil,
                         language_probability: nil,
-                        words: nil
+                        words: nil,
+                        transcription_id: nil,
+                        audio_duration_secs: nil
                     )
                 } else {
                     throw error
                 }
             }
 
-            // Save the JSON response to a file
-            let jsonFilePath = try self.saveJSONResponse(responseData, recording: recording)
+            let speakerSegments = compactSpeakerSegments(from: transcriptionResponse)
 
-            // Format the transcript content based on speaker IDs and sentences
-            let formattedContent = formatTranscriptContent(transcriptionResponse)
+            // Save a compact archive instead of the full per-word response.
+            let jsonFilePath = try self.saveCompactJSONResponse(
+                transcriptionResponse,
+                speakerSegments: speakerSegments,
+                rawResponseByteCount: responseData.count,
+                recording: recording
+            )
+            debugLogger.log("Transcription completed. json=\(jsonFilePath.path) textChars=\(transcriptionResponse.text.count) speakerSegments=\(speakerSegments.count)", area: .transcripts, contextURL: recording.filePath)
+
+            let formattedContent = formatTranscriptContent(response: transcriptionResponse, speakerSegments: speakerSegments)
 
             return (content: transcriptionResponse.text, formatted: formattedContent, jsonPath: jsonFilePath)
         } catch {
             if let transcriptionError = error as? TranscriptionError {
+                debugLogger.log("Transcription failed. error=\(transcriptionError.localizedDescription)", area: .transcripts, contextURL: recording.filePath)
                 throw transcriptionError
             } else {
+                let nsError = error as NSError
+                debugLogger.log("Transcription failed. domain=\(nsError.domain) code=\(nsError.code) error=\(nsError.localizedDescription)", area: .transcripts, contextURL: recording.filePath)
                 throw TranscriptionError.unknown(error)
             }
         }
+    }
+
+    nonisolated private static func createMultipartUploadFile(recording: Recording, language: String, boundary: String, contentType: String) throws -> URL {
+        let uploadURL = FileManager.default.temporaryDirectory.appendingPathComponent("elevenlabs_\(UUID().uuidString).multipart")
+        FileManager.default.createFile(atPath: uploadURL.path, contents: nil)
+
+        let uploadHandle = try FileHandle(forWritingTo: uploadURL)
+        defer { try? uploadHandle.close() }
+
+        func write(_ string: String) throws {
+            if let data = string.data(using: .utf8) {
+                try uploadHandle.write(contentsOf: data)
+            }
+        }
+
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"model_id\"\r\n\r\n")
+        try write("scribe_v2\r\n")
+
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"file\"; filename=\"\(recording.filePath.lastPathComponent)\"\r\n")
+        try write("Content-Type: \(contentType)\r\n\r\n")
+
+        let audioHandle = try FileHandle(forReadingFrom: recording.filePath)
+        defer { try? audioHandle.close() }
+        while let chunk = try audioHandle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try uploadHandle.write(contentsOf: chunk)
+        }
+
+        try write("\r\n")
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"language_code\"\r\n\r\n")
+        try write("\(language)\r\n")
+
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"timestamps_granularity\"\r\n\r\n")
+        try write("word\r\n")
+
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"tag_audio_events\"\r\n\r\n")
+        try write("false\r\n")
+
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"diarize\"\r\n\r\n")
+        try write("true\r\n")
+
+        try write("--\(boundary)--\r\n")
+        return uploadURL
+    }
+
+    nonisolated private static func extractAPIErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        if let detail = json["detail"] as? [String: Any] {
+            return detail["message"] as? String
+        }
+
+        if let detail = json["detail"] as? String {
+            return detail
+        }
+
+        if let message = json["message"] as? String {
+            return message
+        }
+
+        return nil
+    }
+
+    nonisolated private static func truncateForLog(_ value: String, limit: Int = 4_000) -> String {
+        guard value.count > limit else { return value }
+        return String(value.prefix(limit)) + "... [truncated]"
     }
 
     // MARK: - Persistence
@@ -385,10 +439,50 @@ class TranscriptionManager: ObservableObject {
         }
     }
 
+    private func migrateLegacyJSONArchives() {
+        for transcript in transcripts {
+            guard let jsonFilePath = transcript.jsonFilePath else { continue }
+            guard FileManager.default.fileExists(atPath: jsonFilePath.path) else { continue }
+
+            do {
+                let data = try Data(contentsOf: jsonFilePath)
+                let response = try JSONDecoder().decode(ElevenLabsTranscriptionResponse.self, from: data)
+                guard response.words != nil else { continue }
+
+                let compactArchive = CompactTranscriptionArchive(
+                    language_code: response.language_code,
+                    language_probability: response.language_probability,
+                    text: response.text,
+                    transcription_id: response.transcription_id,
+                    audio_duration_secs: response.audio_duration_secs,
+                    speaker_segments: compactSpeakerSegments(from: response)
+                )
+
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                let compactData = try encoder.encode(compactArchive)
+                try compactData.write(to: jsonFilePath, options: .atomic)
+
+                debugLogger.log(
+                    "Migrated transcript JSON archive to compact format. transcript=\(transcript.name) oldBytes=\(data.count) compactBytes=\(compactData.count)",
+                    area: .transcripts
+                )
+            } catch {
+                debugLogger.log(
+                    "Failed to migrate transcript JSON archive. transcript=\(transcript.name) error=\(error.localizedDescription)",
+                    area: .transcripts
+                )
+            }
+        }
+    }
+
     // MARK: - JSON Response Handling
 
-    /// Save the JSON response from ElevenLabs API to a file
-    private func saveJSONResponse(_ responseData: Data, recording: Recording) throws -> URL {
+    /// Save a compact JSON transcript archive. The raw ElevenLabs response can
+    /// include one object per word and one object per space; for long meetings
+    /// that is large and slow to inspect, while speaker turns preserve the app's
+    /// useful diarization data.
+    private func saveCompactJSONResponse(_ response: ElevenLabsTranscriptionResponse, speakerSegments: [SpeakerSegment], rawResponseByteCount: Int, recording: Recording) throws -> URL {
         let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
 
         // Create a unique filename with recording name and timestamp
@@ -403,8 +497,25 @@ class TranscriptionManager: ObservableObject {
         let fileURL = transcriptsDirectory.appendingPathComponent(filename)
 
         do {
-            try responseData.write(to: fileURL)
-            print("Saved JSON response to: \(fileURL.path)")
+            let compactResponse = CompactTranscriptionArchive(
+                language_code: response.language_code,
+                language_probability: response.language_probability,
+                text: response.text,
+                transcription_id: response.transcription_id,
+                audio_duration_secs: response.audio_duration_secs,
+                speaker_segments: speakerSegments
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            let compactData = try encoder.encode(compactResponse)
+            try compactData.write(to: fileURL)
+            let wordsCount = response.words?.count ?? 0
+            let ratio = rawResponseByteCount == 0 ? 0 : Double(compactData.count) / Double(rawResponseByteCount)
+            debugLogger.log(
+                "Saved compact transcription JSON. rawBytes=\(rawResponseByteCount) compactBytes=\(compactData.count) words=\(wordsCount) speakerSegments=\(speakerSegments.count) compactRatio=\(String(format: "%.2f", ratio * 100))%",
+                area: .transcripts,
+                contextURL: recording.filePath
+            )
             return fileURL
         } catch {
             print("Error saving JSON response: \(error.localizedDescription)")
@@ -412,55 +523,56 @@ class TranscriptionManager: ObservableObject {
         }
     }
 
-    /// Format transcript content based on speaker IDs and sentences
-    private func formatTranscriptContent(_ response: ElevenLabsTranscriptionResponse) -> String {
-        guard let words = response.words, !words.isEmpty else {
-            return response.text // Return original text if no words data
+    private func compactSpeakerSegments(from response: ElevenLabsTranscriptionResponse) -> [SpeakerSegment] {
+        guard let words = response.words, !words.isEmpty else { return [] }
+
+        var segments: [SpeakerSegment] = []
+        var currentSpeaker = words.first?.speaker_id ?? "speaker_unknown"
+        var currentStart = words.first?.start ?? 0
+        var currentEnd = words.first?.end ?? currentStart
+        var currentText = ""
+
+        func flushSegment() {
+            let trimmedText = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedText.isEmpty else { return }
+            segments.append(SpeakerSegment(
+                speaker_id: currentSpeaker,
+                start: currentStart,
+                end: currentEnd,
+                text: trimmedText
+            ))
+        }
+
+        for word in words {
+            let speaker = word.speaker_id ?? currentSpeaker
+            if speaker != currentSpeaker {
+                flushSegment()
+                currentSpeaker = speaker
+                currentStart = word.start
+                currentEnd = word.end
+                currentText = word.text
+            } else {
+                currentEnd = word.end
+                currentText += word.text
+            }
+        }
+
+        flushSegment()
+        return segments
+    }
+
+    /// Format transcript content based on compact speaker turns.
+    private func formatTranscriptContent(response: ElevenLabsTranscriptionResponse, speakerSegments: [SpeakerSegment]) -> String {
+        guard !speakerSegments.isEmpty else {
+            return response.text
         }
 
         var formattedContent = ""
-        var currentSpeakerId: String?
-        var currentSentence = ""
-
-        for (index, word) in words.enumerated() {
-            // Check if this is a new speaker
-            if let speakerId = word.speaker_id, speakerId != currentSpeakerId {
-                // If we have content from previous speaker, add it to formatted content
-                if !currentSentence.isEmpty {
-                    formattedContent += "\n\n"
-                }
-
-                // Add speaker ID header
-                formattedContent += "[\(speakerId)]\n"
-                currentSpeakerId = speakerId
-                currentSentence = ""
+        for segment in speakerSegments {
+            if !formattedContent.isEmpty {
+                formattedContent += "\n\n"
             }
-
-            // Add word to current sentence
-            currentSentence += word.text
-
-            // Add space if not punctuation and not the last word
-            let isPunctuation = word.text.trimmingCharacters(in: .letters).count == word.text.count
-            let isLastWord = index == words.count - 1
-
-            if !isPunctuation && !isLastWord {
-                currentSentence += " "
-            }
-
-            // Check if this word ends a sentence (period, question mark, exclamation mark)
-            let endsSentence = word.text.last?.isEndOfSentence ?? false
-
-            // If end of sentence or last word, add the sentence to formatted content
-            if endsSentence || isLastWord {
-                formattedContent += currentSentence
-
-                // Only add a new line if not the last word
-                if !isLastWord {
-                    formattedContent += "\n"
-                }
-
-                currentSentence = ""
-            }
+            formattedContent += "[\(segment.speaker_id)]\n\(segment.text)"
         }
 
         return formattedContent
@@ -477,11 +589,29 @@ extension Character {
 
 // MARK: - ElevenLabs API Response
 
+struct CompactTranscriptionArchive: Codable {
+    let language_code: String?
+    let language_probability: Double?
+    let text: String
+    let transcription_id: String?
+    let audio_duration_secs: Double?
+    let speaker_segments: [SpeakerSegment]
+}
+
+struct SpeakerSegment: Codable {
+    let speaker_id: String
+    let start: Double
+    let end: Double
+    let text: String
+}
+
 struct ElevenLabsTranscriptionResponse: Codable {
     let text: String
     let language_code: String?
     let language_probability: Double?
     let words: [ElevenLabsWord]?
+    let transcription_id: String?
+    let audio_duration_secs: Double?
 
     struct ElevenLabsWord: Codable {
         let text: String

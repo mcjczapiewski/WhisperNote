@@ -8,6 +8,7 @@ class SummaryManager: ObservableObject {
     @AppStorage("defaultLLMModel") var defaultModel = defaultLLMModelId
 
     private let directoryManager = DirectoryManager.shared
+    private let debugLogger = DebugLogger.shared
 
     init() {
         loadSummaries()
@@ -102,6 +103,70 @@ class SummaryManager: ObservableObject {
         }
     }
 
+    func enhancePrompt(_ prompt: String, model: String? = nil) async throws -> String {
+        guard !apiKey.isEmpty else {
+            throw SummaryError.missingApiKey
+        }
+
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw SummaryError.emptyPrompt
+        }
+
+        let modelToUse = model ?? defaultModel
+        let enhancerInstructions = """
+        You are improving a prompt that will be used to generate an output from a transcript.
+
+        Rewrite the user's prompt so it is clearer, more specific, and more actionable. Preserve the user's intent, requested output type, target audience, formatting requirements, language requirements, and constraints.
+
+        Do not assume the transcript is a meeting. It may be a meeting, workshop, lecture, interview, training session, podcast, call, presentation, or another spoken recording.
+
+        Do not summarize any transcript. Do not invent details. Do not add domain-specific assumptions that are not present in the original prompt.
+
+        Make the improved prompt suitable for producing a high-quality, well-structured output from the transcript.
+
+        Return only the improved prompt text.
+        """
+
+        let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("WhisperNote/1.0.0", forHTTPHeaderField: "HTTP-Referer")
+
+        let requestBody: [String: Any] = [
+            "model": modelToUse,
+            "messages": [
+                ["role": "system", "content": enhancerInstructions],
+                ["role": "user", "content": trimmedPrompt]
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        debugLogger.log("OpenRouter prompt enhancement started. model=\(modelToUse) promptChars=\(trimmedPrompt.count)", area: .summaries)
+
+        let startedAt = Date()
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            debugLogger.log("OpenRouter prompt enhancement response invalid. elapsed=\(String(format: "%.2f", elapsed))s", area: .summaries)
+            throw SummaryError.invalidResponse
+        }
+        debugLogger.log("OpenRouter prompt enhancement response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .summaries)
+        guard httpResponse.statusCode == 200 else {
+            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
+            debugLogger.log("OpenRouter prompt enhancement API error. status=\(httpResponse.statusCode) body=\(truncateForLog(responseString))", area: .summaries)
+            throw SummaryError.apiError(statusCode: httpResponse.statusCode)
+        }
+        let summaryResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
+        guard let content = summaryResponse.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
+            debugLogger.log("OpenRouter prompt enhancement response contained no choices.", area: .summaries)
+            throw SummaryError.emptyResponse
+        }
+        debugLogger.log("OpenRouter prompt enhancement completed. outputChars=\(content.count)", area: .summaries)
+        return content
+    }
+
     private func callOpenRouterAPI(prompt: String, model: String, transcript: Transcript) async throws -> String {
         let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -116,19 +181,33 @@ class SummaryManager: ObservableObject {
             "messages": [["role": "user", "content": fullPrompt]]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        debugLogger.log("OpenRouter request started. model=\(model) transcript=\(transcript.name) promptChars=\(prompt.count) transcriptChars=\(transcript.content.count)", area: .summaries)
 
+        let startedAt = Date()
         let (responseData, response) = try await URLSession.shared.data(for: request)
+        let elapsed = Date().timeIntervalSince(startedAt)
         guard let httpResponse = response as? HTTPURLResponse else {
+            debugLogger.log("OpenRouter response invalid. elapsed=\(String(format: "%.2f", elapsed))s", area: .summaries)
             throw SummaryError.invalidResponse
         }
+        debugLogger.log("OpenRouter response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .summaries)
         guard httpResponse.statusCode == 200 else {
+            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
+            debugLogger.log("OpenRouter API error. status=\(httpResponse.statusCode) body=\(truncateForLog(responseString))", area: .summaries)
             throw SummaryError.apiError(statusCode: httpResponse.statusCode)
         }
         let summaryResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
         guard let content = summaryResponse.choices.first?.message.content else {
+            debugLogger.log("OpenRouter response contained no choices.", area: .summaries)
             throw SummaryError.emptyResponse
         }
+        debugLogger.log("OpenRouter summary completed. outputChars=\(content.count)", area: .summaries)
         return content
+    }
+
+    private func truncateForLog(_ value: String, limit: Int = 4_000) -> String {
+        guard value.count > limit else { return value }
+        return String(value.prefix(limit)) + "... [truncated]"
     }
 
     func getDefaultPrompt(meetingType: String = "meeting", audience: String = "all participants") -> String {
@@ -234,6 +313,7 @@ struct OpenRouterResponse: Codable {
 
 enum SummaryError: Error, LocalizedError {
     case missingApiKey
+    case emptyPrompt
     case invalidResponse
     case apiError(statusCode: Int)
     case emptyResponse
@@ -243,6 +323,8 @@ enum SummaryError: Error, LocalizedError {
         switch self {
         case .missingApiKey:
             return "OpenRouter API key is missing. Please add it in Settings."
+        case .emptyPrompt:
+            return "Prompt is empty. Please preview or enter a prompt first."
         case .invalidResponse:
             return "Received invalid response from OpenRouter API."
         case .apiError(let statusCode):

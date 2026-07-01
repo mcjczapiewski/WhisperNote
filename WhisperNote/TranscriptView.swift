@@ -11,6 +11,8 @@ struct TranscriptView: View {
     @State private var showingDeleteConfirmation = false
     @State private var transcriptToDelete: Transcript?
     @State private var isShowingExportDialog = false
+    @State private var exportDocument = TextDocument(initialText: "")
+    @State private var exportFilename = "transcript.txt"
     @State private var isEditingTranscript = false
     @State private var editedContent: String = ""
     @State private var showingFindReplaceDialog = false
@@ -43,10 +45,10 @@ struct TranscriptView: View {
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
-                    isShowingExportDialog: $isShowingExportDialog,
                     isTranscribing: $isTranscribing,
                     errorMessage: $errorMessage,
-                    showingError: $showingError
+                    showingError: $showingError,
+                    prepareExport: prepareExport
                 )
             }
         }
@@ -83,9 +85,9 @@ struct TranscriptView: View {
         }
         .fileExporter(
             isPresented: $isShowingExportDialog,
-            document: createExportDocument(),
+            document: exportDocument,
             contentType: .plainText,
-            defaultFilename: createExportFilename()
+            defaultFilename: exportFilename
         ) { result in
             switch result {
             case .success(let url):
@@ -119,59 +121,47 @@ struct TranscriptView: View {
         }
     }
 
-    // Helper method to create the export document
-    private func createExportDocument() -> TextDocument {
-        if let selectedTranscript = selectedTranscript {
-            return TextDocument(initialText: selectedTranscript.formattedContent ?? selectedTranscript.content)
-        } else {
-            return TextDocument(initialText: "")
-        }
+    private func prepareExport(for transcript: Transcript) {
+        exportDocument = TextDocument(initialText: transcript.formattedContent ?? transcript.content)
+        exportFilename = "\(transcript.name).txt"
+        isShowingExportDialog = true
     }
 
-    // Helper method to create the export filename
-    private func createExportFilename() -> String {
-        if let selectedTranscript = selectedTranscript {
-            return "\(selectedTranscript.name).txt"
-        } else {
-            return "transcript.txt"
-        }
-    }
-
-    // Helper method to generate a custom prompt with meeting type and audience
+    // Helper method to generate a custom prompt with recording type and audience
     private func generateCustomPrompt(meetingType: String, audience: String) -> String {
-        let meetingTypeText = meetingType.isEmpty ? "meeting" : meetingType
+        let meetingTypeText = meetingType.isEmpty ? "recording" : meetingType
         let audienceText = audience.isEmpty ? "all participants" : audience
 
         return """
-        Review the provided TRANSCRIPT of the \(meetingTypeText). Identify the main participants and their roles. Note the overall structure and flow of the meeting.
+        Review the provided TRANSCRIPT from the \(meetingTypeText). Identify the main speakers, participants, topics, and overall structure where applicable.
 
-        Extract the key discussion points, decisions made, and action items from the TRANSCRIPT. Organize these into a logical structure.
+        Extract the key ideas, discussion points, decisions, action items, examples, explanations, and follow-up items from the TRANSCRIPT. Include only the sections that are relevant to this transcript type.
 
-        Summarize the main objectives of the meeting as discussed in the TRANSCRIPT. Highlight how these objectives were addressed during the meeting.
+        Summarize the main objectives or purpose of the recording as reflected in the TRANSCRIPT. Highlight how these objectives were addressed.
 
-        Identify any critical insights, innovative ideas, or important data points mentioned in the TRANSCRIPT. Ensure these are prominently featured in the final document.
+        Identify any critical insights, important concepts, innovative ideas, examples, frameworks, or data points mentioned in the TRANSCRIPT. Ensure these are prominently featured in the final document.
 
-        Create an executive summary that concisely captures the essence of the meeting, its outcomes, and next steps. Tailor this summary to the needs of \(audienceText).
+        Create a concise overview that captures the essence, outcomes, and practical value of the transcript. Tailor the output to the needs of \(audienceText).
 
-        Develop a detailed list of action items, including responsible parties and deadlines, based on the discussions in the TRANSCRIPT.
+        If the TRANSCRIPT contains action items, create a detailed list including responsible parties and deadlines when available.
 
-        Extract any relevant metrics, KPIs, or quantitative data mentioned in the TRANSCRIPT. Present this information in a clear, visual format (e.g., bullet points, tables).
+        Extract any relevant metrics, KPIs, quantitative data, dates, names, resources, links, tools, or references mentioned in the TRANSCRIPT. Present this information clearly using bullet points or tables where useful.
 
-        Identify any risks, challenges, or concerns raised during the meeting. Summarize these along with any proposed mitigation strategies discussed.
+        Identify any risks, challenges, concerns, open questions, or unresolved issues raised in the TRANSCRIPT. Summarize any proposed mitigation strategies or answers discussed.
 
-        Compile a list of any resources, tools, or additional information mentioned or requested during the meeting.
+        Compile a list of any resources, tools, readings, references, or additional information mentioned or requested.
 
-        Create a section highlighting key decisions made and the rationale behind them, as discussed in the TRANSCRIPT.
+        If decisions are made, create a section highlighting the decisions and the rationale behind them.
 
-        Develop a 'Next Steps' section that outlines the immediate actions to be taken following the meeting, based on the TRANSCRIPT content.
+        If next steps are discussed, create a 'Next Steps' section that outlines the immediate actions to be taken.
 
-        If applicable, create a section that tracks progress on ongoing projects or initiatives discussed in the meeting.
+        If applicable, create a section that tracks progress on ongoing projects, learning topics, initiatives, or themes discussed in the transcript.
 
         Review the document for clarity, coherence, and relevance to \(audienceText). Ensure all confidential or sensitive information is appropriately handled.
 
         Generate a table of contents for easy navigation of the final document.
 
-        Provide a final summary of the valuable document created from the TRANSCRIPT, highlighting its key features and how it serves the needs of \(audienceText).
+        Provide a final summary of the document created from the TRANSCRIPT, highlighting its key takeaways and how it serves the needs of \(audienceText).
 
         Format the summary using Markdown syntax with:
         - # for main headings
@@ -220,10 +210,10 @@ struct TranscriptContentView: View {
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
     @Binding var showingSummaryParamsDialog: Bool
-    @Binding var isShowingExportDialog: Bool
     @Binding var isTranscribing: Bool
     @Binding var errorMessage: String
     @Binding var showingError: Bool
+    let prepareExport: (Transcript) -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -248,11 +238,11 @@ struct TranscriptContentView: View {
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
-                    isShowingExportDialog: $isShowingExportDialog,
                     selectedTranscriptBinding: $selectedTranscript,
                     isTranscribing: $isTranscribing,
                     errorMessage: $errorMessage,
-                    showingError: $showingError
+                    showingError: $showingError,
+                    prepareExport: prepareExport
                 )
             } else {
                 Text("Select a transcript to view")
@@ -344,11 +334,11 @@ struct TranscriptDetailView: View {
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
     @Binding var showingSummaryParamsDialog: Bool
-    @Binding var isShowingExportDialog: Bool
     @Binding var selectedTranscriptBinding: Transcript?
     @Binding var isTranscribing: Bool
     @Binding var errorMessage: String
     @Binding var showingError: Bool
+    let prepareExport: (Transcript) -> Void
 
     var body: some View {
         VStack {
@@ -361,7 +351,7 @@ struct TranscriptDetailView: View {
 
                 Button(action: {
                     if selectedTranscript.status == .completed {
-                        isShowingExportDialog = true
+                        prepareExport(selectedTranscript)
                     }
                 }) {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -447,17 +437,8 @@ Button(action: {
                             .padding()
                             .border(Color.gray.opacity(0.2))
                     } else {
-                        ScrollView {
-                            if let formattedContent = selectedTranscript.formattedContent, !formattedContent.isEmpty {
-                                Text(formattedContent)
-                                    .padding()
-                                    .textSelection(.enabled)
-                            } else {
-                                Text(selectedTranscript.content)
-                                    .padding()
-                                    .textSelection(.enabled)
-                            }
-                        }
+                        ReadOnlyTranscriptTextView(text: selectedTranscript.formattedContent ?? selectedTranscript.content)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             } else if selectedTranscript.status == .failed {
@@ -567,6 +548,11 @@ struct SummaryParametersView: View {
     @ObservedObject var summaryManager: SummaryManager
     let generateCustomPrompt: (String, String) -> String
 
+    @State private var promptPreview = ""
+    @State private var isPromptPreviewVisible = false
+    @State private var hasEditedPrompt = false
+    @State private var isEnhancingPrompt = false
+
     var body: some View {
         VStack(spacing: 20) {
             Text("Summary Parameters")
@@ -579,22 +565,18 @@ struct SummaryParametersView: View {
                 }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Meeting Type:")
-                TextField("e.g., Team Meeting, Client Call, Interview", text: $meetingType)
+                Text("Recording Type:")
+                TextField("e.g., Team Meeting, Workshop, Lecture, Interview", text: $meetingType)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onChange(of: meetingType) { newValue in
-                        if newValue.isEmpty {
-                            meetingType = "General Meeting"
-                        }
+                    .onChange(of: meetingType) { _ in
+                        updatePromptPreviewIfNeeded()
                     }
 
                 Text("Target Audience:")
                 TextField("e.g., Team Members, Management, Clients", text: $audience)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .onChange(of: audience) { newValue in
-                        if newValue.isEmpty {
-                            audience = "Broad Audience"
-                        }
+                    .onChange(of: audience) { _ in
+                        updatePromptPreviewIfNeeded()
                     }
 
                 Text("Language Model:")
@@ -609,6 +591,48 @@ struct SummaryParametersView: View {
             .padding()
 
             HStack {
+                Button("Preview Prompt") {
+                    showPromptPreview(overwriteExistingPrompt: true)
+                }
+
+                Button {
+                    enhancePrompt()
+                } label: {
+                    if isEnhancingPrompt {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Enhancing...")
+                        }
+                    } else {
+                        Text("Enhance Prompt")
+                    }
+                }
+                .disabled(isEnhancingPrompt || promptForGeneration().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if isPromptPreviewVisible {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Prompt Preview")
+                        .font(.headline)
+                    Text("Edit this prompt if needed. The text shown here will be used when you generate the summary.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextEditor(text: Binding(
+                        get: { promptPreview },
+                        set: { newValue in
+                            promptPreview = newValue
+                            hasEditedPrompt = true
+                        }
+                    ))
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 260)
+                    .border(Color.secondary.opacity(0.3))
+                }
+                .padding(.horizontal)
+            }
+
+            HStack {
                 Button("Cancel") {
                     showingSummaryParamsDialog = false
                 }
@@ -617,13 +641,7 @@ struct SummaryParametersView: View {
                 Button("Generate Summary") {
                     if let selectedTranscript = selectedTranscript {
                         showingSummaryParamsDialog = false
-
-                        // Apply default values if fields are empty
-                        let finalMeetingType = meetingType.isEmpty ? "General Meeting" : meetingType
-                        let finalAudience = audience.isEmpty ? "Broad Audience" : audience
-
-                        // Generate custom prompt with meeting type and audience
-                        let customPrompt = generateCustomPrompt(finalMeetingType, finalAudience)
+                        let customPrompt = promptForGeneration()
 
                         // Generate summary
                         Task {
@@ -642,10 +660,62 @@ struct SummaryParametersView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(isEnhancingPrompt || promptForGeneration().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }
-        .frame(width: 500, height: 380)
+        .frame(width: 680, height: isPromptPreviewVisible ? 720 : 420)
         .padding()
+    }
+
+    private func promptForGeneration() -> String {
+        if isPromptPreviewVisible {
+            return promptPreview
+        }
+
+        return generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
+    }
+
+    private func showPromptPreview(overwriteExistingPrompt: Bool) {
+        if overwriteExistingPrompt || !hasEditedPrompt {
+            promptPreview = generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
+            hasEditedPrompt = false
+        }
+        isPromptPreviewVisible = true
+    }
+
+    private func updatePromptPreviewIfNeeded() {
+        guard isPromptPreviewVisible && !hasEditedPrompt else { return }
+        promptPreview = generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
+    }
+
+    private func enhancePrompt() {
+        showPromptPreview(overwriteExistingPrompt: false)
+        let promptToEnhance = promptForGeneration()
+        isEnhancingPrompt = true
+
+        Task {
+            do {
+                let enhancedPrompt = try await summaryManager.enhancePrompt(promptToEnhance, model: selectedModel)
+                promptPreview = enhancedPrompt
+                isPromptPreviewVisible = true
+                hasEditedPrompt = true
+            } catch {
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
+
+            isEnhancingPrompt = false
+        }
+    }
+
+    private func recordingTypeForPrompt() -> String {
+        let trimmed = meetingType.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "General Recording" : trimmed
+    }
+
+    private func audienceForPrompt() -> String {
+        let trimmed = audience.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Broad Audience" : trimmed
     }
 }
