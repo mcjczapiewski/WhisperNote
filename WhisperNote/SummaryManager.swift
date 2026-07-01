@@ -12,6 +12,8 @@ class SummaryManager: ObservableObject {
 
     init() {
         loadSummaries()
+        cleanupLegacySummaryFiles()
+        saveSummaries()
     }
 
     func generateSummary(for transcript: Transcript, with customPrompt: String? = nil, model: String? = nil) async throws -> Summary {
@@ -289,6 +291,37 @@ class SummaryManager: ObservableObject {
                 print("Failed to load summaries from old directory: \(error)")
             }
         }
+    }
+
+    private func cleanupLegacySummaryFiles() {
+        let summariesDirectory = directoryManager.getSummariesDirectory()
+        let summariesURL = summariesDirectory.appendingPathComponent("summaries.json")
+        var urlsToRemove = Set<URL>()
+
+        if let data = try? Data(contentsOf: summariesURL),
+           let rawSummaries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            for rawSummary in rawSummaries {
+                if let path = rawSummary["filePath"] as? String {
+                    urlsToRemove.insert(URL(fileURLWithPath: path))
+                }
+            }
+        }
+
+        if let generatedFiles = try? FileManager.default.contentsOfDirectory(at: summariesDirectory, includingPropertiesForKeys: nil) {
+            for fileURL in generatedFiles where isGeneratedSummaryFile(fileURL) {
+                urlsToRemove.insert(fileURL)
+            }
+        }
+
+        for fileURL in urlsToRemove {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    private func isGeneratedSummaryFile(_ url: URL) -> Bool {
+        let filename = url.lastPathComponent
+        let pattern = #"_summary_[0-9]{8}_[0-9]{6}_[A-Fa-f0-9]{8}\.(txt|md)$"#
+        return filename.range(of: pattern, options: .regularExpression) != nil
     }
 }
 

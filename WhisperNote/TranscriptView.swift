@@ -304,6 +304,12 @@ struct TranscriptSidebarView: View {
                 }
                 .contextMenu {
                     Button(action: {
+                        FinderHelper.showInFinder(transcriptFinderURL(transcript))
+                    }) {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+
+                    Button(action: {
                         transcriptToDelete = transcript
                         showingDeleteConfirmation = true
                     }) {
@@ -322,6 +328,10 @@ struct TranscriptSidebarView: View {
         }
         .frame(width: 250)
         .listStyle(SidebarListStyle())
+    }
+
+    private func transcriptFinderURL(_ transcript: Transcript) -> URL {
+        transcript.jsonFilePath ?? DirectoryManager.shared.getTranscriptsDirectory().appendingPathComponent("transcripts.json")
     }
 }
 

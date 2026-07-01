@@ -144,6 +144,9 @@ struct RecordingView: View {
                     .font(.system(size: 48, weight: .medium, design: .monospaced))
                     .padding()
 
+                AudioLevelMeter(level: audioRecorder.audioLevel, isActive: audioRecorder.isRecording)
+                    .padding(.bottom, 12)
+
                 // Mute microphone button
                 Button(action: {
                     audioRecorder.toggleMicrophoneMute()
@@ -822,6 +825,21 @@ struct RecordingView: View {
             )
         }
         .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(action: {
+                FinderHelper.showInFinder(recording.filePath)
+            }) {
+                Label("Show in Finder", systemImage: "folder")
+            }
+
+            Button(action: {
+                recordingToDelete = recording
+                showingDeleteConfirmation = true
+            }) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {
@@ -834,5 +852,48 @@ struct RecordingView: View {
         } else {
             return String(format: "%02d:%02d", minutes, seconds)
         }
+    }
+}
+
+private struct AudioLevelMeter: View {
+    let level: Double
+    let isActive: Bool
+
+    private var displayLevel: Double {
+        isActive ? max(level, 0.03) : 0
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                    .font(.caption)
+                    .foregroundColor(isActive ? .green : .secondary)
+
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.16))
+
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.green, .yellow, .orange],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: proxy.size.width * CGFloat(displayLevel))
+                    }
+                }
+                .frame(width: 180, height: 10)
+
+                Text(isActive ? "Input live" : "Input paused")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 75, alignment: .leading)
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: displayLevel)
     }
 }

@@ -14,9 +14,11 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var currentRecording: Recording?
     @Published var isMicrophoneMuted = false // Default to unmuted
     @Published var lastError: String? // Surfaced to the UI (stop/merge/import failures)
+    @Published var audioLevel: Double = 0
 
     private var durationTimer: Timer?
     private var microphoneStateTimer: Timer?
+    private var audioLevelEngine: AVAudioEngine?
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
 
@@ -151,6 +153,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     deinit {
         microphoneStateTimer?.invalidate()
+        stopAudioLevelMonitoring()
     }
 
     func startRecording(name: String, microphoneId: String = "") throws {
@@ -322,6 +325,7 @@ class AudioRecorder: NSObject, ObservableObject {
                     )
 
                     self.currentRecording = newRecording
+                    self.startAudioLevelMonitoring()
 
                     // Start our own timer to update UI
                     self.startTime = Date()
@@ -344,6 +348,7 @@ class AudioRecorder: NSObject, ObservableObject {
                 // Handle errors on main thread
                 await MainActor.run {
                     logger.error("RecordKit recording failed: \(error.localizedDescription)")
+                    self.stopAudioLevelMonitoring()
 
                     // Check if this is a permissions error
                     if error.localizedDescription.contains("microphone access") ||
@@ -454,6 +459,7 @@ class AudioRecorder: NSObject, ObservableObject {
         // Update our state
         isRecording = false
         isPaused = true
+        stopAudioLevelMonitoring()
 
         // Calculate accumulated time for our UI
         if let startTime = startTime {
@@ -472,6 +478,7 @@ class AudioRecorder: NSObject, ObservableObject {
         isRecording = true
         isPaused = false
         startTime = Date()
+        startAudioLevelMonitoring()
 
         // Restart the timer
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -485,6 +492,65 @@ class AudioRecorder: NSObject, ObservableObject {
             // Update the current recording duration
             self.currentRecording?.duration = self.recordingDuration
         }
+    }
+
+    private func startAudioLevelMonitoring() {
+        stopAudioLevelMonitoring()
+
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            audioLevel = 0
+            return
+        }
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak engine] buffer, _ in
+            guard let self,
+                  let engine,
+                  let channelData = buffer.floatChannelData else {
+                return
+            }
+
+            let channelCount = Int(buffer.format.channelCount)
+            let frameLength = Int(buffer.frameLength)
+            guard channelCount > 0, frameLength > 0 else { return }
+
+            var sum: Float = 0
+            for channel in 0..<channelCount {
+                let samples = channelData[channel]
+                for frame in 0..<frameLength {
+                    let sample = samples[frame]
+                    sum += sample * sample
+                }
+            }
+
+            let rms = sqrt(sum / Float(channelCount * frameLength))
+            let decibels = 20 * log10(max(rms, 0.000_001))
+            let normalizedLevel = max(0, min(1, (Double(decibels) + 60) / 60))
+
+            DispatchQueue.main.async { [weak self, weak engine] in
+                guard let self, self.audioLevelEngine === engine else { return }
+                self.audioLevel = self.isRecording ? normalizedLevel : 0
+            }
+        }
+
+        do {
+            engine.prepare()
+            try engine.start()
+            audioLevelEngine = engine
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            audioLevel = 0
+            logger.warning("Audio level meter failed to start: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopAudioLevelMonitoring() {
+        audioLevelEngine?.inputNode.removeTap(onBus: 0)
+        audioLevelEngine?.stop()
+        audioLevelEngine = nil
+        audioLevel = 0
     }
 
     func stopRecording() {
@@ -584,6 +650,7 @@ class AudioRecorder: NSObject, ObservableObject {
                         isRecording = false
                         isPaused = false
                         durationTimer?.invalidate()
+                        stopAudioLevelMonitoring()
 
                         // Update the final duration
                         if let startTime = startTime {
@@ -623,6 +690,7 @@ class AudioRecorder: NSObject, ObservableObject {
                     isRecording = false
                     isPaused = false
                     durationTimer?.invalidate()
+                    stopAudioLevelMonitoring()
                     self.currentRecording = nil
                     startTime = nil
                     accumulatedTime = 0

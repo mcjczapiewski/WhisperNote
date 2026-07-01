@@ -234,11 +234,140 @@ struct SummarySidebarView: View {
                 .onTapGesture {
                     selectedSummary = summary
                 }
+                .contextMenu {
+                    Button(action: {
+                        FinderHelper.showInFinder(summaryFinderURL())
+                    }) {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+
+                    Button(action: {
+                        summaryToDelete = summary
+                        showingDeleteConfirmation = true
+                    }) {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
                 .background(selectedSummary?.id == summary.id ? Color.blue.opacity(0.1) : Color.clear)
             }
         }
         .frame(width: 250)
         .listStyle(SidebarListStyle())
+    }
+
+    private func summaryFinderURL() -> URL {
+        DirectoryManager.shared.getSummariesDirectory().appendingPathComponent("summaries.json")
+    }
+}
+
+private enum SummaryPrintMarginPreset: String, CaseIterable, Identifiable {
+    case narrow
+    case normal
+    case wide
+    case custom
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .narrow:
+            return "Narrow"
+        case .normal:
+            return "Normal"
+        case .wide:
+            return "Wide"
+        case .custom:
+            return "Custom"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .narrow:
+            return "0.5 cm"
+        case .normal:
+            return "1.5 cm"
+        case .wide:
+            return "2.5 cm"
+        case .custom:
+            return "Custom value"
+        }
+    }
+
+    func marginCentimeters(customValue: Double) -> Double {
+        switch self {
+        case .narrow:
+            return 0.5
+        case .normal:
+            return 1.5
+        case .wide:
+            return 2.5
+        case .custom:
+            return max(0, customValue)
+        }
+    }
+}
+
+private struct SummaryPrintOptionsView: View {
+    @Binding var presetRawValue: String
+    @Binding var customMarginCentimeters: Double
+    let onCancel: () -> Void
+    let onPrint: () -> Void
+
+    private var selectedPreset: SummaryPrintMarginPreset {
+        SummaryPrintMarginPreset(rawValue: presetRawValue) ?? .normal
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("PDF / Print Options")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Margins")
+                    .fontWeight(.medium)
+
+                Picker("Margin", selection: $presetRawValue) {
+                    ForEach(SummaryPrintMarginPreset.allCases) { preset in
+                        Text("\(preset.displayName) (\(preset.description))").tag(preset.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            }
+
+            if selectedPreset == .custom {
+                HStack {
+                    Text("Custom margin")
+
+                    TextField("Margin", value: $customMarginCentimeters, format: .number.precision(.fractionLength(1)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+
+                    Text("cm")
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Text("The selected margin is applied before the macOS print dialog opens. Use Save as PDF in that dialog to export a PDF.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Continue") {
+                    onPrint()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 420)
     }
 }
 
@@ -253,6 +382,9 @@ struct SummaryDetailView: View {
     @Binding var selectedSummaryBinding: Summary?
     @State private var showingRetryError = false
     @State private var retryError = ""
+    @State private var showingPrintOptions = false
+    @AppStorage("summaryPrintMarginPreset") private var printMarginPresetRawValue = SummaryPrintMarginPreset.normal.rawValue
+    @AppStorage("summaryPrintCustomMarginCentimeters") private var customPrintMarginCentimeters = 1.5
 
     var body: some View {
         VStack {
@@ -295,9 +427,7 @@ struct SummaryDetailView: View {
                 }
 
                 Button(action: {
-                    let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 800))
-                    tv.string = selectedSummary.content
-                    NSPrintOperation(view: tv).run()
+                    showingPrintOptions = true
                 }) {
                     Label("Print / PDF", systemImage: "printer")
                 }
@@ -388,6 +518,42 @@ Button(action: {
                 }
             }
         }
+        .sheet(isPresented: $showingPrintOptions) {
+            SummaryPrintOptionsView(
+                presetRawValue: $printMarginPresetRawValue,
+                customMarginCentimeters: $customPrintMarginCentimeters,
+                onCancel: {
+                    showingPrintOptions = false
+                },
+                onPrint: {
+                    let preset = SummaryPrintMarginPreset(rawValue: printMarginPresetRawValue) ?? .normal
+                    let marginCentimeters = preset.marginCentimeters(customValue: customPrintMarginCentimeters)
+                    showingPrintOptions = false
+                    printSummary(selectedSummary, marginCentimeters: marginCentimeters)
+                }
+            )
+        }
+    }
+
+    private func printSummary(_ summary: Summary, marginCentimeters: Double) {
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.textContainerInset = .zero
+        textView.textStorage?.setAttributedString(MarkdownTextRenderer.attributedText(from: summary.content))
+
+        let printInfo = NSPrintInfo.shared.copy() as! NSPrintInfo
+        let marginPoints = marginCentimeters / 2.54 * 72
+        printInfo.topMargin = marginPoints
+        printInfo.bottomMargin = marginPoints
+        printInfo.leftMargin = marginPoints
+        printInfo.rightMargin = marginPoints
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = false
+        printInfo.isVerticallyCentered = false
+
+        NSPrintOperation(view: textView, printInfo: printInfo).run()
     }
 }
 
@@ -608,7 +774,10 @@ extension SummaryView {
     // Helper method to create the export document
     private func createExportDocument() -> TextDocument {
         if let summary = selectedSummary {
-            return TextDocument(initialText: summary.content, contentType: exportFormat)
+            let text = exportFormat == TextDocument.markdownUTType
+                ? summary.content
+                : MarkdownTextRenderer.plainText(from: summary.content)
+            return TextDocument(initialText: text, contentType: exportFormat)
         } else {
             return TextDocument(initialText: "", contentType: exportFormat)
         }

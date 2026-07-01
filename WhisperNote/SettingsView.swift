@@ -272,7 +272,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2"
     }
 }
 
@@ -299,6 +299,18 @@ struct ChangelogView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.2",
+                        date: "July 1, 2026",
+                        changes: [
+                            "Added Show in Finder actions for recordings, transcripts, and summaries.",
+                            "Added a live microphone input level meter while recording.",
+                            "Improved summary text export so plain text exports remove Markdown markers while Markdown exports keep them.",
+                            "Improved Print / PDF summaries with formatted Markdown rendering and configurable margins.",
+                            "Kept summaries stored in summaries.json and removed individual summary files."
+                        ]
+                    )
+
                     ChangelogSection(
                         version: "1.1.1",
                         date: "July 1, 2026",

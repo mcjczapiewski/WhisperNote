@@ -22,6 +22,8 @@
 		3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */; };
 		5B5B5B5B5B5B5B5B5B5B5B5B /* DebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */; };
 		E1E1E1E1E1E1E1E1E1E1E1E1 /* ReadOnlyTranscriptTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E2E2E2E2E2E2E2E2E2E2E2 /* ReadOnlyTranscriptTextView.swift */; };
+		A1B2C3D4E5F6012345678901 /* FinderHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678902 /* FinderHelper.swift */; };
+		A1B2C3D4E5F6012345678903 /* MarkdownTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */; };
 		70063B092DCA8CC700590413 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 70063B082DCA8CC700590413 /* MarkdownUI */; };
 		70254ED72DCBB1DB009123DE /* RecordKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70254ED62DCBB1DB009123DE /* RecordKit */; };
 		7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04391e39b44d41c58a6485d9 /* TextDocument.swift */; };
@@ -46,6 +48,8 @@
 		5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E2E2E2E2E2E2E2E2E2E2E2E2 /* ReadOnlyTranscriptTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyTranscriptTextView.swift; sourceTree = "<group>"; };
 		D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogger.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6012345678902 /* FinderHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderHelper.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -91,6 +95,8 @@
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
+				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
+				A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */,
 				D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */,
 				E2E2E2E2E2E2E2E2E2E2E2E2 /* ReadOnlyTranscriptTextView.swift */,
 				4C4C4C4C4C4C4C4C4C4C4C4C /* TranscriptionManager.swift */,
@@ -186,6 +192,8 @@
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
 				3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */,
+				A1B2C3D4E5F6012345678901 /* FinderHelper.swift in Sources */,
+				A1B2C3D4E5F6012345678903 /* MarkdownTextRenderer.swift in Sources */,
 				5B5B5B5B5B5B5B5B5B5B5B5B /* DebugLogger.swift in Sources */,
 				E1E1E1E1E1E1E1E1E1E1E1E1 /* ReadOnlyTranscriptTextView.swift in Sources */,
 				7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */,
@@ -340,7 +348,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -376,7 +384,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
