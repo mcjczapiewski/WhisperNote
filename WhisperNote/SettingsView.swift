@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var isShowingChangelog = false
 
     private let audioQualities = ["low", "medium", "high"]
 
@@ -232,13 +233,24 @@ struct SettingsView: View {
 
             // About Section
             GroupBox {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("WhisperNote")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("WhisperNote")
+                                .font(.headline)
 
-                    Text("Version 1.0.0")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                            Text("Version \(appVersion)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button("View Changelog") {
+                            isShowingChangelog = true
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
                 .padding(.vertical, 5)
             }
@@ -253,6 +265,100 @@ struct SettingsView: View {
                 message: Text(alertMessage),
                 dismissButton: .default(Text("OK"))
             )
+        }
+        .sheet(isPresented: $isShowingChangelog) {
+            ChangelogView()
+        }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1"
+    }
+}
+
+struct ChangelogView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Changelog")
+                    .font(.title)
+                    .fontWeight(.bold)
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.1",
+                        date: "July 1, 2026",
+                        changes: [
+                            "Added prompt preview before summary generation.",
+                            "Added editable summary prompts, so custom changes are used when generating a summary.",
+                            "Added prompt enhancement using the selected OpenRouter model.",
+                            "Renamed Meeting Type to Recording Type and made summary prompts work better for meetings, workshops, lectures, interviews, and other recordings.",
+                            "Improved large transcript viewing performance with a native macOS read-only text view.",
+                            "Changed transcript export so export files are prepared only when Export is clicked.",
+                            "Added compact transcript JSON archives and migration for older full ElevenLabs JSON response files.",
+                            "Removed a debug console message that printed saved transcript JSON file paths."
+                        ]
+                    )
+
+                    ChangelogSection(
+                        version: "1.0",
+                        date: "Initial release",
+                        changes: [
+                            "Record microphone and system audio.",
+                            "Transcribe recordings with ElevenLabs.",
+                            "Generate summaries with OpenRouter language models.",
+                            "Export transcripts and summaries.",
+                            "Choose a custom recordings directory.",
+                            "Find and replace transcript text."
+                        ]
+                    )
+                }
+                .padding()
+            }
+        }
+        .frame(width: 640, height: 560)
+    }
+}
+
+private struct ChangelogSection: View {
+    let version: String
+    let date: String
+    let changes: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Version \(version)")
+                    .font(.headline)
+
+                Text(date)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(changes, id: \.self) { change in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("-")
+                        Text(change)
+                    }
+                }
+            }
+            .font(.body)
         }
     }
 }
