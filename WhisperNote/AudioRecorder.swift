@@ -28,6 +28,10 @@ class AudioRecorder: NSObject, ObservableObject {
 
     // Logging
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "AudioRecorder")
+    private let debugLogger = DebugLogger.shared
+    private let mergedAudioSampleRate = 48_000.0
+    private let mergedAudioBitRate = 64_000
+    private let mergedAudioChannels = 1
 
     // RecordKit properties
     private var rkRecorder: RKRecorder?
@@ -1118,21 +1122,6 @@ class AudioRecorder: NSObject, ObservableObject {
             throw AudioRecorderError.recordingFailed
         }
 
-        // Audio-only preset. MediumQuality is a *video* preset and silently fails to export
-        // an audio-only composition — that was the root cause of the save-on-stop error.
-        guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            logger.error("Failed to create export session")
-            throw AudioRecorderError.recordingFailed
-        }
-
-        // Configure the export session
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
-        exportSession.shouldOptimizeForNetworkUse = true
-
-        // Set audio mix time pitch algorithm to optimize quality while maintaining smaller file size
-        exportSession.audioTimePitchAlgorithm = .timeDomain // Use timeDomain instead of spectral for better compression
-
         // Set audio mixing to ensure both tracks are audible
         let audioMix = AVMutableAudioMix()
 
@@ -1151,7 +1140,6 @@ class AudioRecorder: NSObject, ObservableObject {
         }
 
         audioMix.inputParameters = [track1MixParameters, track2MixParameters]
-        exportSession.audioMix = audioMix
 
         // Remove the output file if it already exists
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -1164,14 +1152,18 @@ class AudioRecorder: NSObject, ObservableObject {
             }
         }
 
-        // Export the composition
-        await exportSession.export()
+        logger.info("Exporting merged audio as AAC mono, sample rate \(self.mergedAudioSampleRate), bitrate \(self.mergedAudioBitRate)")
+        debugLogger.log(
+            "Merge export started. micSize=\(microphoneFileSize) systemSize=\(systemAudioFileSize) duration=\(commonDuration.seconds) output=\(outputURL.lastPathComponent) settings=aac mono \(mergedAudioBitRate)bps \(Int(mergedAudioSampleRate))Hz",
+            area: .recordings,
+            contextURL: outputURL
+        )
 
-        // Surface the real export error instead of masking it.
-        guard exportSession.status == .completed else {
-            let exportError = exportSession.error
-            logger.error("Export failed (status \(exportSession.status.rawValue)): \(exportError?.localizedDescription ?? "unknown")")
-            throw exportError ?? AudioRecorderError.recordingFailed
+        do {
+            try await exportMixedAudio(composition: composition, audioMix: audioMix, outputURL: outputURL)
+        } catch {
+            debugLogger.log("Merge export failed. error=\(error.localizedDescription)", area: .recordings, contextURL: outputURL)
+            throw error
         }
 
         // Log the final file size
@@ -1182,14 +1174,113 @@ class AudioRecorder: NSObject, ObservableObject {
 
             logger.info("Merged file size: \(ByteCountFormatter.string(fromByteCount: finalSize, countStyle: .file))")
             logger.info("Compression ratio: \(String(format: "%.2f", compressionRatio * 100))% of original combined size")
+            debugLogger.log(
+                "Merge export completed. outputSize=\(finalSize) compressionRatio=\(String(format: "%.2f", compressionRatio * 100))%",
+                area: .recordings,
+                contextURL: outputURL
+            )
         }
 
         logger.info("Audio files successfully merged to: \(outputURL.path)")
         return outputURL
     }
 
+    private func exportMixedAudio(composition: AVMutableComposition, audioMix: AVMutableAudioMix, outputURL: URL) async throws {
+        let reader = try AVAssetReader(asset: composition)
+
+        let readerSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: mergedAudioSampleRate,
+            AVNumberOfChannelsKey: mergedAudioChannels,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ]
+
+        let audioTracks = composition.tracks(withMediaType: .audio)
+        let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: readerSettings)
+        readerOutput.audioMix = audioMix
+
+        guard reader.canAdd(readerOutput) else {
+            throw AudioRecorderError.recordingFailed
+        }
+        reader.add(readerOutput)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
+        let writerSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: mergedAudioSampleRate,
+            AVNumberOfChannelsKey: mergedAudioChannels,
+            AVEncoderBitRateKey: mergedAudioBitRate
+        ]
+
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerSettings)
+        writerInput.expectsMediaDataInRealTime = false
+
+        guard writer.canAdd(writerInput) else {
+            throw AudioRecorderError.recordingFailed
+        }
+        writer.add(writerInput)
+
+        guard reader.startReading() else {
+            throw reader.error ?? AudioRecorderError.recordingFailed
+        }
+        guard writer.startWriting() else {
+            reader.cancelReading()
+            throw writer.error ?? AudioRecorderError.recordingFailed
+        }
+
+        writer.startSession(atSourceTime: .zero)
+
+        let queue = DispatchQueue(label: "WhisperNote.AudioMergeWriter")
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            writerInput.requestMediaDataWhenReady(on: queue) {
+                while writerInput.isReadyForMoreMediaData {
+                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
+                        if !writerInput.append(sampleBuffer) {
+                            reader.cancelReading()
+                            writerInput.markAsFinished()
+                            continuation.resume(throwing: writer.error ?? AudioRecorderError.recordingFailed)
+                            return
+                        }
+                    } else {
+                        writerInput.markAsFinished()
+                        writer.finishWriting {
+                            if reader.status == .failed || reader.status == .cancelled {
+                                continuation.resume(throwing: reader.error ?? AudioRecorderError.recordingFailed)
+                            } else if writer.status == .failed || writer.status == .cancelled {
+                                continuation.resume(throwing: writer.error ?? AudioRecorderError.recordingFailed)
+                            } else {
+                                continuation.resume()
+                            }
+                        }
+                        return
+                    }
+                }
+            }
+        }
+    }
+
     func importRecording(from sourceURL: URL) {
-        importRecordings(from: [sourceURL])
+        importRecording(from: sourceURL, named: nil)
+    }
+
+    func importRecording(from sourceURL: URL, named customName: String?) {
+        Task {
+            do {
+                let recording = try await importSingle(from: sourceURL, groupId: nil, groupName: nil, customName: customName)
+                await MainActor.run {
+                    recordings.append(recording)
+                    saveRecordings()
+                }
+            } catch {
+                await MainActor.run {
+                    lastError = "Import failed for \(sourceURL.lastPathComponent): \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     /// Import one or more audio files. When more than one file is given, they share a
@@ -1207,7 +1298,7 @@ class AudioRecorder: NSObject, ObservableObject {
             var imported: [Recording] = []
             for sourceURL in urls {
                 do {
-                    let recording = try await importSingle(from: sourceURL, groupId: groupId, groupName: groupName)
+                    let recording = try await importSingle(from: sourceURL, groupId: groupId, groupName: groupName, customName: nil)
                     imported.append(recording)
                 } catch {
                     await MainActor.run {
@@ -1224,7 +1315,7 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    private func importSingle(from sourceURL: URL, groupId: UUID?, groupName: String?) async throws -> Recording {
+    private func importSingle(from sourceURL: URL, groupId: UUID?, groupName: String?, customName: String?) async throws -> Recording {
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
         defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
 
@@ -1239,7 +1330,10 @@ class AudioRecorder: NSObject, ObservableObject {
         try FileManager.default.copyItem(at: sourceURL, to: destURL)
 
         let duration = try await AVAsset(url: destURL).load(.duration).seconds
-        let name = sourceURL.deletingPathExtension().lastPathComponent
+        let sourceName = sourceURL.deletingPathExtension().lastPathComponent
+        let trimmedCustomName = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let name = trimmedCustomName.isEmpty ? sourceName : trimmedCustomName
+        debugLogger.log("Imported recording. source=\(sourceURL.path) destination=\(destURL.path) name=\(name) duration=\(duration)", area: .recordings, contextURL: destURL)
         return Recording(name: name, date: Date(), duration: duration,
                          filePath: destURL, systemAudioFilePath: nil,
                          groupId: groupId, groupName: groupName)

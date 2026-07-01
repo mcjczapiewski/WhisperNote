@@ -22,6 +22,9 @@ struct RecordingView: View {
     @State private var audioWarningMessage = ""
     @State private var selectedMicrophoneId: String = ""
     @State private var showingImporter = false
+    @State private var showingImportNamePrompt = false
+    @State private var pendingImportURL: URL?
+    @State private var importRecordingName = ""
 
     private let languages = [
         ("afr", "Afrikaans"),
@@ -313,7 +316,7 @@ struct RecordingView: View {
                     .padding(.top, 20)
 
                     Button(action: { showingImporter = true }) {
-                        Label("Import Audio File", systemImage: "square.and.arrow.down")
+                        Label("Import Audio File(s)", systemImage: "square.and.arrow.down")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -687,11 +690,49 @@ struct RecordingView: View {
         ) { result in
             switch result {
             case .success(let urls):
-                audioRecorder.importRecordings(from: urls)
+                if urls.count == 1, let url = urls.first {
+                    pendingImportURL = url
+                    importRecordingName = url.deletingPathExtension().lastPathComponent
+                    showingImportNamePrompt = true
+                } else {
+                    audioRecorder.importRecordings(from: urls)
+                }
             case .failure(let error):
                 alertMessage = error.localizedDescription
                 showingAlert = true
             }
+        }
+        .sheet(isPresented: $showingImportNamePrompt) {
+            VStack(spacing: 20) {
+                Text("Name Imported Recording")
+                    .font(.headline)
+
+                TextField("Recording Name", text: $importRecordingName)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal)
+
+                HStack {
+                    Button("Cancel") {
+                        pendingImportURL = nil
+                        importRecordingName = ""
+                        showingImportNamePrompt = false
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Import") {
+                        if let url = pendingImportURL {
+                            audioRecorder.importRecording(from: url, named: importRecordingName)
+                        }
+                        pendingImportURL = nil
+                        importRecordingName = ""
+                        showingImportNamePrompt = false
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(importRecordingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .frame(width: 400, height: 180)
+            .padding()
         }
         .alert("Delete Group", isPresented: $showingGroupDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
