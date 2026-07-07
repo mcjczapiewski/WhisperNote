@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>WhisperNote needs permission to capture system audio to record other apps' sound alongside your microphone.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
