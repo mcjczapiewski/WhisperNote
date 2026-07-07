@@ -1,33 +1,49 @@
 # Release Checklist
 
-WhisperNote releases should be signed and notarized before attaching builds to GitHub Releases.
+WhisperNote ships as a free, **unsigned** build — no Apple Developer Program account required.
+Users accept a one-time Gatekeeper warning on first launch instead.
 
 ## Prerequisites
 
-- Apple Developer ID Application certificate.
-- Apple notary credentials configured for `xcrun notarytool`.
-- Valid RecordKit license for distribution.
-- Version updated in `MARKETING_VERSION` and `SettingsView.swift` changelog.
+- Version updated in `MARKETING_VERSION` (`WhisperNote.xcodeproj/project.pbxproj`) and the
+  `SettingsView.swift` changelog.
 
 ## Build
 
 ```bash
-xcodebuild -scheme WhisperNote -configuration Release -archivePath build/WhisperNote.xcarchive archive
+xcodebuild -scheme WhisperNote -configuration Release -derivedDataPath build
 ```
 
-Export or copy the built `.app` from the archive, then sign it with your Developer ID if Xcode did not sign it during archive.
+The `.app` bundle is under `build/Build/Products/Release/WhisperNote.app`. (`swift run` runs the
+app but doesn't produce a distributable bundle — use `xcodebuild` for releases.)
 
 ## Package
+
+Wrap it in a `.dmg` (`brew install create-dmg && create-dmg WhisperNote.app`) or a plain zip:
 
 ```bash
 ditto -c -k --keepParent WhisperNote.app WhisperNote-macOS.zip
 ```
 
-## Notarize
+Attach the `.dmg`/`.zip` to a GitHub Release tagged with the app version.
+
+## Document the Gatekeeper workaround
+
+Because the build is unsigned, macOS quarantines it on first launch. The release notes and
+`README.md` should tell users to either:
+
+- Right-click the app → **Open** → **Open** (this offers an Open button a normal double-click
+  doesn't), or
+- Run once: `xattr -dr com.apple.quarantine /Applications/WhisperNote.app`
+
+## Optional: signing and notarization
+
+If you have an Apple Developer ID Application certificate and notary credentials, you can instead
+sign the archive during `xcodebuild archive`, then notarize:
 
 ```bash
 xcrun notarytool submit WhisperNote-macOS.zip --keychain-profile <profile-name> --wait
 xcrun stapler staple WhisperNote.app
 ```
 
-Upload the notarized `.zip` or a signed `.dmg` to a GitHub Release tagged with the app version.
+This removes the Gatekeeper warning for users but isn't required to publish a release.

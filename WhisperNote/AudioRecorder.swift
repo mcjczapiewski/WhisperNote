@@ -3,8 +3,13 @@ import AVFoundation
 import SwiftUI
 import AppKit
 import CoreAudio
-import RecordKit
+import AudioUnit
 import os.log
+
+struct MicDevice: Identifiable, Equatable {
+    let id: String
+    let localizedName: String
+}
 
 class AudioRecorder: NSObject, ObservableObject {
     @Published var recordings: [Recording] = []
@@ -15,10 +20,10 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var isMicrophoneMuted = false // Default to unmuted
     @Published var lastError: String? // Surfaced to the UI (stop/merge/import failures)
     @Published var audioLevel: Double = 0
+    @Published var availableMicrophones: [MicDevice] = []
 
     private var durationTimer: Timer?
     private var microphoneStateTimer: Timer?
-    private var audioLevelEngine: AVAudioEngine?
     private var startTime: Date?
     private var accumulatedTime: TimeInterval = 0
 
@@ -35,11 +40,11 @@ class AudioRecorder: NSObject, ObservableObject {
     private let mergedAudioBitRate = 64_000
     private let mergedAudioChannels = 1
 
-    // RecordKit properties
-    private var rkRecorder: RKRecorder?
-    private var rkRecordingStartTime: Date?
-    private var rkRecordingURL: URL?
-    @Published var rkAvailableMicrophones: [RKMicrophone] = []
+    // Recording state (Core Audio process tap + AVAudioEngine, replacing RecordKit)
+    private var recordingEngine: AVAudioEngine?
+    private var micFile: AVAudioFile?
+    private var systemAudioTap: SystemAudioTap?
+    private var recordingDirectoryURL: URL?
 
     override init() {
         super.init()
@@ -66,99 +71,29 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - RecordKit Methods
+    // MARK: - Microphone Devices
 
-    /// Refresh the list of available RecordKit devices and check permissions
-    func refreshRecordKitDevices() async {
-        // Check current authorization status
-        let micStatus = RKAuthorization.microphone
-        let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-        // Only request microphone permission if not already granted
-        if micStatus != .authorized {
-            let micPermissionGranted = await RKAuthorization.requestMicrophoneAccess()
-            logger.info("Microphone permission request result: \(micPermissionGranted)")
-        }
-
-        // Don't request system audio permissions here
-        // These will be requested only when needed for recording
-
-        // Force refresh the permission status by checking again
-        let updatedMicStatus = RKAuthorization.microphone
-        let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
-
-        logger.info("Updated authorization status - Microphone: \(updatedMicStatus.rawValue), System Audio: \(updatedSystemAudioStatus)")
-
-        // Load available microphones
-        await loadAvailableMicrophones()
-    }
-
-    /// Load available microphones without checking permissions
+    /// Load available microphones without checking permissions.
     func loadAvailableMicrophones() async {
-        // Get available microphones using the non-deprecated API
-        let microphones = RKMicrophone.microphones
-        logger.info("Found \(microphones.count) microphones")
+        let devices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInMicrophone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices.map { MicDevice(id: $0.uniqueID, localizedName: $0.localizedName) }
 
-        // Update published property on main thread
         await MainActor.run {
-            self.rkAvailableMicrophones = microphones
-        }
-
-        // Get the system's current default input device
-        var systemDefaultDeviceID: AudioDeviceID = 0
-        var systemDefaultDeviceName: String? = nil
-
-        do {
-            // Get the device ID
-            systemDefaultDeviceID = try getDefaultInputDevice()
-            logger.info("System default input device ID: \(systemDefaultDeviceID)")
-
-            // Get the device name
-            systemDefaultDeviceName = getDeviceName(for: systemDefaultDeviceID)
-            if let name = systemDefaultDeviceName {
-                logger.info("System default input device name: \(name)")
-            }
-
-            // Try to find this device in our available microphones using multiple matching strategies
-
-            // Try name match first (most reliable)
-            if let name = systemDefaultDeviceName,
-               let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
-                logger.info("Found system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            }
-            // Try exact ID match
-            else if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
-                logger.info("Found system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            }
-            // Try partial ID match
-            else if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
-                logger.info("Found system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            }
-            else {
-                logger.warning("Could not find system default microphone in available microphones")
-            }
-        } catch {
-            logger.error("Failed to get system default input device: \(error.localizedDescription)")
-        }
-
-        // Update the preferred microphone to the system default
-        if let preferredMic = RKMicrophone.preferred {
-            logger.info("RecordKit preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
-        } else {
-            logger.info("No RecordKit preferred microphone found")
+            self.availableMicrophones = devices
         }
     }
 
     deinit {
         microphoneStateTimer?.invalidate()
-        stopAudioLevelMonitoring()
+        stopMicCapture()
+        systemAudioTap?.stop()
     }
 
     func startRecording(name: String, microphoneId: String = "") throws {
-        // We'll check permissions in the Task below, but also check microphone status synchronously
-        if RKAuthorization.microphone == .denied {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .denied {
             print("Microphone permission is denied")
             throw AudioRecorderError.permissionDenied
         }
@@ -179,19 +114,19 @@ class AudioRecorder: NSObject, ObservableObject {
         let uniqueDirName = "recording_\(dateString)_\(uuid)"
         let uniqueDirectory = baseDirectory.appendingPathComponent(uniqueDirName)
 
-        // IMPORTANT: Do NOT create the directory - RecordKit needs to create it itself
-        // If we create it first, RecordKit will fail with "directory already exists" error
-
-        // Check if the directory already exists (extremely unlikely with UUID)
         if FileManager.default.fileExists(atPath: uniqueDirectory.path) {
-            // If it somehow exists, try to remove it first
             do {
-                logger.info("Removing existing directory at: \(uniqueDirectory.path)")
                 try FileManager.default.removeItem(at: uniqueDirectory)
             } catch {
                 logger.error("Failed to remove existing directory: \(error.localizedDescription)")
                 throw AudioRecorderError.directoryError
             }
+        }
+        do {
+            try FileManager.default.createDirectory(at: uniqueDirectory, withIntermediateDirectories: true)
+        } catch {
+            logger.error("Failed to create recording directory: \(error.localizedDescription)")
+            throw AudioRecorderError.directoryError
         }
 
         // Store the recording metadata for later use
@@ -202,249 +137,57 @@ class AudioRecorder: NSObject, ObservableObject {
         ]
         UserDefaults.standard.set(metadata, forKey: "lastRecordingMetadata")
 
-        // Store the expected output URL with the final output filename
-        self.rkRecordingURL = uniqueDirectory.appendingPathComponent("recording.m4a")
+        self.recordingDirectoryURL = uniqueDirectory
         logger.info("Using unique directory: \(uniqueDirectory.path)")
 
-        // Start a Task to handle the async RecordKit operations
         Task {
             do {
-                // Check permissions using our consolidated method
                 let micPermissionGranted = await checkAndRequestPermissions()
-
-                if !micPermissionGranted {
-                    await MainActor.run {
-                        logger.error("Microphone permission denied")
-                    }
+                guard micPermissionGranted else {
+                    logger.error("Microphone permission denied")
                     throw AudioRecorderError.permissionDenied
                 }
 
-                // Check system audio permission
-                let systemAudioPermissionGranted = RKAuthorization.systemAudioRecording
-                if !systemAudioPermissionGranted {
-                    logger.info("System audio permission is required for recording")
-                    throw AudioRecorderError.permissionDenied
-                }
+                let micURL = uniqueDirectory.appendingPathComponent("mic_recording.m4a")
+                let systemURL = uniqueDirectory.appendingPathComponent("system_recording.m4a")
 
-                // Refresh available microphones
-                let microphones = RKMicrophone.microphones
-                print("Found \(microphones.count) microphones for recording")
+                try startMicCapture(to: micURL, microphoneId: microphoneId)
 
-                // Update published property on main thread
+                let tap = SystemAudioTap()
+                try tap.start(outputURL: systemURL)
+                self.systemAudioTap = tap
+
                 await MainActor.run {
-                    self.rkAvailableMicrophones = microphones
-                }
-
-                // Create sources array for the recorder
-                var sources: [RKRecorder.SchemaItem] = []
-
-                // Log all available microphones
-                let availableMics = rkAvailableMicrophones
-                logger.info("Available microphones: \(availableMics.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
-
-                // Create unique output filenames for each source
-                let microphoneFilename = "mic_recording.m4a"
-                let systemAudioFilename = "system_recording.m4a"
-                // The merged file will be named "recording.m4a"
-
-                // Check if a specific microphone was selected
-                if !microphoneId.isEmpty {
-                    // Use the selected microphone if it exists
-                    if let selectedMic = availableMics.first(where: { $0.id == microphoneId }) {
-                        sources.append(.microphone(microphoneID: selectedMic.id, output: .singleFile(filename: microphoneFilename)))
-                        logger.info("Using selected microphone: \(selectedMic.localizedName) (ID: \(selectedMic.id))")
-                    } else {
-                        logger.warning("Selected microphone ID \(microphoneId) not found, falling back to default")
-                        // Fall back to default selection logic
-                        await selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
-                    }
-                } else {
-                    // No specific microphone selected, use default selection logic
-                    await selectDefaultMicrophone(sources: &sources, microphoneFilename: microphoneFilename)
-                }
-
-                // Add system audio recording with a different output filename
-                sources.append(.systemAudio(output: .singleFile(filename: systemAudioFilename)))
-                logger.info("Added system audio source with single file output")
-
-                // Get the output directory path from rkRecordingURL
-                let outputDirectory = rkRecordingURL!.deletingLastPathComponent()
-
-                // IMPORTANT: Make sure the directory does NOT exist before creating the recorder
-                // RecordKit will fail with "directory already exists" error if it does
-                if FileManager.default.fileExists(atPath: outputDirectory.path) {
-                    do {
-                        logger.info("Removing existing directory at: \(outputDirectory.path)")
-                        try FileManager.default.removeItem(at: outputDirectory)
-                    } catch {
-                        logger.error("Failed to remove existing directory: \(error.localizedDescription)")
-                        throw AudioRecorderError.directoryError
-                    }
-                }
-
-                logger.info("Using output directory: \(outputDirectory.path)")
-
-                // Create settings to ensure consistent sample rates and prevent audio speed issues
-                let settings = RKRecorder.Settings(
-                    allowFrameReordering: false,
-                    updatesUserPreferred: true
-                )
-
-                // Note: RecordKit doesn't support direct sample rate and channel count settings
-                // We'll handle sample rate issues during the merging process
-
-                // Initialize recorder with our settings
-                rkRecorder = RKRecorder(sources, outputDirectory: outputDirectory, settings: settings)
-
-                // Prepare the recorder (this will trigger permission requests)
-                print("Preparing recorder...")
-                try await rkRecorder?.prepare()
-                print("Recorder prepared successfully")
-
-                // Start recording
-                print("Starting recording...")
-                try await rkRecorder?.start()
-                logger.info("Recording started successfully")
-
-                // Update UI on main thread
-                await MainActor.run {
-                    // Update our state
                     self.isRecording = true
                     self.isPaused = false
-                    self.rkRecordingStartTime = Date()
 
-                    // Create a new recording object (placeholder until recording is complete)
-                    let outputDirectory = rkRecordingURL!.deletingLastPathComponent()
-                    let placeholderURL = outputDirectory.appendingPathComponent("\(name)_placeholder.\(audioFormat)")
+                    let placeholderURL = uniqueDirectory.appendingPathComponent("\(name)_placeholder.\(audioFormat)")
                     let newRecording = Recording(
                         name: name,
                         date: Date(),
                         duration: 0,
                         filePath: placeholderURL,
-                        systemAudioFilePath: nil // RecordKit handles both in one file
+                        systemAudioFilePath: nil // Merged into a single file at stop time
                     )
-
                     self.currentRecording = newRecording
-                    self.startAudioLevelMonitoring()
 
-                    // Start our own timer to update UI
                     self.startTime = Date()
                     self.accumulatedTime = 0
-
-                    // Start the timer to update duration
                     self.durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                        guard let self = self else { return }
-
-                        // Calculate duration from start time
+                        guard let self else { return }
                         if let startTime = self.startTime {
                             self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
                         }
-
-                        // Update the current recording duration
                         self.currentRecording?.duration = self.recordingDuration
                     }
                 }
             } catch {
-                // Handle errors on main thread
+                logger.error("Failed to start recording: \(error.localizedDescription)")
                 await MainActor.run {
-                    logger.error("RecordKit recording failed: \(error.localizedDescription)")
-                    self.stopAudioLevelMonitoring()
-
-                    // Check if this is a permissions error
-                    if error.localizedDescription.contains("microphone access") ||
-                       error.localizedDescription.contains("permission") {
-                        logger.error("This appears to be a permissions error")
-
-                        // Check all permission statuses again
-                        let micStatus = RKAuthorization.microphone
-                        let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-                        logger.error("Current permission status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-                        // Show more detailed error message
-                        logger.error("""
-                        Permission error: \(error.localizedDescription)
-
-                        Current permission status:
-                        - Microphone: \(micStatus.rawValue)
-                        - System Audio: \(systemAudioStatus)
-
-                        Please check that WhisperNote has all required permissions in System Settings > Privacy & Security.
-                        You may need to restart the app after granting permissions.
-                        """)
-
-                        // Try to request permissions again
-                        Task {
-                            _ = await self.checkAndRequestPermissions()
-                        }
-
-                    } else if error.localizedDescription.contains("directory") ||
-                              error.localizedDescription.contains("outputDirectory") ||
-                              error.localizedDescription.contains("Cannot Save") {
-                        logger.error("This appears to be a directory or file error: \(error.localizedDescription)")
-
-                        // Try to delete the directory and recreate it
-                        if let outputDir = rkRecordingURL?.deletingLastPathComponent() {
-                            do {
-                                logger.info("Attempting to remove existing directory: \(outputDir.path)")
-                                try FileManager.default.removeItem(at: outputDir)
-                                logger.info("Successfully removed directory")
-                            } catch {
-                                logger.error("Failed to remove directory: \(error.localizedDescription)")
-                            }
-                        }
-
-                        // Log detailed information about the error
-                        if let nsError = error as NSError? {
-                            logger.error("Error domain: \(nsError.domain), code: \(nsError.code)")
-                            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-                                logger.error("Underlying error domain: \(underlyingError.domain), code: \(underlyingError.code)")
-                            }
-                            if let recoverySuggestion = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String {
-                                logger.error("Recovery suggestion: \(recoverySuggestion)")
-
-                                // If the error is about a file already existing, log more details
-                                if recoverySuggestion.contains("already in use") {
-                                    logger.error("File name conflict detected. Using different filenames for microphone and system audio.")
-                                }
-                            }
-                        }
-                    } else {
-                        logger.error("Unknown RecordKit error: \(error)")
-
-                        // Log additional diagnostic information
-                        let micStatus = RKAuthorization.microphone
-                        let screenStatus = RKAuthorization.screenRecording
-                        let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-                        logger.error("Current permission status during error - Microphone: \(micStatus.rawValue), Screen Recording: \(screenStatus), System Audio: \(systemAudioStatus)")
-                        logger.error("Available microphones: \(self.rkAvailableMicrophones.count)")
-
-                        // Log detailed information about the error
-                        if let nsError = error as NSError? {
-                            logger.error("Error domain: \(nsError.domain), code: \(nsError.code)")
-                            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-                                logger.error("Underlying error domain: \(underlyingError.domain), code: \(underlyingError.code)")
-                            }
-                        }
-                    }
-                }
-
-                // Rethrow as our custom error with more detailed information
-                if error.localizedDescription.contains("microphone access") {
-                    // Check status but don't need to use it
-                    _ = RKAuthorization.microphone
-                    throw AudioRecorderError.permissionDenied
-                } else if error.localizedDescription.contains("system audio") {
-                    // Check status but don't need to use it
-                    _ = RKAuthorization.systemAudioRecording
-                    throw AudioRecorderError.permissionDenied
-                } else if error.localizedDescription.contains("directory") ||
-                          error.localizedDescription.contains("outputDirectory") ||
-                          error.localizedDescription.contains("Cannot Save") {
-                    throw AudioRecorderError.directoryError
-                } else {
-                    throw AudioRecorderError.recordingFailed
+                    self.stopMicCapture()
+                    self.systemAudioTap?.stop()
+                    self.systemAudioTap = nil
+                    self.lastError = "Couldn't start recording: \(error.localizedDescription)"
                 }
             }
         }
@@ -453,15 +196,11 @@ class AudioRecorder: NSObject, ObservableObject {
     func pauseRecording() {
         guard isRecording, !isPaused else { return }
 
-        // RecordKit doesn't have pause/resume functionality
-        // We'll just stop the timer to simulate pausing
-
-        // Update our state
+        // Capture keeps running in the background (matches the old RecordKit behavior,
+        // which had no native pause) — only the displayed timer freezes.
         isRecording = false
         isPaused = true
-        stopAudioLevelMonitoring()
 
-        // Calculate accumulated time for our UI
         if let startTime = startTime {
             accumulatedTime += Date().timeIntervalSince(startTime)
         }
@@ -471,47 +210,46 @@ class AudioRecorder: NSObject, ObservableObject {
     func resumeRecording() {
         guard !isRecording, isPaused else { return }
 
-        // RecordKit doesn't have pause/resume functionality
-        // We'll just restart the timer to simulate resuming
-
-        // Update our state
         isRecording = true
         isPaused = false
         startTime = Date()
-        startAudioLevelMonitoring()
 
-        // Restart the timer
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-
-            // Calculate duration from start time
             if let startTime = self.startTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
             }
-
-            // Update the current recording duration
             self.currentRecording?.duration = self.recordingDuration
         }
     }
 
-    private func startAudioLevelMonitoring() {
-        stopAudioLevelMonitoring()
-
+    /// Starts the mic AVAudioEngine tap: writes to `url` and drives the live level meter.
+    private func startMicCapture(to url: URL, microphoneId: String) throws {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0, format.sampleRate > 0 else {
-            audioLevel = 0
-            return
+
+        if !microphoneId.isEmpty {
+            selectInputDevice(uid: microphoneId, on: engine)
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak engine] buffer, _ in
-            guard let self,
-                  let engine,
-                  let channelData = buffer.floatChannelData else {
-                return
-            }
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            throw AudioRecorderError.recordingFailed
+        }
 
+        let file = try AVAudioFile(
+            forWriting: url,
+            settings: SystemAudioTap.aacSettings(sampleRate: format.sampleRate, channels: format.channelCount),
+            commonFormat: format.commonFormat,
+            interleaved: format.isInterleaved
+        )
+        micFile = file
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak engine] buffer, _ in
+            guard let self, let engine, self.recordingEngine === engine else { return }
+            try? self.micFile?.write(from: buffer)
+
+            guard let channelData = buffer.floatChannelData else { return }
             let channelCount = Int(buffer.format.channelCount)
             let frameLength = Int(buffer.frameLength)
             guard channelCount > 0, frameLength > 0 else { return }
@@ -530,172 +268,176 @@ class AudioRecorder: NSObject, ObservableObject {
             let normalizedLevel = max(0, min(1, (Double(decibels) + 60) / 60))
 
             DispatchQueue.main.async { [weak self, weak engine] in
-                guard let self, self.audioLevelEngine === engine else { return }
+                guard let self, self.recordingEngine === engine else { return }
                 self.audioLevel = self.isRecording ? normalizedLevel : 0
             }
         }
 
-        do {
-            engine.prepare()
-            try engine.start()
-            audioLevelEngine = engine
-        } catch {
-            inputNode.removeTap(onBus: 0)
-            audioLevel = 0
-            logger.warning("Audio level meter failed to start: \(error.localizedDescription)")
-        }
+        engine.prepare()
+        try engine.start()
+        recordingEngine = engine
     }
 
-    private func stopAudioLevelMonitoring() {
-        audioLevelEngine?.inputNode.removeTap(onBus: 0)
-        audioLevelEngine?.stop()
-        audioLevelEngine = nil
+    private func stopMicCapture() {
+        recordingEngine?.inputNode.removeTap(onBus: 0)
+        recordingEngine?.stop()
+        recordingEngine = nil
+        micFile = nil
         audioLevel = 0
+    }
+
+    /// Redirects the engine's input to a specific device by AVCaptureDevice.uniqueID
+    /// (which is the CoreAudio device UID on macOS). No-op if the device can't be found.
+    private func selectInputDevice(uid: String, on engine: AVAudioEngine) {
+        guard let deviceID = allInputDeviceIDs().first(where: { deviceUID(for: $0) == uid }),
+              let audioUnit = engine.inputNode.audioUnit else { return }
+        var mutableDeviceID = deviceID
+        AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
     }
 
     func stopRecording() {
         guard let currentRecording = currentRecording else { return }
+        guard let bundleURL = recordingDirectoryURL else { return }
 
-        // Stop recording with RecordKit
+        // Stop capture immediately so both files are fully flushed before we merge them.
+        stopMicCapture()
+        systemAudioTap?.stop()
+        systemAudioTap = nil
+
         Task {
             do {
-                // Stop the recording
-                if let recorder = rkRecorder {
-                    let result = try await recorder.stop()
-                    logger.info("Recording stopped")
+                // Find and merge the audio files in the bundle directory
+                func findAndMergeAudioFiles() async throws -> URL {
+                    do {
+                        // Look for audio files in the bundle directory
+                        let fileManager = FileManager.default
+                        let bundleContents = try fileManager.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
 
-                    // Get the bundle URL from the result
-                    let bundleURL = result.bundleURL
+                        // Log all files found in the bundle
+                        logger.info("Files in bundle: \(bundleContents.map { $0.lastPathComponent }.joined(separator: ", "))")
 
-                    // Find and merge the audio files in the bundle directory
-                    // Use a local function to find the audio file URLs and merge them
-                    func findAndMergeAudioFiles() async throws -> URL {
-                        do {
-                            // Look for audio files in the bundle directory
-                            let fileManager = FileManager.default
-                            let bundleContents = try fileManager.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
+                        // First check if we already have a merged recording file
+                        if let mergedAudioURL = bundleContents.first(where: { url in
+                            return url.lastPathComponent == "recording.m4a"
+                        }) {
+                            logger.info("Found existing merged audio file: \(mergedAudioURL.path)")
+                            return mergedAudioURL
+                        }
 
-                            // Log all files found in the bundle
-                            logger.info("Files in bundle: \(bundleContents.map { $0.lastPathComponent }.joined(separator: ", "))")
+                        // Find the microphone audio file
+                        guard let micAudioURL = bundleContents.first(where: { url in
+                            return url.lastPathComponent == "mic_recording.m4a"
+                        }) else {
+                            logger.warning("Microphone audio file not found")
 
-                            // First check if we already have a merged recording file
-                            if let mergedAudioURL = bundleContents.first(where: { url in
-                                return url.lastPathComponent == "recording.m4a"
+                            // If no microphone file, look for any audio file
+                            if let audioURL = bundleContents.first(where: { url in
+                                let pathExtension = url.pathExtension.lowercased()
+                                return pathExtension == "m4a" || pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov"
                             }) {
-                                logger.info("Found existing merged audio file: \(mergedAudioURL.path)")
-                                return mergedAudioURL
+                                logger.info("Found generic audio file: \(audioURL.path)")
+                                return audioURL
+                            } else {
+                                logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
+                                throw AudioRecorderError.recordingFailed
                             }
+                        }
 
-                            // Find the microphone audio file
-                            guard let micAudioURL = bundleContents.first(where: { url in
-                                return url.lastPathComponent == "mic_recording.m4a"
-                            }) else {
-                                logger.warning("Microphone audio file not found")
+                        // Find the system audio file
+                        guard let systemAudioURL = bundleContents.first(where: { url in
+                            return url.lastPathComponent == "system_recording.m4a"
+                        }) else {
+                            logger.warning("System audio file not found, using microphone audio only")
+                            return micAudioURL
+                        }
 
-                                // If no microphone file, look for any audio file
-                                if let audioURL = bundleContents.first(where: { url in
-                                    let pathExtension = url.pathExtension.lowercased()
-                                    return pathExtension == "m4a" || pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov"
-                                }) {
-                                    logger.info("Found generic audio file: \(audioURL.path)")
-                                    return audioURL
-                                } else {
-                                    logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
-                                    throw AudioRecorderError.recordingFailed
-                                }
-                            }
+                        // Create the output URL for the merged file
+                        let mergedAudioURL = bundleURL.appendingPathComponent("recording.m4a")
 
-                            // Find the system audio file
-                            guard let systemAudioURL = bundleContents.first(where: { url in
-                                return url.lastPathComponent == "system_recording.m4a"
-                            }) else {
-                                logger.warning("System audio file not found, using microphone audio only")
-                                return micAudioURL
-                            }
-
-                            // Create the output URL for the merged file
-                            let mergedAudioURL = bundleURL.appendingPathComponent("recording.m4a")
-
-                            // Merge the audio files
-                            logger.info("Merging microphone and system audio files...")
-                            do {
-                                // Merge the audio files using AVFoundation
-                                let mergedURL = try await mergeAudioFiles(
-                                    microphoneURL: micAudioURL,
-                                    systemAudioURL: systemAudioURL,
-                                    outputURL: mergedAudioURL
-                                )
-                                logger.info("Audio files successfully merged to: \(mergedURL.path)")
-                                return mergedURL
-                            } catch {
-                                logger.error("Failed to merge audio files: \(error.localizedDescription)")
-                                // Preserve the recording: keep the microphone audio and warn
-                                // the user rather than silently dropping system audio.
-                                await MainActor.run {
-                                    lastError = "Saved microphone audio, but system audio couldn't be merged: \(error.localizedDescription)"
-                                }
-                                return micAudioURL
-                            }
+                        // Merge the audio files
+                        logger.info("Merging microphone and system audio files...")
+                        do {
+                            // Merge the audio files using AVFoundation
+                            let mergedURL = try await mergeAudioFiles(
+                                microphoneURL: micAudioURL,
+                                systemAudioURL: systemAudioURL,
+                                outputURL: mergedAudioURL
+                            )
+                            logger.info("Audio files successfully merged to: \(mergedURL.path)")
+                            return mergedURL
                         } catch {
-                            logger.error("Error examining bundle directory: \(error.localizedDescription)")
-                            throw error
+                            logger.error("Failed to merge audio files: \(error.localizedDescription)")
+                            // Preserve the recording: keep the microphone audio and warn
+                            // the user rather than silently dropping system audio.
+                            await MainActor.run {
+                                lastError = "Saved microphone audio, but system audio couldn't be merged: \(error.localizedDescription)"
+                            }
+                            return micAudioURL
                         }
-                    }
-
-                    // Get the audio file URL by finding and merging the files
-                    let audioFileURL = try await findAndMergeAudioFiles()
-
-                    await MainActor.run {
-                        // Update state
-                        isRecording = false
-                        isPaused = false
-                        durationTimer?.invalidate()
-                        stopAudioLevelMonitoring()
-
-                        // Update the final duration
-                        if let startTime = startTime {
-                            accumulatedTime += Date().timeIntervalSince(startTime)
-                        }
-
-                        // Create the final recording object with the correct duration and file path
-                        let recordingPath = audioFileURL
-
-                        let finalRecording = Recording(
-                            id: currentRecording.id,
-                            name: currentRecording.name,
-                            date: currentRecording.date,
-                            duration: accumulatedTime,
-                            filePath: recordingPath,
-                            systemAudioFilePath: nil  // RecordKit handles both in one file
-                        )
-
-                        // Add to recordings array
-                        recordings.append(finalRecording)
-
-                        // Reset state
-                        self.currentRecording = nil
-                        startTime = nil
-                        accumulatedTime = 0
-                        recordingDuration = 0
-                        rkRecorder = nil
-
-                        // Save recordings to disk
-                        saveRecordings()
+                    } catch {
+                        logger.error("Error examining bundle directory: \(error.localizedDescription)")
+                        throw error
                     }
                 }
+
+                // Get the audio file URL by finding and merging the files
+                let audioFileURL = try await findAndMergeAudioFiles()
+
+                await MainActor.run {
+                    // Update state
+                    isRecording = false
+                    isPaused = false
+                    durationTimer?.invalidate()
+
+                    // Update the final duration
+                    if let startTime = startTime {
+                        accumulatedTime += Date().timeIntervalSince(startTime)
+                    }
+
+                    // Create the final recording object with the correct duration and file path
+                    let recordingPath = audioFileURL
+
+                    let finalRecording = Recording(
+                        id: currentRecording.id,
+                        name: currentRecording.name,
+                        date: currentRecording.date,
+                        duration: accumulatedTime,
+                        filePath: recordingPath,
+                        systemAudioFilePath: nil
+                    )
+
+                    // Add to recordings array
+                    recordings.append(finalRecording)
+
+                    // Reset state
+                    self.currentRecording = nil
+                    startTime = nil
+                    accumulatedTime = 0
+                    recordingDuration = 0
+                    recordingDirectoryURL = nil
+
+                    // Save recordings to disk
+                    saveRecordings()
+                }
             } catch {
-                logger.error("Error stopping RecordKit recording: \(error.localizedDescription)")
+                logger.error("Error stopping recording: \(error.localizedDescription)")
                 // Reset recording state so the UI isn't stuck "recording", and surface the error.
                 await MainActor.run {
                     isRecording = false
                     isPaused = false
                     durationTimer?.invalidate()
-                    stopAudioLevelMonitoring()
                     self.currentRecording = nil
                     startTime = nil
                     accumulatedTime = 0
                     recordingDuration = 0
-                    rkRecorder = nil
+                    recordingDirectoryURL = nil
                     lastError = "Couldn't save the recording: \(error.localizedDescription)"
                 }
             }
@@ -813,57 +555,39 @@ class AudioRecorder: NSObject, ObservableObject {
         return deviceID
     }
 
-    // Get the name of an audio device from its ID
-    private func getDeviceName(for deviceID: AudioDeviceID) -> String? {
-        // Safety check - don't proceed with invalid device IDs
-        if deviceID == 0 {
-            return nil
-        }
-
+    // All current audio device IDs (input and output)
+    private func allInputDeviceIDs() -> [AudioDeviceID] {
         var propertySize: UInt32 = 0
         var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-
-        // Check if the device has a name property
-        if !AudioObjectHasProperty(deviceID, &propertyAddress) {
-            return nil
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &propertyAddress, 0, nil, &propertySize) == noErr else {
+            return []
         }
+        let count = Int(propertySize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &propertyAddress, 0, nil, &propertySize, &deviceIDs) == noErr else {
+            return []
+        }
+        return deviceIDs
+    }
 
-        // Get the size of the property
-        var status = AudioObjectGetPropertyDataSize(
-            deviceID,
-            &propertyAddress,
-            0,
-            nil,
-            &propertySize
+    // The CoreAudio UID string for a device (matches AVCaptureDevice.uniqueID for audio devices)
+    private func deviceUID(for deviceID: AudioDeviceID) -> String? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
         )
-
-        if status != noErr {
-            return nil
+        var propertySize = UInt32(MemoryLayout<CFString?>.size)
+        var uid: CFString?
+        let status = withUnsafeMutablePointer(to: &uid) { ptr -> OSStatus in
+            AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, ptr)
         }
-
-        // Use a safer approach with withUnsafeMutablePointer
-        var deviceName: CFString? = nil
-        withUnsafeMutablePointer(to: &deviceName) { ptr in
-            status = AudioObjectGetPropertyData(
-                deviceID,
-                &propertyAddress,
-                0,
-                nil,
-                &propertySize,
-                ptr
-            )
-        }
-
-        if status != noErr {
-            return nil
-        }
-
-        // Convert to Swift string if possible
-        return deviceName as String?
+        guard status == noErr else { return nil }
+        return uid as String?
     }
 
     // Check if the microphone is currently muted
@@ -979,94 +703,29 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Permissions and Diagnostics
+    // MARK: - Permissions
 
-    // Check and request all necessary permissions
+    // Check and request microphone permission. System audio needs none (Core Audio
+    // process taps have no TCC prompt), unlike RecordKit's separate system-audio permission.
     func checkAndRequestPermissions() async -> Bool {
-        // Check if permissions were already checked at app startup
-        let permissionsChecked = UserDefaults.standard.bool(forKey: "permissionsCheckedAtStartup")
-
-        // If permissions were already checked at startup, just check the current status
-        if permissionsChecked {
-            // Check current authorization status
-            let micStatus = RKAuthorization.microphone
-            let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-            // Only log if we don't have all permissions
-            if micStatus != .authorized || !systemAudioStatus {
-                logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-            }
-
-            UserDefaults.standard.set(systemAudioStatus, forKey: "lastSystemAudioStatus")
-
-            // Return true if we have microphone permission
-            return micStatus == .authorized
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            logger.info("Microphone permission request result: \(granted)")
         }
-
-        // If permissions weren't checked at startup, do a full check
-        logger.info("Checking and requesting permissions...")
-
-        // Check current authorization status
-        let micStatus = RKAuthorization.microphone
-        let systemAudioStatus = RKAuthorization.systemAudioRecording
-
-        logger.info("Current authorization status - Microphone: \(micStatus.rawValue), System Audio: \(systemAudioStatus)")
-
-        // Only request microphone permission if not already granted
-        if micStatus != .authorized {
-            let micPermissionGranted = await RKAuthorization.requestMicrophoneAccess()
-            logger.info("Microphone permission request result: \(micPermissionGranted)")
-
-            // Force refresh the microphone status
-            let updatedMicStatus = RKAuthorization.microphone
-            logger.info("Updated microphone status after request: \(updatedMicStatus.rawValue)")
-        }
-
-        // Always request system audio permission if not already granted
-        if !systemAudioStatus {
-            // Request system audio recording permission
-            logger.info("Requesting system audio recording permission...")
-
-            // Use the specific method for system audio
-            RKAuthorization.requestSystemAudioRecording()
-
-            // Force refresh the system audio status
-            let updatedSystemAudioStatus = RKAuthorization.systemAudioRecording
-            logger.info("Updated system audio status after request: \(updatedSystemAudioStatus)")
-        }
-
-        // Final check of all permissions after requests
-        let finalMicStatus = RKAuthorization.microphone
-        let finalSystemAudioStatus = RKAuthorization.systemAudioRecording
-
-        logger.info("Final permission status - Microphone: \(finalMicStatus.rawValue), System Audio: \(finalSystemAudioStatus)")
-
-        // Store the current permission status in UserDefaults
-        UserDefaults.standard.set(finalSystemAudioStatus, forKey: "lastSystemAudioStatus")
-
-        // Set the flag to indicate that permissions have been checked
-        UserDefaults.standard.set(true, forKey: "permissionsCheckedAtStartup")
 
         await loadAvailableMicrophones()
 
-        // Return true if we have microphone permission
-        return finalMicStatus == .authorized
+        return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
     // Check if the app has been granted system audio recording permission
     func hasSystemAudioPermission() -> Bool {
-        // Force a fresh check of the permission status
-        let status = RKAuthorization.systemAudioRecording
-        logger.info("Current system audio permission status: \(status)")
-        return status
+        true
     }
 
     // Check if the app has been granted microphone permission
     func hasMicrophonePermission() -> Bool {
-        // Force a fresh check of the permission status
-        let status = RKAuthorization.microphone
-        logger.info("Current microphone permission status: \(status.rawValue)")
-        return status == .authorized
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
     /// Merge two audio files into a single file
@@ -1412,95 +1071,6 @@ class AudioRecorder: NSObject, ObservableObject {
         let ids = recordings.filter { $0.groupId == groupId }.map { $0.id }
         for id in ids {
             deleteRecording(id: id)
-        }
-    }
-
-    /// Helper method to select a default microphone using a fallback strategy
-    private func selectDefaultMicrophone(sources: inout [RKRecorder.SchemaItem], microphoneFilename: String) async {
-        // Use the already loaded microphones instead of refreshing again
-        let microphones = self.rkAvailableMicrophones
-
-        // If we don't have any microphones loaded yet, load them now
-        if microphones.isEmpty {
-            // Get available microphones using the non-deprecated API
-            let freshMicrophones = RKMicrophone.microphones
-
-            // Update published property on main thread
-            await MainActor.run {
-                self.rkAvailableMicrophones = freshMicrophones
-            }
-        }
-
-        // Log all available microphones for debugging (only if we have a reasonable number)
-        if self.rkAvailableMicrophones.count < 10 {
-            logger.info("Available microphones for selection: \(self.rkAvailableMicrophones.map { "\($0.localizedName) (ID: \($0.id))" }.joined(separator: ", "))")
-        } else {
-            logger.info("Found \(self.rkAvailableMicrophones.count) available microphones for selection")
-        }
-
-        // Get the system's current default input device
-        var systemDefaultDeviceID: AudioDeviceID = 0
-        var systemDefaultDeviceName: String? = nil
-
-        do {
-            // Get the device ID
-            systemDefaultDeviceID = try getDefaultInputDevice()
-
-            // Get the device name
-            systemDefaultDeviceName = getDeviceName(for: systemDefaultDeviceID)
-        } catch {
-            logger.error("Failed to get system default input device: \(error.localizedDescription)")
-        }
-
-        // Try name match first (most reliable)
-        if let name = systemDefaultDeviceName,
-           let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.localizedName.contains(name) || name.contains($0.localizedName) }) {
-            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system default microphone by name match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            return
-        }
-
-        // Try exact ID match
-        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id == String(systemDefaultDeviceID) }) {
-            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system default microphone by exact ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            return
-        }
-
-        // Try partial ID match
-        if let systemDefaultMic = rkAvailableMicrophones.first(where: { $0.id.contains(String(systemDefaultDeviceID)) }) {
-            sources.append(.microphone(microphoneID: systemDefaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using system default microphone by partial ID match: \(systemDefaultMic.localizedName) (ID: \(systemDefaultMic.id))")
-            return
-        }
-
-        // If that fails, try to use RecordKit's preferred microphone
-        if let preferredMic = RKMicrophone.preferred {
-            // Use system's preferred microphone from RecordKit
-            sources.append(.microphone(microphoneID: preferredMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using RecordKit's preferred microphone: \(preferredMic.localizedName) (ID: \(preferredMic.id))")
-            return
-        }
-
-        // If no preferred microphone is available, try to find a physical microphone
-        let physicalMics = rkAvailableMicrophones.filter { mic in
-            let name = mic.localizedName.lowercased()
-            return !name.contains("blackhole") &&
-                   !name.contains("virtual") &&
-                   !name.contains("loopback") &&
-                   !name.contains("aggregate")
-        }
-
-        if let physicalMic = physicalMics.first {
-            // Fall back to the first physical microphone we found
-            sources.append(.microphone(microphoneID: physicalMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using physical microphone: \(physicalMic.localizedName) (ID: \(physicalMic.id))")
-        } else if let defaultMic = rkAvailableMicrophones.first {
-            // Last resort: use the first available microphone
-            sources.append(.microphone(microphoneID: defaultMic.id, output: .singleFile(filename: microphoneFilename)))
-            logger.info("Using default microphone: \(defaultMic.localizedName) (ID: \(defaultMic.id))")
-        } else {
-            logger.warning("No microphones available for recording")
         }
     }
 }

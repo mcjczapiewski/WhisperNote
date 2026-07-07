@@ -14,11 +14,10 @@ WhisperNote is an open-source macOS app for recording, importing, transcribing, 
 
 ## Requirements
 
-- macOS 13.0 or later.
+- macOS 14.2 or later.
 - ElevenLabs API key for transcription.
 - OpenRouter API key for summaries.
 - Xcode 15+ or Swift 5.9+ for development builds.
-- RecordKit licensing if you distribute your own builds.
 
 ## API Keys
 
@@ -54,7 +53,15 @@ The Xcode project is included for app packaging and release builds.
 
 ## Releases
 
-For normal users, download the latest signed and notarized macOS build from GitHub Releases when available. Development builds from source may require Xcode and local code-signing setup.
+Download the latest macOS build from GitHub Releases when available. Builds are unsigned, so
+macOS Gatekeeper quarantines them on first launch — right-click the app and choose **Open**
+(then **Open** again in the dialog), or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/WhisperNote.app
+```
+
+After the first launch it opens normally. Development builds from source require Xcode.
 
 ## License
 
