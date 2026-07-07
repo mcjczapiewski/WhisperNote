@@ -12,7 +12,7 @@ swift build
 swift run
 ```
 
-**Platform:** macOS 13.0+  
+**Platform:** macOS 14.2+  
 **Bundle ID:** `com.czapiewski.whispernote`  
 **Xcode:** Optional; project opens via `WhisperNote.xcodeproj` but SPM CLI is the primary workflow
 
@@ -30,7 +30,7 @@ Four clean layers. Each layer owns its concerns; the UI layer consumes the other
 
 | Layer       | Files                                                                                                                                      | Responsibility                                   |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| Audio       | `AudioRecorder.swift`, `SystemAudioCapture.swift`                                                                                          | RecordKit capture/merge plus audio-device helpers |
+| Audio       | `AudioRecorder.swift`, `SystemAudioCapture.swift`                                                                                          | Mic capture (AVAudioEngine) + system audio capture (Core Audio process tap), merge, audio-device helpers |
 | API clients | `TranscriptionManager.swift`, `SummaryManager.swift`                                                                                       | ElevenLabs STT, OpenRouter LLM                   |
 | Persistence | `DirectoryManager.swift`, `Models.swift`, `TextDocument.swift`                                                                             | JSON storage, file paths, export                 |
 | UI          | `ContentView.swift`, `RecordingView.swift`, `TranscriptView.swift`, `SummaryView.swift`, `SettingsView.swift`, `AudioSetupGuideView.swift` | SwiftUI 4-tab interface                          |
@@ -43,10 +43,10 @@ Four clean layers. Each layer owns its concerns; the UI layer consumes the other
 
 | Package             | Version                            | Purpose                                                                 |
 | ------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
-| `RecordKit`         | exact: 0.45.0                       | Mic + system audio capture — **requires paid license for distribution** |
 | `swift-markdown-ui` | ≥2.4.1                             | Markdown rendering in SummaryView                                       |
 
-RecordKit is pinned to `0.45.0`. Re-test recording flows before upgrading.
+Mic and system audio capture use only Apple frameworks (AVFoundation + Core Audio process
+taps, macOS 14.2+) — no third-party recording SDK, no distribution license required.
 
 ---
 
@@ -95,7 +95,7 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 
 ## Known Bugs
 
-- **Save-on-stop crash/error** — error thrown when stopping a recording; investigate the stop + audio merge flow in `AudioRecorder.swift` around the `stopRecording()` method and the AVAssetExportSession merge logic
+- **Save-on-stop crash/error** — error thrown when stopping a recording; investigate the stop + audio merge flow in `AudioRecorder.swift` around the `stopRecording()` method and the AVAssetExportSession merge logic. The capture side of this flow was rewritten (Core Audio process tap + AVAudioEngine replacing RecordKit) — re-verify whether this still reproduces.
 - **Grouped transcript retry lookup** — failed transcript retry can miss grouped recordings because it looks up a single `recordingId`; wire group retry only if needed.
 
 ---
@@ -103,8 +103,7 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 ## Pre-Distribution Checklist
 
 - [ ] Audit debug console prints/logs before release; avoid logging API responses, sensitive file paths, or credentials
-- [ ] RecordKit commercial license for App Store / distribution
-- [ ] Apple notarization
+- [ ] Apple notarization (optional — see `RELEASE.md` for the unsigned-build alternative)
 
 ---
 
@@ -112,7 +111,7 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 
 **Complete:**
 - Mic + system audio recording with merge
-- Pause/resume (timer-simulated — RecordKit has no native pause)
+- Pause/resume (timer-simulated — capture keeps running in the background, only the UI freezes)
 - ElevenLabs transcription with speaker diarization
 - OpenRouter summaries with model selection and custom prompts
 - Export transcripts (.txt) and summaries (.txt, .md)

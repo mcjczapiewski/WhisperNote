@@ -4,18 +4,16 @@ import PackageDescription
 let package = Package(
     name: "WhisperNote",
     platforms: [
-        .macOS(.v13)
+        .macOS("14.2")
     ],
     dependencies: [
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
-        .package(url: "https://github.com/nonstrict-hq/RecordKit", exact: "0.45.0")
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1")
     ],
     targets: [
         .executableTarget(
             name: "WhisperNote",
             dependencies: [
-                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
-                .product(name: "RecordKit", package: "RecordKit")
+                .product(name: "MarkdownUI", package: "swift-markdown-ui")
             ],
             path: "WhisperNote",
             exclude: [

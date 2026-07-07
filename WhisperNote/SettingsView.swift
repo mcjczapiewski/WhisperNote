@@ -279,7 +279,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.2"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.0"
     }
 
     private func loadAPIKeys() {
@@ -321,6 +321,16 @@ struct ChangelogView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.3.0",
+                        date: "July 7, 2026",
+                        changes: [
+                            "Replaced RecordKit with native Core Audio process taps and AVAudioEngine for mic/system audio capture — no more paid SDK license needed to distribute builds.",
+                            "Raised the minimum macOS version to 14.2 for Core Audio process tap support.",
+                            "Removed the Screen Recording permission requirement for system audio capture."
+                        ]
+                    )
+
                     ChangelogSection(
                         version: "1.2.2",
                         date: "July 7, 2026",

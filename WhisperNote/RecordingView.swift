@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import RecordKit
 import UniformTypeIdentifiers
 
 struct RecordingView: View {
@@ -282,9 +281,6 @@ struct RecordingView: View {
                                     // Refresh available microphones before showing the popup
                                     // This ensures we get the current system default microphone
                                     Task {
-                                        // Note: refreshPreferred method doesn't exist in this version of RecordKit
-                                        // We'll just use the current preferred microphone
-
                                         // Just load available microphones without full permission check
                                         await audioRecorder.loadAvailableMicrophones()
 
@@ -449,14 +445,14 @@ struct RecordingView: View {
                         Text("System Default").tag("")
 
                         // List all available microphones
-                        ForEach(audioRecorder.rkAvailableMicrophones, id: \.id) { mic in
+                        ForEach(audioRecorder.availableMicrophones, id: \.id) { mic in
                             Text(mic.localizedName).tag(mic.id)
                         }
                     }
                     .pickerStyle(MenuPickerStyle())
                     .frame(maxWidth: .infinity)
 
-                    if let selectedMic = audioRecorder.rkAvailableMicrophones.first(where: { $0.id == selectedMicrophoneId }) {
+                    if let selectedMic = audioRecorder.availableMicrophones.first(where: { $0.id == selectedMicrophoneId }) {
                         Text("Selected: \(selectedMic.localizedName)")
                             .font(.caption)
                             .foregroundColor(.secondary)
