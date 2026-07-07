@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.4 — July 7, 2026
+
+- Fixed system audio recording starting late (sometimes tens of seconds after the microphone), which threw off the merged recording's timing and truncated it to the shorter track. The system audio tap's aggregate device now anchors to the real default output device for its clock instead of relying on the tap alone, so it starts capturing immediately rather than waiting for audio playback to "wake up" the tap.
+
 ## 1.3.3 — July 7, 2026
 
 - Fixed "Couldn't start recording" on mics with unusual sample rates (e.g. some voice-optimized USB/Bluetooth mics running at 16kHz) — the AAC encoder no longer gets a hardcoded bit rate that's invalid for the mic's actual format.
