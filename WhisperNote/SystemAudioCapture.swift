@@ -150,12 +150,17 @@ final class SystemAudioTap {
 
     /// AAC-in-.m4a settings for a PCM source of the given sample rate/channel count.
     /// Shared with AudioRecorder's mic capture so both intermediate files encode the same way.
-    static func aacSettings(sampleRate: Double, channels: AVAudioChannelCount, bitRate: Int = 128_000) -> [String: Any] {
+    /// ponytail: quality key instead of a fixed bit rate — some mics (e.g. voice-optimized
+    /// USB/Bluetooth devices) report unusual sample rates like 16kHz, and a flat 128kbps
+    /// bit rate isn't valid for every sample rate/channel combo (AudioConverterSetProperty
+    /// rejects it outright). Letting the encoder pick its own bit rate for the given format
+    /// avoids hardcoding a table of valid combos ourselves.
+    static func aacSettings(sampleRate: Double, channels: AVAudioChannelCount) -> [String: Any] {
         [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: channels,
-            AVEncoderBitRateKey: bitRate
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
         ]
     }
 
