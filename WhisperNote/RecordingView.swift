@@ -397,13 +397,16 @@ struct RecordingView: View {
                                 )
                             }
                         }
+                        .listRowBackground(recordingListRowBackground)
                     }
 
                     ForEach(ungrouped) { recording in
                         recordingRow(recording)
+                            .listRowBackground(recordingListRowBackground)
                     }
                 }
                 .frame(height: 200)
+                .scrollContentBackground(.hidden)
             }
         }
         .padding()
@@ -836,6 +839,12 @@ struct RecordingView: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    private var recordingListRowBackground: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.black.opacity(0.10))
+            .padding(.vertical, 2)
     }
 
     private func formatDuration(_ duration: TimeInterval) -> String {

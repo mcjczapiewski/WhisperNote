@@ -316,7 +316,11 @@ struct TranscriptSidebarView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
-                .background(selectedTranscript?.id == transcript.id ? Color.blue.opacity(0.1) : Color.clear)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selectedTranscript?.id == transcript.id ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
+                        .padding(.vertical, 2)
+                )
             }
             .onDelete { indexSet in
                 let transcriptsToDelete = indexSet.map { transcriptionManager.transcripts[$0] }
@@ -328,6 +332,7 @@ struct TranscriptSidebarView: View {
         }
         .frame(width: 250)
         .listStyle(SidebarListStyle())
+        .scrollContentBackground(.hidden)
     }
 
     private func transcriptFinderURL(_ transcript: Transcript) -> URL {

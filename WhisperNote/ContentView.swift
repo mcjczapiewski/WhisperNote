@@ -42,6 +42,7 @@ struct ContentView: View {
         .padding()
         .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
         .task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
             _ = await audioRecorder.checkAndRequestPermissions()
         }
     }

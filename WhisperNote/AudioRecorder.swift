@@ -45,6 +45,9 @@ class AudioRecorder: NSObject, ObservableObject {
     private var micFile: AVAudioFile?
     private var micWarmupFramesRemaining: AVAudioFramePosition = 0
     private var systemAudioTap: SystemAudioTap?
+    private var micAudioLevel: Double = 0
+    private var systemAudioLevel: Double = 0
+    private var systemAudioPermissionAvailable = true
     private var recordingDirectoryURL: URL?
     private let micWarmupMuteDuration = 0.97
 
@@ -156,8 +159,15 @@ class AudioRecorder: NSObject, ObservableObject {
                 try startMicCapture(to: micURL, microphoneId: microphoneId)
 
                 let tap = SystemAudioTap()
-                try tap.start(outputURL: systemURL)
+                tap.levelHandler = { [weak self, weak tap] level in
+                    DispatchQueue.main.async { [weak self, weak tap] in
+                        guard let self, let tap, self.systemAudioTap === tap else { return }
+                        self.systemAudioLevel = self.isRecording ? level : 0
+                        self.updateAudioLevel()
+                    }
+                }
                 self.systemAudioTap = tap
+                try tap.start(outputURL: systemURL)
 
                 await MainActor.run {
                     self.isRecording = true
@@ -204,6 +214,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
         isRecording = false
         isPaused = true
+        micAudioLevel = 0
+        systemAudioLevel = 0
+        updateAudioLevel()
 
         if let startTime = startTime {
             accumulatedTime += Date().timeIntervalSince(startTime)
@@ -218,6 +231,9 @@ class AudioRecorder: NSObject, ObservableObject {
         try? recordingEngine?.start()
         systemAudioTap?.resume()
 
+        micAudioLevel = 0
+        systemAudioLevel = 0
+        updateAudioLevel()
         isRecording = true
         isPaused = false
         startTime = Date()
@@ -280,7 +296,8 @@ class AudioRecorder: NSObject, ObservableObject {
 
             DispatchQueue.main.async { [weak self, weak engine] in
                 guard let self, self.recordingEngine === engine else { return }
-                self.audioLevel = self.isRecording ? normalizedLevel : 0
+                self.micAudioLevel = self.isRecording ? normalizedLevel : 0
+                self.updateAudioLevel()
             }
         }
 
@@ -295,7 +312,12 @@ class AudioRecorder: NSObject, ObservableObject {
         recordingEngine = nil
         micFile = nil
         micWarmupFramesRemaining = 0
-        audioLevel = 0
+        micAudioLevel = 0
+        updateAudioLevel()
+    }
+
+    private func updateAudioLevel() {
+        audioLevel = isRecording ? max(micAudioLevel, systemAudioLevel) : 0
     }
 
     private func resetMicWarmupMute() {
@@ -343,6 +365,8 @@ class AudioRecorder: NSObject, ObservableObject {
         stopMicCapture()
         systemAudioTap?.stop()
         systemAudioTap = nil
+        systemAudioLevel = 0
+        updateAudioLevel()
 
         Task {
             do {
@@ -738,12 +762,16 @@ class AudioRecorder: NSObject, ObservableObject {
 
     // MARK: - Permissions
 
-    // Check and request microphone permission. System audio needs none (Core Audio
-    // process taps have no TCC prompt), unlike RecordKit's separate system-audio permission.
+    // Check and request microphone permission, and touch the process-tap path so macOS
+    // shows the system-audio permission prompt before the first recording.
     func checkAndRequestPermissions() async -> Bool {
         if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
             logger.info("Microphone permission request result: \(granted)")
+        }
+
+        systemAudioPermissionAvailable = await MainActor.run {
+            SystemAudioTap.requestPermissionPrompt()
         }
 
         await loadAvailableMicrophones()
@@ -753,7 +781,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     // Check if the app has been granted system audio recording permission
     func hasSystemAudioPermission() -> Bool {
-        true
+        systemAudioPermissionAvailable
     }
 
     // Check if the app has been granted microphone permission

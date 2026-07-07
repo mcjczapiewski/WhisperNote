@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.2 — July 7, 2026
+
+- Added live system audio level reporting to the existing recording input meter, combined with microphone level without changing recorded audio volume.
+- Request system audio recording permission during app launch instead of waiting until the first recording starts.
+- Darkened recording, transcript, and summary list rows with solid non-glossy backgrounds for better separation from the app window.
+- Matched the read-only transcript preview background to the summary preview/app background while leaving edit views unchanged.
+
 ## 1.3.1 — July 7, 2026
 
 - Muted the first 0.97 seconds of microphone input on recording start and resume to suppress the measured Bluetooth/input-device activation pop while preserving recording duration and sync.

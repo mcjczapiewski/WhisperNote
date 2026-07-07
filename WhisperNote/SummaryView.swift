@@ -276,11 +276,16 @@ struct SummarySidebarView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
-                .background(selectedSummary?.id == summary.id ? Color.blue.opacity(0.1) : Color.clear)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selectedSummary?.id == summary.id ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
+                        .padding(.vertical, 2)
+                )
             }
         }
         .frame(width: 250)
         .listStyle(SidebarListStyle())
+        .scrollContentBackground(.hidden)
     }
 
     private func summaryFinderURL() -> URL {
