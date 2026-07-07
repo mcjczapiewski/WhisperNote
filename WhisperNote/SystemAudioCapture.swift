@@ -82,16 +82,22 @@ final class SystemAudioTap {
         // Audio only pumps its IO proc once a tapped process is actually emitting audio —
         // recording silently starts late (reproduced: system audio only began once a YouTube
         // video started playing, well after the mic track). Anchoring the aggregate device to
-        // the real default output device as its main subdevice gives it a continuously running
-        // clock from the moment it starts. The subdevice is never selected as system output, so
-        // this doesn't route or duplicate any audio — it's purely a timing source.
-        let outputUID = try Self.defaultOutputDeviceUID()
+        // a real device as its main subdevice gives it a continuously running clock from the
+        // moment it starts. Must be the *system* output device (kAudioHardwarePropertyDefault-
+        // SystemOutputDevice), not the user's current default output — the latter follows
+        // whatever output the user has selected, including Bluetooth headsets that renegotiate
+        // a different/lower internal rate for simultaneous input+output (HFP mode), which broke
+        // the aggregate's effective clock rate and sped up/pitched up the whole recording. The
+        // system output device is stable and macOS keeps it off Bluetooth voice profiles.
+        // Matches the known-good reference implementation in insidegui/AudioCap.
+        let outputUID = try Self.systemOutputDeviceUID()
 
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "WhisperNote System Audio",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [
                 [kAudioSubDeviceUIDKey: outputUID]
@@ -210,12 +216,14 @@ final class SystemAudioTap {
         return nil
     }
 
-    /// UID of the system's current default output device, used to give the tap's aggregate
-    /// device a real hardware clock (see comment at the call site in `start(outputURL:)`).
-    private static func defaultOutputDeviceUID() throws -> String {
+    /// UID of the stable system-sounds output device, used to give the tap's aggregate device
+    /// a real hardware clock (see comment at the call site in `start(outputURL:)`). Deliberately
+    /// not the user's default output device, which can be a Bluetooth device running at a
+    /// different/unstable rate.
+    private static func systemOutputDeviceUID() throws -> String {
         var deviceID: AudioDeviceID = kAudioObjectUnknown
         var deviceAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )

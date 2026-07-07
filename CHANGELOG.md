@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.5 — July 7, 2026
+
+- Fixed 1.3.4's fix — system audio recordings played back sped up and high-pitched. The aggregate device's clock was anchored to the user's *default* output device, which can be a Bluetooth headset that renegotiates a different/lower internal rate for simultaneous input+output; that variable rate corrupted the tap's effective timing. Anchored to the stable system-sounds output device instead (matches the reference Core Audio process-tap implementation).
+
 ## 1.3.4 — July 7, 2026
 
 - Fixed system audio recording starting late (sometimes tens of seconds after the microphone), which threw off the merged recording's timing and truncated it to the shorter track. The system audio tap's aggregate device now anchors to the real default output device for its clock instead of relying on the tap alone, so it starts capturing immediately rather than waiting for audio playback to "wake up" the tap.
