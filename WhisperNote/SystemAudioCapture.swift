@@ -62,6 +62,26 @@ final class SystemAudioTap {
 
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "SystemAudioTap")
 
+    @discardableResult
+    static func requestPermissionPrompt() -> Bool {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whispernote_system_audio_permission_\(UUID().uuidString).m4a")
+        let tap = SystemAudioTap()
+        defer {
+            tap.stop()
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+
+        do {
+            try tap.start(outputURL: tempURL)
+            logger.info("System audio permission warm-up succeeded")
+            return true
+        } catch {
+            logger.info("System audio permission warm-up failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     private var tapID: AudioObjectID = kAudioObjectUnknown
     private var aggregateDeviceID: AudioObjectID = kAudioObjectUnknown
     private var ioProcID: AudioDeviceIOProcID?
@@ -72,6 +92,7 @@ final class SystemAudioTap {
     private var segmentStartFrame: AVAudioFramePosition = 0
     private var writtenFrameCount: AVAudioFramePosition = 0
     private var capturedAudioFrameCount: AVAudioFramePosition = 0
+    var levelHandler: ((Double) -> Void)?
 
     func start(outputURL: URL) throws {
         let excludedProcesses = Self.ownProcessObjectID().map { [$0] } ?? []
@@ -138,6 +159,7 @@ final class SystemAudioTap {
             self.capturedAudioFrameCount += AVAudioFramePosition(buffer.frameLength)
             self.writtenFrameCount += AVAudioFramePosition(buffer.frameLength)
             try? self.audioFile?.write(from: buffer)
+            self.publishLevel(from: buffer)
         }
         guard status == noErr, let procID else { throw TapError.osStatus("creating IO proc", status) }
         ioProcID = procID
@@ -190,6 +212,36 @@ final class SystemAudioTap {
         writtenFrameCount = 0
         capturedAudioFrameCount = 0
         audioFile = nil
+    }
+
+    private func publishLevel(from buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData else { return }
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard channelCount > 0, frameLength > 0 else { return }
+
+        var sum: Float = 0
+        if buffer.format.isInterleaved {
+            let samples = channelData[0]
+            let sampleCount = channelCount * frameLength
+            for sampleIndex in 0..<sampleCount {
+                let sample = samples[sampleIndex]
+                sum += sample * sample
+            }
+        } else {
+            for channel in 0..<channelCount {
+                let samples = channelData[channel]
+                for frame in 0..<frameLength {
+                    let sample = samples[frame]
+                    sum += sample * sample
+                }
+            }
+        }
+
+        let rms = sqrt(sum / Float(channelCount * frameLength))
+        let decibels = 20 * log10(max(rms, 0.000_001))
+        let normalizedLevel = max(0, min(1, (Double(decibels) + 60) / 60))
+        levelHandler?(normalizedLevel)
     }
 
     private func padSilenceBefore(bufferFrameLength: AVAudioFrameCount) {

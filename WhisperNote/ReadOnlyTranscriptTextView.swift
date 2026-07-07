@@ -10,8 +10,8 @@ struct ReadOnlyTranscriptTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
 
         let textView = NSTextView()
         textView.isEditable = false
@@ -20,8 +20,8 @@ struct ReadOnlyTranscriptTextView: NSViewRepresentable {
         textView.importsGraphics = false
         textView.usesFontPanel = false
         textView.allowsUndo = false
-        textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
         textView.textColor = .labelColor
         textView.font = .systemFont(ofSize: NSFont.systemFontSize)
         textView.textContainerInset = NSSize(width: 12, height: 12)
