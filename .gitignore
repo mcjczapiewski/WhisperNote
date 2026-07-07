@@ -55,6 +55,7 @@ iOSInjectionProject/
 # Local editor settings
 .vscode/
 .idea/
+.claude/
 
 # Local secrets and machine-specific config
 .env
@@ -63,6 +64,12 @@ iOSInjectionProject/
 Local.xcconfig
 Secrets.xcconfig
 *.private.xcconfig
+*.p12
+*.cer
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
 
 # WhisperNote generated user data
 WhisperNote/Files/
@@ -80,6 +87,12 @@ Summaries/
 *.mp4
 *.mov
 *.log
+*.app
+*.pkg
+*.dmg
+*.zip
+*.xcarchive
+*.xcresult
 
 # fastlane generated output
 fastlane/report.xml

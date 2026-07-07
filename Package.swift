@@ -8,7 +8,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1"),
-        .package(url: "https://github.com/nonstrict-hq/RecordKit", branch: "main")
+        .package(url: "https://github.com/nonstrict-hq/RecordKit", exact: "0.45.0")
     ],
     targets: [
         .executableTarget(
@@ -17,7 +17,13 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "RecordKit", package: "RecordKit")
             ],
-            path: "WhisperNote"
+            path: "WhisperNote",
+            exclude: [
+                "AppIcon.icns",
+                "Assets.xcassets",
+                "Info.plist",
+                "WhisperNote.entitlements"
+            ]
         )
     ]
 )

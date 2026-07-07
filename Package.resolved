@@ -14,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/nonstrict-hq/RecordKit",
       "state" : {
-        "branch" : "main",
-        "revision" : "90be20fc220105f20c4b45c89be18b1a7207b67b"
+        "revision" : "90be20fc220105f20c4b45c89be18b1a7207b67b",
+        "version" : "0.45.0"
       }
     },
     {

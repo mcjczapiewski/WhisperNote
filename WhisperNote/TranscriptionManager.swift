@@ -4,10 +4,10 @@ import SwiftUI
 @MainActor
 class TranscriptionManager: ObservableObject {
     @Published var transcripts: [Transcript] = []
-    @AppStorage("elevenlabsApiKey") private var apiKey = ""
 
     private let directoryManager = DirectoryManager.shared
     private let debugLogger = DebugLogger.shared
+    private var apiKey: String { KeychainStorage.string(for: .elevenLabsAPIKey) }
 
     init() {
         loadTranscripts()
@@ -149,7 +149,7 @@ class TranscriptionManager: ObservableObject {
         }
 
         print("Transcribing with language: \(language)")
-        debugLogger.log("Transcription started. recording=\(recording.name) file=\(recording.filePath.path) language=\(language)", area: .transcripts, contextURL: recording.filePath)
+        debugLogger.log("Transcription started. recording=\(recording.name) language=\(language)", area: .transcripts, contextURL: recording.filePath)
 
         // Prepare the request
         let url = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
@@ -213,10 +213,7 @@ class TranscriptionManager: ObservableObject {
             debugLogger.log("ElevenLabs response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .transcripts, contextURL: recording.filePath)
 
             guard httpResponse.statusCode == 200 else {
-                // Print response body for debugging
-                let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-                print("API Error Response: \(responseString)")
-                debugLogger.log("ElevenLabs API error. status=\(httpResponse.statusCode) body=\(Self.truncateForLog(responseString))", area: .transcripts, contextURL: recording.filePath)
+                debugLogger.log("ElevenLabs API error. status=\(httpResponse.statusCode) responseBytes=\(responseData.count)", area: .transcripts, contextURL: recording.filePath)
 
                 // Try to extract error message from the response
                 let errorMessage = Self.extractAPIErrorMessage(from: responseData)
@@ -233,7 +230,7 @@ class TranscriptionManager: ObservableObject {
                 transcriptionResponse = try decoder.decode(ElevenLabsTranscriptionResponse.self, from: responseData)
             } catch {
                 print("Error decoding response: \(error)")
-                debugLogger.log("ElevenLabs response decode failed. error=\(error.localizedDescription) body=\(Self.truncateForLog(String(data: responseData, encoding: .utf8) ?? "Unable to decode response"))", area: .transcripts, contextURL: recording.filePath)
+                debugLogger.log("ElevenLabs response decode failed. error=\(error.localizedDescription) responseBytes=\(responseData.count)", area: .transcripts, contextURL: recording.filePath)
 
                 // Try alternative format (simple string)
                 if let simpleResponse = try? decoder.decode([String: String].self, from: responseData),
@@ -260,7 +257,7 @@ class TranscriptionManager: ObservableObject {
                 rawResponseByteCount: responseData.count,
                 recording: recording
             )
-            debugLogger.log("Transcription completed. json=\(jsonFilePath.path) textChars=\(transcriptionResponse.text.count) speakerSegments=\(speakerSegments.count)", area: .transcripts, contextURL: recording.filePath)
+            debugLogger.log("Transcription completed. textChars=\(transcriptionResponse.text.count) speakerSegments=\(speakerSegments.count)", area: .transcripts, contextURL: recording.filePath)
 
             let formattedContent = formatTranscriptContent(response: transcriptionResponse, speakerSegments: speakerSegments)
 

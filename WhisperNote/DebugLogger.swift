@@ -26,6 +26,7 @@ final class DebugLogger {
     private init() {}
 
     func log(_ message: String, area: DebugLogArea, contextURL: URL? = nil) {
+#if DEBUG
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
 
@@ -38,6 +39,7 @@ final class DebugLogger {
             let contextDirectory = contextURL.hasDirectoryPath ? contextURL : contextURL.deletingLastPathComponent()
             append(line, to: contextDirectory.appendingPathComponent("debug.log"))
         }
+#endif
     }
 
     private func dailyLogURL(for area: DebugLogArea) -> URL {

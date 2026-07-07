@@ -4,11 +4,11 @@ import SwiftUI
 @MainActor
 class SummaryManager: ObservableObject {
     @Published var summaries: [Summary] = []
-    @AppStorage("openrouterApiKey") private var apiKey = ""
     @AppStorage("defaultLLMModel") var defaultModel = defaultLLMModelId
 
     private let directoryManager = DirectoryManager.shared
     private let debugLogger = DebugLogger.shared
+    private var apiKey: String { KeychainStorage.string(for: .openRouterAPIKey) }
 
     init() {
         loadSummaries()
@@ -156,8 +156,7 @@ class SummaryManager: ObservableObject {
         }
         debugLogger.log("OpenRouter prompt enhancement response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .summaries)
         guard httpResponse.statusCode == 200 else {
-            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-            debugLogger.log("OpenRouter prompt enhancement API error. status=\(httpResponse.statusCode) body=\(truncateForLog(responseString))", area: .summaries)
+            debugLogger.log("OpenRouter prompt enhancement API error. status=\(httpResponse.statusCode) responseBytes=\(responseData.count)", area: .summaries)
             throw SummaryError.apiError(statusCode: httpResponse.statusCode)
         }
         let summaryResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
@@ -194,8 +193,7 @@ class SummaryManager: ObservableObject {
         }
         debugLogger.log("OpenRouter response received. status=\(httpResponse.statusCode) elapsed=\(String(format: "%.2f", elapsed))s responseBytes=\(responseData.count)", area: .summaries)
         guard httpResponse.statusCode == 200 else {
-            let responseString = String(data: responseData, encoding: .utf8) ?? "Unable to decode response"
-            debugLogger.log("OpenRouter API error. status=\(httpResponse.statusCode) body=\(truncateForLog(responseString))", area: .summaries)
+            debugLogger.log("OpenRouter API error. status=\(httpResponse.statusCode) responseBytes=\(responseData.count)", area: .summaries)
             throw SummaryError.apiError(statusCode: httpResponse.statusCode)
         }
         let summaryResponse = try JSONDecoder().decode(OpenRouterResponse.self, from: responseData)
@@ -205,11 +203,6 @@ class SummaryManager: ObservableObject {
         }
         debugLogger.log("OpenRouter summary completed. outputChars=\(content.count)", area: .summaries)
         return content
-    }
-
-    private func truncateForLog(_ value: String, limit: Int = 4_000) -> String {
-        guard value.count > limit else { return value }
-        return String(value.prefix(limit)) + "... [truncated]"
     }
 
     func getDefaultPrompt(meetingType: String = "meeting", audience: String = "all participants") -> String {

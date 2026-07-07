@@ -43,10 +43,10 @@ Four clean layers. Each layer owns its concerns; the UI layer consumes the other
 
 | Package             | Version                            | Purpose                                                                 |
 | ------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
-| `RecordKit`         | branch: main (v0.45.0 XCFramework) | Mic + system audio capture — **requires paid license for distribution** |
+| `RecordKit`         | exact: 0.45.0                       | Mic + system audio capture — **requires paid license for distribution** |
 | `swift-markdown-ui` | ≥2.4.1                             | Markdown rendering in SummaryView                                       |
 
-RecordKit is pinned to `main` branch — a moving target. Pin to a tagged release before shipping.
+RecordKit is pinned to `0.45.0`. Re-test recording flows before upgrading.
 
 ---
 
@@ -57,13 +57,13 @@ RecordKit is pinned to `main` branch — a moving target. Pin to a tagged releas
 - Model: `scribe_v2`, multipart/form-data upload
 - Supports: diarization (`diarize=true`), word timestamps, 80+ language codes
 - Timeout: 5 minutes (large file uploads)
-- Key stored: `@AppStorage("elevenLabsApiKey")` — UserDefaults, not Keychain
+- Key stored in macOS Keychain via `KeychainStorage`.
 
 ### OpenRouter (Summarization)
 - `POST https://openrouter.ai/api/v1/chat/completions`
 - Default model: `openai/gpt-4o-mini`
 - Available models (see `Models.swift:llmModels`): DeepSeek v4 Flash, GPT-4o Mini, Gemini 3 Flash, GLM-5.2, Grok 4.3
-- Key stored: `@AppStorage("openRouterApiKey")` — UserDefaults, not Keychain
+- Key stored in macOS Keychain via `KeychainStorage`.
 
 ---
 
@@ -103,10 +103,6 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 ## Pre-Distribution Checklist
 
 - [ ] Audit debug console prints/logs before release; avoid logging API responses, sensitive file paths, or credentials
-- [ ] Migrate API keys from `@AppStorage` (UserDefaults) to Keychain — PRD requirement, not yet done
-- [ ] Fix README: says macOS 12.0, should be 13.0
-- [ ] Fix README: says API keys are stored in Keychain, but current app stores them in UserDefaults
-- [ ] Pin RecordKit to a tagged version (currently `branch: main`)
 - [ ] RecordKit commercial license for App Store / distribution
 - [ ] Apple notarization
 
@@ -126,9 +122,9 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 - Editable summary text with Find & Replace
 - Markdown rendering in summaries
 - Retry failed summary generation
+- Keychain storage for API keys
 
 **Not built (from PRD):**
-- Keychain storage for API keys
 - Live (real-time) transcription
 - Calendar integration / meeting detection
 - iOS companion app

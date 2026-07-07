@@ -2,12 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
-    @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
-    @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
 
+    @State private var elevenlabsApiKey = ""
+    @State private var openrouterApiKey = ""
     @State private var isShowingDirectoryPicker = false
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
     @State private var showAlert = false
@@ -261,7 +261,7 @@ struct SettingsView: View {
         }
         .alert(isPresented: $showAlert) {
             Alert(
-                title: Text("Directory Error"),
+                title: Text("Settings Error"),
                 message: Text(alertMessage),
                 dismissButton: .default(Text("OK"))
             )
@@ -269,10 +269,32 @@ struct SettingsView: View {
         .sheet(isPresented: $isShowingChangelog) {
             ChangelogView()
         }
+        .onAppear(perform: loadAPIKeys)
+        .onChange(of: elevenlabsApiKey) { value in
+            saveAPIKey(value, for: .elevenLabsAPIKey)
+        }
+        .onChange(of: openrouterApiKey) { value in
+            saveAPIKey(value, for: .openRouterAPIKey)
+        }
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.2"
+    }
+
+    private func loadAPIKeys() {
+        KeychainStorage.migrateLegacyAPIKeysFromUserDefaults()
+        elevenlabsApiKey = KeychainStorage.string(for: .elevenLabsAPIKey)
+        openrouterApiKey = KeychainStorage.string(for: .openRouterAPIKey)
+    }
+
+    private func saveAPIKey(_ value: String, for key: KeychainStorage.Key) {
+        do {
+            try KeychainStorage.set(value, for: key)
+        } catch {
+            alertMessage = error.localizedDescription
+            showAlert = true
+        }
     }
 }
 
@@ -299,6 +321,16 @@ struct ChangelogView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.2.2",
+                        date: "July 7, 2026",
+                        changes: [
+                            "Prepared the project for public open-source release with updated README and license files.",
+                            "Moved API key storage from UserDefaults to the macOS Keychain.",
+                            "Reduced release-time debug logging and tightened app entitlements."
+                        ]
+                    )
+
                     ChangelogSection(
                         version: "1.2.1",
                         date: "July 7, 2026",
