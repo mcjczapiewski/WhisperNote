@@ -1,9 +1,5 @@
 # Changelog
 
-## 1.3.3 — July 7, 2026
-
-- Updated project documentation to match the current app behavior, including API key storage, capture pause/resume, imports, storage layout, transcription timeouts, and release workflow.
-
 ## 1.3.2 — July 7, 2026
 
 - Added live system audio level reporting to the existing recording input meter, combined with microphone level without changing recorded audio volume.
