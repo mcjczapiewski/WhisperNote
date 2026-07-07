@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3 — July 7, 2026
+
+- Fixed "Couldn't start recording" on mics with unusual sample rates (e.g. some voice-optimized USB/Bluetooth mics running at 16kHz) — the AAC encoder no longer gets a hardcoded bit rate that's invalid for the mic's actual format.
+
 ## 1.3.2 — July 7, 2026
 
 - Reverted 1.3.1's Data Protection Keychain change — it requires an entitlement only available with a paid Apple Developer Team, which this unsigned build doesn't have, and broke saving API keys. API keys are stored in UserDefaults again.
