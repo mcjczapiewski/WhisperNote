@@ -43,8 +43,10 @@ class AudioRecorder: NSObject, ObservableObject {
     // Recording state (Core Audio process tap + AVAudioEngine, replacing RecordKit)
     private var recordingEngine: AVAudioEngine?
     private var micFile: AVAudioFile?
+    private var micWarmupFramesRemaining: AVAudioFramePosition = 0
     private var systemAudioTap: SystemAudioTap?
     private var recordingDirectoryURL: URL?
+    private let micWarmupMuteDuration = 0.97
 
     override init() {
         super.init()
@@ -212,6 +214,7 @@ class AudioRecorder: NSObject, ObservableObject {
     func resumeRecording() {
         guard !isRecording, isPaused else { return }
 
+        resetMicWarmupMute()
         try? recordingEngine?.start()
         systemAudioTap?.resume()
 
@@ -250,9 +253,11 @@ class AudioRecorder: NSObject, ObservableObject {
             interleaved: format.isInterleaved
         )
         micFile = file
+        micWarmupFramesRemaining = AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak engine] buffer, _ in
             guard let self, let engine, self.recordingEngine === engine else { return }
+            self.applyMicWarmupMute(to: buffer)
             try? self.micFile?.write(from: buffer)
 
             guard let channelData = buffer.floatChannelData else { return }
@@ -289,7 +294,29 @@ class AudioRecorder: NSObject, ObservableObject {
         recordingEngine?.stop()
         recordingEngine = nil
         micFile = nil
+        micWarmupFramesRemaining = 0
         audioLevel = 0
+    }
+
+    private func resetMicWarmupMute() {
+        guard let format = recordingEngine?.inputNode.outputFormat(forBus: 0), format.sampleRate > 0 else {
+            micWarmupFramesRemaining = 0
+            return
+        }
+        micWarmupFramesRemaining = AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
+    }
+
+    private func applyMicWarmupMute(to buffer: AVAudioPCMBuffer) {
+        guard micWarmupFramesRemaining > 0, buffer.frameLength > 0 else { return }
+        let framesToMute = AVAudioFrameCount(min(micWarmupFramesRemaining, AVAudioFramePosition(buffer.frameLength)))
+
+        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
+            guard let data = audioBuffer.mData else { continue }
+            let bytesPerFrame = Int(audioBuffer.mDataByteSize) / Int(buffer.frameLength)
+            memset(data, 0, Int(framesToMute) * bytesPerFrame)
+        }
+
+        micWarmupFramesRemaining -= AVAudioFramePosition(framesToMute)
     }
 
     /// Redirects the engine's input to a specific device by AVCaptureDevice.uniqueID
@@ -794,7 +821,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
         if hasDurationDiscrepancy {
             logger.warning("Detected significant duration discrepancy between microphone and system audio: ratio = \(durationRatio)")
-            logger.warning("This may indicate different sample rates. Will attempt to correct during merging.")
+            logger.warning("Keeping each track at its own duration so a short track does not truncate the merge.")
         }
 
         // Get the format descriptions to check sample rates
@@ -840,20 +867,16 @@ class AudioRecorder: NSObject, ObservableObject {
             throw AudioRecorderError.recordingFailed
         }
 
-        // Insert both tracks over their common (shorter) duration. AVAssetExportSession
-        // mixes all audio tracks in the output, and clamping to the shorter length keeps a
-        // sample-rate/length mismatch from corrupting the export.
-        // ponytail: drops the old CMTimeMapping "speed adjustment" path — it was built then
-        // discarded (AVMutableCompositionTrack can't apply a time map), so it never did anything.
-        let commonDuration = min(microphoneDuration, systemAudioDuration)
-        let commonTimeRange = CMTimeRange(start: .zero, duration: commonDuration)
+        // Insert each source at its own duration. If system capture is short or fails timing,
+        // the merged recording should still preserve the full microphone track.
         do {
-            try compositionTrack1.insertTimeRange(commonTimeRange, of: microphoneTrack, at: .zero)
-            try compositionTrack2.insertTimeRange(commonTimeRange, of: systemAudioTrack, at: .zero)
+            try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration), of: microphoneTrack, at: .zero)
+            try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration), of: systemAudioTrack, at: .zero)
         } catch {
             logger.error("Failed to insert time ranges: \(error.localizedDescription)")
             throw AudioRecorderError.recordingFailed
         }
+        let outputDuration = max(microphoneDuration, systemAudioDuration)
 
         // Set audio mixing to ensure both tracks are audible
         let audioMix = AVMutableAudioMix()
@@ -867,9 +890,8 @@ class AudioRecorder: NSObject, ObservableObject {
         track2MixParameters.trackID = compositionTrack2.trackID
         track2MixParameters.setVolume(1.0, at: .zero)
 
-        // If there's a significant duration discrepancy, adjust the playback rate using audio processing tap
         if hasDurationDiscrepancy {
-            logger.info("Setting up audio mix parameters to handle duration discrepancy")
+            logger.info("Duration discrepancy detected; merged output duration will be \(outputDuration.seconds) seconds")
         }
 
         audioMix.inputParameters = [track1MixParameters, track2MixParameters]
@@ -887,7 +909,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
         logger.info("Exporting merged audio as AAC mono, sample rate \(self.mergedAudioSampleRate), bitrate \(self.mergedAudioBitRate)")
         debugLogger.log(
-            "Merge export started. micSize=\(microphoneFileSize) systemSize=\(systemAudioFileSize) duration=\(commonDuration.seconds) output=\(outputURL.lastPathComponent) settings=aac mono \(mergedAudioBitRate)bps \(Int(mergedAudioSampleRate))Hz",
+            "Merge export started. micSize=\(microphoneFileSize) systemSize=\(systemAudioFileSize) duration=\(outputDuration.seconds) output=\(outputURL.lastPathComponent) settings=aac mono \(mergedAudioBitRate)bps \(Int(mergedAudioSampleRate))Hz",
             area: .recordings,
             contextURL: outputURL
         )

@@ -1,24 +1,8 @@
 # Changelog
 
-## 1.3.5 — July 7, 2026
-
-- Fixed 1.3.4's fix — system audio recordings played back sped up and high-pitched. The aggregate device's clock was anchored to the user's *default* output device, which can be a Bluetooth headset that renegotiates a different/lower internal rate for simultaneous input+output; that variable rate corrupted the tap's effective timing. Anchored to the stable system-sounds output device instead (matches the reference Core Audio process-tap implementation).
-
-## 1.3.4 — July 7, 2026
-
-- Fixed system audio recording starting late (sometimes tens of seconds after the microphone), which threw off the merged recording's timing and truncated it to the shorter track. The system audio tap's aggregate device now anchors to the real default output device for its clock instead of relying on the tap alone, so it starts capturing immediately rather than waiting for audio playback to "wake up" the tap.
-
-## 1.3.3 — July 7, 2026
-
-- Fixed "Couldn't start recording" on mics with unusual sample rates (e.g. some voice-optimized USB/Bluetooth mics running at 16kHz) — the AAC encoder no longer gets a hardcoded bit rate that's invalid for the mic's actual format.
-
-## 1.3.2 — July 7, 2026
-
-- Reverted 1.3.1's Data Protection Keychain change — it requires an entitlement only available with a paid Apple Developer Team, which this unsigned build doesn't have, and broke saving API keys. API keys are stored in UserDefaults again.
-
 ## 1.3.1 — July 7, 2026
 
-- Fixed repeated macOS Keychain password prompts by storing API keys in the Data Protection Keychain instead of the legacy login keychain.
+- Muted the first 0.97 seconds of microphone input on recording start and resume to suppress the measured Bluetooth/input-device activation pop while preserving recording duration and sync.
 
 ## 1.3.0 — July 7, 2026
 
@@ -30,7 +14,6 @@
 ## 1.2.2 — July 7, 2026
 
 - Prepared the project for public open-source release with updated README and license files.
-- Moved API key storage from UserDefaults to the macOS Keychain.
 - Reduced release-time debug logging and tightened app entitlements.
 
 ## 1.2.1 — July 7, 2026
