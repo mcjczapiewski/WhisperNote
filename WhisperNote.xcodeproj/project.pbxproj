@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		BB01BB01BB01BB01BB01BB01 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */; };
+		CC01CC01CC01CC01CC01CC01 /* CHANGELOG.md in Resources */ = {isa = PBXBuildFile; fileRef = CD01CD01CD01CD01CD01CD01 /* CHANGELOG.md */; };
 		1A1A1A1A1A1A1A1A1A1A1A1A /* WhisperNoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A2A2A2A2A2A2A2A2A2A2A2A /* WhisperNoteApp.swift */; };
 		1B1B1B1B1B1B1B1B1B1B1B1B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2B2B2B2B2B2B2B2B2B2B2B /* ContentView.swift */; };
 		1C1C1C1C1C1C1C1C1C1C1C1C /* RecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2C2C2C2C2C2C2C2C2C2C2C /* RecordingView.swift */; };
@@ -31,6 +32,7 @@
 
 /* Begin PBXFileReference section */
 		AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		CD01CD01CD01CD01CD01CD01 /* CHANGELOG.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CHANGELOG.md; sourceTree = "<group>"; };
 		04391e39b44d41c58a6485d9 /* TextDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDocument.swift; sourceTree = "<group>"; };
 		0A0A0A0A0A0A0A0A0A0A0A0A /* WhisperNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WhisperNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A2A2A2A2A2A2A2A2A2A2A2A /* WhisperNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperNoteApp.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				9A9A9A9A9A9A9A9A9A9A9A9A /* WhisperNote */,
+				CD01CD01CD01CD01CD01CD01 /* CHANGELOG.md */,
 				8B8B8B8B8B8B8B8B8B8B8B8B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -170,6 +173,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB01BB01BB01BB01BB01BB01 /* AppIcon.icns in Resources */,
+				CC01CC01CC01CC01CC01CC01 /* CHANGELOG.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

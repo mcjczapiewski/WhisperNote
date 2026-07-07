@@ -196,8 +196,10 @@ class AudioRecorder: NSObject, ObservableObject {
     func pauseRecording() {
         guard isRecording, !isPaused else { return }
 
-        // Capture keeps running in the background (matches the old RecordKit behavior,
-        // which had no native pause) — only the displayed timer freezes.
+        // Actually stop capturing — the paused interval is not written to either file.
+        recordingEngine?.pause()
+        systemAudioTap?.pause()
+
         isRecording = false
         isPaused = true
 
@@ -209,6 +211,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
     func resumeRecording() {
         guard !isRecording, isPaused else { return }
+
+        try? recordingEngine?.start()
+        systemAudioTap?.resume()
 
         isRecording = true
         isPaused = false
