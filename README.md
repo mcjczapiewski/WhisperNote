@@ -5,11 +5,12 @@ WhisperNote is an open-source macOS app for recording, importing, transcribing, 
 ## What It Does
 
 - Record microphone and system audio on macOS.
+- Choose a microphone, pause and resume capture, and monitor live input level.
 - Import existing audio files, including multiple files grouped as one recording batch.
-- Transcribe recordings with ElevenLabs Speech-to-Text.
+- Transcribe recordings with ElevenLabs Speech-to-Text, including language selection and speaker diarization.
 - Generate summaries with OpenRouter language models.
 - Edit transcripts and summaries, including find and replace.
-- Export transcripts as `.txt` and summaries as `.txt` or `.md`.
+- Export transcripts as `.txt`; export summaries as `.txt` or `.md`; print summaries or save them as PDFs.
 - Save recordings, transcripts, and summaries locally by default.
 
 ## Requirements
@@ -26,7 +27,7 @@ WhisperNote does not ship with API access. Add your own keys in Settings:
 - ElevenLabs API key: used to upload selected audio for transcription.
 - OpenRouter API key: used to send transcript text for summary generation.
 
-API keys are stored in the macOS Keychain.
+API keys are stored locally in macOS app preferences and are only used when calling ElevenLabs or OpenRouter.
 
 ## Usage
 
@@ -40,7 +41,7 @@ Importing grouped recordings is useful for voice recorder files, lecture recordi
 
 ## Privacy
 
-Recordings, transcripts, summaries, and metadata are stored locally on your Mac by default. Audio is sent to ElevenLabs only when you start transcription. Transcript text is sent to OpenRouter only when you generate or enhance a summary.
+Recordings, transcripts, summaries, and metadata are stored locally on your Mac by default. Audio is sent to ElevenLabs only when you start transcription. Transcript text is sent to OpenRouter only when you generate, regenerate, retry, or enhance a summary prompt.
 
 ## Development
 

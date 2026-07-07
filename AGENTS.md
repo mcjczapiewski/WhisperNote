@@ -1,6 +1,6 @@
 # WhisperNote — Developer Reference
 
-Native macOS app for recording meetings (mic + system audio), transcribing via ElevenLabs, and summarizing via OpenRouter LLMs. No bots, no meeting invites required.
+Native macOS app for recording or importing spoken audio (mic + system audio), transcribing via ElevenLabs, and summarizing via OpenRouter LLMs. No bots, no meeting invites required.
 
 ---
 
@@ -20,22 +20,23 @@ swift run
 
 For every repository change, update the app patch version, update the changelog, commit the changes, and push them to GitHub. Version numbers use `major.minor.patch` format, for example `1.2.1`.
 
-Current app version source of truth: `MARKETING_VERSION` in `WhisperNote.xcodeproj/project.pbxproj`. Keep the fallback app version and in-app changelog in `SettingsView.swift` aligned with it.
+Current app version source of truth: `MARKETING_VERSION` in `WhisperNote.xcodeproj/project.pbxproj`. Keep the fallback app version in `SettingsView.swift` aligned with it. The in-app changelog loads the canonical root `CHANGELOG.md` bundled by the Xcode project.
 
 ---
 
 ## Architecture
 
-Four clean layers. Each layer owns its concerns; the UI layer consumes the others.
+Four clean layers plus small UI/storage helpers. Each layer owns its concerns; the UI layer consumes the others.
 
 | Layer       | Files                                                                                                                                      | Responsibility                                   |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| Audio       | `AudioRecorder.swift`, `SystemAudioCapture.swift`                                                                                          | Mic capture (AVAudioEngine) + system audio capture (Core Audio process tap), merge, audio-device helpers |
-| API clients | `TranscriptionManager.swift`, `SummaryManager.swift`                                                                                       | ElevenLabs STT, OpenRouter LLM                   |
-| Persistence | `DirectoryManager.swift`, `Models.swift`, `TextDocument.swift`                                                                             | JSON storage, file paths, export                 |
+| Audio       | `AudioRecorder.swift`, `SystemAudioCapture.swift`                                                                                          | Mic capture (AVAudioEngine) + system audio capture (Core Audio process tap), pause/resume, merge, import, audio-device helpers |
+| API clients | `TranscriptionManager.swift`, `SummaryManager.swift`                                                                                       | ElevenLabs STT, grouped transcription, OpenRouter summaries and prompt enhancement |
+| Persistence | `DirectoryManager.swift`, `Models.swift`, `TextDocument.swift`                                                                             | JSON storage, file paths, security-scoped folder bookmark, export documents |
 | UI          | `ContentView.swift`, `RecordingView.swift`, `TranscriptView.swift`, `SummaryView.swift`, `SettingsView.swift`, `AudioSetupGuideView.swift` | SwiftUI 4-tab interface                          |
+| Helpers     | `FinderHelper.swift`, `MarkdownTextRenderer.swift`, `ReadOnlyTranscriptTextView.swift`, `DebugLogger.swift`                                | Finder reveal actions, Markdown plain/print rendering, large transcript preview, local debug logs |
 
-**State management:** `AudioRecorder` is a `@StateObject` passed app-wide via `.environmentObject`. API managers are created per-view as `@StateObject`. Settings use `@AppStorage` (UserDefaults). All async work via `Task { }` + `await`.
+**State management:** `AudioRecorder` is a `@StateObject` passed app-wide via `.environmentObject`. `TranscriptionManager` and `SummaryManager` are `@StateObject`s owned by `ContentView` and passed to tabs via `.environmentObject`. Settings use `@AppStorage` (UserDefaults). All async work via `Task { }` + `await`.
 
 ---
 
@@ -56,14 +57,14 @@ taps, macOS 14.2+) — no third-party recording SDK, no distribution license req
 - `POST https://api.elevenlabs.io/v1/speech-to-text`
 - Model: `scribe_v2`, multipart/form-data upload
 - Supports: diarization (`diarize=true`), word timestamps, 80+ language codes
-- Timeout: 5 minutes (large file uploads)
-- Key stored in macOS Keychain via `KeychainStorage`.
+- Timeout: 1 hour request / 2 hour resource (large file uploads)
+- API key stored locally in `UserDefaults` via Settings `@AppStorage`.
 
 ### OpenRouter (Summarization)
 - `POST https://openrouter.ai/api/v1/chat/completions`
 - Default model: `openai/gpt-4o-mini`
 - Available models (see `Models.swift:llmModels`): DeepSeek v4 Flash, GPT-4o Mini, Gemini 3 Flash, GLM-5.2, Grok 4.3
-- Key stored in macOS Keychain via `KeychainStorage`.
+- API key stored locally in `UserDefaults` via Settings `@AppStorage`.
 
 ---
 
@@ -71,8 +72,9 @@ taps, macOS 14.2+) — no third-party recording SDK, no distribution license req
 
 Default base: `~/Documents/WhisperNote/Files/`  
 Structure: `Recordings/`, `Transcripts/`, `Summaries/`  
-Each recording gets a UUID directory: `mic_recording.m4a` + `system_recording.m4a` → merged `recording.m4a`  
-User can override directory in Settings (stored as security-scoped bookmark).
+Recorded sessions get a unique `recording_yyyyMMdd_HHmmss_UUID/` directory with `mic_recording.m4a` + `system_recording.m4a` merged into `recording.m4a`. Imported files get `import_yyyyMMdd_HHmmss_UUID/recording.<ext>` directories.  
+Transcripts are stored in `Transcripts/transcripts.json` plus compact ElevenLabs JSON archives with speaker segments. Summaries are stored in `Summaries/summaries.json`.  
+User can override the base directory in Settings (stored as a security-scoped bookmark).
 
 ---
 
@@ -93,9 +95,9 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 
 ---
 
-## Known Bugs
+## Known Issues To Verify
 
-- **Save-on-stop crash/error** — error thrown when stopping a recording; investigate the stop + audio merge flow in `AudioRecorder.swift` around the `stopRecording()` method and the AVAssetExportSession merge logic. The capture side of this flow was rewritten (Core Audio process tap + AVAudioEngine replacing RecordKit) — re-verify whether this still reproduces.
+- **Save-on-stop crash/error** — no current confirmed repro after the Core Audio process tap + AVAudioEngine rewrite. If it resurfaces, inspect `AudioRecorder.stopRecording()`, `mergeAudioFiles(...)`, and `exportMixedAudio(...)`. Current behavior stops capture before merge, falls back to microphone audio if system audio merge fails, and surfaces `lastError` to the UI.
 - **Grouped transcript retry lookup** — failed transcript retry can miss grouped recordings because it looks up a single `recordingId`; wire group retry only if needed.
 
 ---
@@ -111,17 +113,26 @@ These appear in the Xcode console but are OS/framework-level — no app code can
 
 **Complete:**
 - Mic + system audio recording with merge
-- Pause/resume (timer-simulated — capture keeps running in the background, only the UI freezes)
+- Pause/resume that stops capture so paused intervals are excluded from the saved recording
+- Single-file and grouped audio import
+- Microphone selection before recording
+- Live combined microphone/system-audio input meter
+- System audio permission warm-up on app launch
 - ElevenLabs transcription with speaker diarization
+- Transcription language selection
+- Grouped transcription into a single combined transcript
 - OpenRouter summaries with model selection and custom prompts
+- Prompt preview and prompt enhancement
 - Export transcripts (.txt) and summaries (.txt, .md)
 - Print / PDF export for summaries with Markdown rendering and configurable margins
 - Custom recording directory
+- Show in Finder actions for recordings, transcripts, and summaries
 - Find & Replace in transcripts
 - Editable summary text with Find & Replace
 - Markdown rendering in summaries
 - Retry failed summary generation
-- Keychain storage for API keys
+- In-app changelog loaded from `CHANGELOG.md`
+- Local API key storage via Settings `@AppStorage`
 
 **Not built (from PRD):**
 - Live (real-time) transcription
