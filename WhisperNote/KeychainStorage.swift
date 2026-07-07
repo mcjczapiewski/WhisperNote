@@ -81,7 +81,13 @@ enum KeychainStorage {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue
+            kSecAttrAccount as String: key.rawValue,
+            // ponytail: without this, macOS targets the legacy file-based login
+            // keychain, which prompts for the login password on every untrusted
+            // access — annoying on unsigned/ad-hoc dev builds whose signature
+            // changes every rebuild. Data Protection Keychain trusts by
+            // code-signing identity instead, so no interactive prompt.
+            kSecUseDataProtectionKeychain as String: true
         ]
     }
 }
