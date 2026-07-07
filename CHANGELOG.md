@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2 — July 7, 2026
+
+- Reverted 1.3.1's Data Protection Keychain change — it requires an entitlement only available with a paid Apple Developer Team, which this unsigned build doesn't have, and broke saving API keys. API keys are stored in UserDefaults again.
+
 ## 1.3.1 — July 7, 2026
 
 - Fixed repeated macOS Keychain password prompts by storing API keys in the Data Protection Keychain instead of the legacy login keychain.

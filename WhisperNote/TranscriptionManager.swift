@@ -7,7 +7,7 @@ class TranscriptionManager: ObservableObject {
 
     private let directoryManager = DirectoryManager.shared
     private let debugLogger = DebugLogger.shared
-    private var apiKey: String { KeychainStorage.string(for: .elevenLabsAPIKey) }
+    private var apiKey: String { UserDefaults.standard.string(forKey: "elevenlabsApiKey") ?? "" }
 
     init() {
         loadTranscripts()
