@@ -6,7 +6,8 @@ Users accept a one-time Gatekeeper warning on first launch instead.
 ## Prerequisites
 
 - Version updated in `MARKETING_VERSION` (`WhisperNote.xcodeproj/project.pbxproj`) and the
-  `SettingsView.swift` changelog.
+  fallback version in `SettingsView.swift`.
+- `CHANGELOG.md` updated. The packaged app bundles this same file for the in-app changelog.
 
 ## Build
 
