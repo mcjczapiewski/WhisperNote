@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import MarkdownUI
 
 struct SettingsView: View {
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
@@ -320,116 +321,29 @@ struct ChangelogView: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    ChangelogSection(
-                        version: "1.3.0",
-                        date: "July 7, 2026",
-                        changes: [
-                            "Replaced RecordKit with native Core Audio process taps and AVAudioEngine for mic/system audio capture — no more paid SDK license needed to distribute builds.",
-                            "Raised the minimum macOS version to 14.2 for Core Audio process tap support.",
-                            "Removed the Screen Recording permission requirement for system audio capture."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.2.2",
-                        date: "July 7, 2026",
-                        changes: [
-                            "Prepared the project for public open-source release with updated README and license files.",
-                            "Moved API key storage from UserDefaults to the macOS Keychain.",
-                            "Reduced release-time debug logging and tightened app entitlements."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.2.1",
-                        date: "July 7, 2026",
-                        changes: [
-                            "Added editable summary text in the Summaries tab, including find and replace support.",
-                            "Updated project agent instructions and added AGENTS.md."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.2",
-                        date: "July 1, 2026",
-                        changes: [
-                            "Added Show in Finder actions for recordings, transcripts, and summaries.",
-                            "Added a live microphone input level meter while recording.",
-                            "Improved summary text export so plain text exports remove Markdown markers while Markdown exports keep them.",
-                            "Improved Print / PDF summaries with formatted Markdown rendering and configurable margins.",
-                            "Kept summaries stored in summaries.json and removed individual summary files."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.1.1",
-                        date: "July 1, 2026",
-                        changes: [
-                            "Added prompt enhancement to the Regenerate Summary dialog in the Summaries tab."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.1",
-                        date: "July 1, 2026",
-                        changes: [
-                            "Added prompt preview before summary generation.",
-                            "Added editable summary prompts, so custom changes are used when generating a summary.",
-                            "Added prompt enhancement using the selected OpenRouter model.",
-                            "Renamed Meeting Type to Recording Type and made summary prompts work better for meetings, workshops, lectures, interviews, and other recordings.",
-                            "Improved large transcript viewing performance with a native macOS read-only text view.",
-                            "Changed transcript export so export files are prepared only when Export is clicked.",
-                            "Added compact transcript JSON archives and migration for older full ElevenLabs JSON response files.",
-                            "Removed a debug console message that printed saved transcript JSON file paths."
-                        ]
-                    )
-
-                    ChangelogSection(
-                        version: "1.0",
-                        date: "Initial release",
-                        changes: [
-                            "Record microphone and system audio.",
-                            "Transcribe recordings with ElevenLabs.",
-                            "Generate summaries with OpenRouter language models.",
-                            "Export transcripts and summaries.",
-                            "Choose a custom recordings directory.",
-                            "Find and replace transcript text."
-                        ]
-                    )
-                }
-                .padding()
+                Markdown(ChangelogLoader.load())
+                    .padding()
             }
         }
         .frame(width: 640, height: 560)
     }
 }
 
-private struct ChangelogSection: View {
-    let version: String
-    let date: String
-    let changes: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Version \(version)")
-                    .font(.headline)
-
-                Text(date)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(changes, id: \.self) { change in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("-")
-                        Text(change)
-                    }
-                }
-            }
-            .font(.body)
+/// Reads the single canonical CHANGELOG.md at the repo root — no separate in-app copy to keep in sync.
+enum ChangelogLoader {
+    static func load() -> String {
+        if let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+           let content = try? String(contentsOf: url, encoding: .utf8) {
+            return content
         }
+        // ponytail: `swift run` has no Bundle.main resources (repo-root files are outside the
+        // SPM target), so fall back to reading straight from the source checkout via this
+        // file's own compile-time path. Irrelevant for the packaged .app, which always hits
+        // the Bundle.main branch above.
+        let devURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // WhisperNote/
+            .deletingLastPathComponent() // repo root
+            .appendingPathComponent("CHANGELOG.md")
+        return (try? String(contentsOf: devURL, encoding: .utf8)) ?? "Changelog unavailable."
     }
 }

@@ -115,6 +115,18 @@ final class SystemAudioTap {
         guard status == noErr else { throw TapError.osStatus("starting aggregate device", status) }
     }
 
+    /// Stops hardware IO without tearing down the tap/aggregate device, so `resume()` can
+    /// pick back up on the same objects. No audio is captured while paused.
+    func pause() {
+        guard let procID = ioProcID else { return }
+        AudioDeviceStop(aggregateDeviceID, procID)
+    }
+
+    func resume() {
+        guard let procID = ioProcID else { return }
+        AudioDeviceStart(aggregateDeviceID, procID)
+    }
+
     func stop() {
         if let procID = ioProcID {
             AudioDeviceStop(aggregateDeviceID, procID)
