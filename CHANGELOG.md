@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 — July 7, 2026
+
+- Fixed repeated macOS Keychain password prompts by storing API keys in the Data Protection Keychain instead of the legacy login keychain.
+
 ## 1.3.0 — July 7, 2026
 
 - Replaced RecordKit with native Core Audio process taps and AVAudioEngine for mic/system audio capture — no more paid SDK license needed to distribute builds.
