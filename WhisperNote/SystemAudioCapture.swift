@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreAudio
+import os.log
 
 enum SystemAudioCapture {
     // Helper method to get a list of available audio devices
@@ -59,6 +60,8 @@ final class SystemAudioTap {
         }
     }
 
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "SystemAudioTap")
+
     private var tapID: AudioObjectID = kAudioObjectUnknown
     private var aggregateDeviceID: AudioObjectID = kAudioObjectUnknown
     private var ioProcID: AudioDeviceIOProcID?
@@ -94,6 +97,7 @@ final class SystemAudioTap {
         guard let format = Self.tapStreamFormat(tapID: tap) else {
             throw TapError.formatUnavailable
         }
+        Self.logger.info("System audio tap format: sampleRate=\(format.sampleRate) channels=\(format.channelCount) commonFormat=\(format.commonFormat.rawValue) interleaved=\(format.isInterleaved)")
 
         let file = try AVAudioFile(
             forWriting: outputURL,

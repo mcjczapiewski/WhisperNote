@@ -241,6 +241,7 @@ class AudioRecorder: NSObject, ObservableObject {
         guard format.channelCount > 0, format.sampleRate > 0 else {
             throw AudioRecorderError.recordingFailed
         }
+        logger.info("Mic capture format: sampleRate=\(format.sampleRate) channels=\(format.channelCount) commonFormat=\(format.commonFormat.rawValue) interleaved=\(format.isInterleaved)")
 
         let file = try AVAudioFile(
             forWriting: url,
