@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- ponytail: Core Audio process taps (system audio capture) are fragile/broken under
+         App Sandbox — no documented mach-lookup exception fixes it. We have no Mac App Store
+         target, so sandboxing buys nothing here; disabled to keep recording working. -->
     <key>com.apple.security.app-sandbox</key>
-    <true/>
+    <false/>
     <key>com.apple.security.device.audio-input</key>
     <true/>
     <key>com.apple.security.network.client</key>
