@@ -66,6 +66,12 @@ final class SystemAudioTap {
     private var aggregateDeviceID: AudioObjectID = kAudioObjectUnknown
     private var ioProcID: AudioDeviceIOProcID?
     private var audioFile: AVAudioFile?
+    private var captureFormat: AVAudioFormat?
+    private var captureSampleRate: Double = 0
+    private var segmentStartUptime: TimeInterval = 0
+    private var segmentStartFrame: AVAudioFramePosition = 0
+    private var writtenFrameCount: AVAudioFramePosition = 0
+    private var capturedAudioFrameCount: AVAudioFramePosition = 0
 
     func start(outputURL: URL) throws {
         let excludedProcesses = Self.ownProcessObjectID().map { [$0] } ?? []
@@ -78,29 +84,22 @@ final class SystemAudioTap {
         guard status == noErr else { throw TapError.osStatus("creating tap", status) }
         tapID = tap
 
-        // ponytail: a tap-only aggregate device has no hardware clock of its own, so Core
-        // Audio only pumps its IO proc once a tapped process is actually emitting audio —
-        // recording silently starts late (reproduced: system audio only began once a YouTube
-        // video started playing, well after the mic track). Anchoring the aggregate device to
-        // a real device as its main subdevice gives it a continuously running clock from the
-        // moment it starts. Must be the *system* output device (kAudioHardwarePropertyDefault-
-        // SystemOutputDevice), not the user's current default output — the latter follows
-        // whatever output the user has selected, including Bluetooth headsets that renegotiate
-        // a different/lower internal rate for simultaneous input+output (HFP mode), which broke
-        // the aggregate's effective clock rate and sped up/pitched up the whole recording. The
-        // system output device is stable and macOS keeps it off Bluetooth voice profiles.
-        // Matches the known-good reference implementation in insidegui/AudioCap.
-        let outputUID = try Self.systemOutputDeviceUID()
+        // A tap-only aggregate device has no hardware clock of its own, so Core Audio can start
+        // pumping late. Use a stable physical output for timing, but avoid Bluetooth/HFP devices:
+        // they can report a 48kHz tap while the aggregate is effectively clocked much slower,
+        // producing sped-up, high-pitched files.
+        let clockDevice = try Self.stableOutputClockDevice()
+        Self.logger.info("System audio aggregate clock: name=\(clockDevice.name, privacy: .public) uid=\(clockDevice.uid, privacy: .public) sampleRate=\(clockDevice.sampleRate) transport=\(clockDevice.transportType)")
 
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "WhisperNote System Audio",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceMainSubDeviceKey: clockDevice.uid,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [
-                [kAudioSubDeviceUIDKey: outputUID]
+                [kAudioSubDeviceUIDKey: clockDevice.uid]
             ],
             kAudioAggregateDeviceTapListKey: [
                 [kAudioSubTapUIDKey: tapDescription.uuid.uuidString,
@@ -117,6 +116,12 @@ final class SystemAudioTap {
             throw TapError.formatUnavailable
         }
         Self.logger.info("System audio tap format: sampleRate=\(format.sampleRate) channels=\(format.channelCount) commonFormat=\(format.commonFormat.rawValue) interleaved=\(format.isInterleaved)")
+        captureFormat = format
+        captureSampleRate = format.sampleRate
+        segmentStartUptime = ProcessInfo.processInfo.systemUptime
+        segmentStartFrame = 0
+        writtenFrameCount = 0
+        capturedAudioFrameCount = 0
 
         let file = try AVAudioFile(
             forWriting: outputURL,
@@ -129,6 +134,9 @@ final class SystemAudioTap {
         var procID: AudioDeviceIOProcID?
         status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, nil) { [weak self] _, inputData, _, _, _ in
             guard let self, let buffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inputData) else { return }
+            self.padSilenceBefore(bufferFrameLength: buffer.frameLength)
+            self.capturedAudioFrameCount += AVAudioFramePosition(buffer.frameLength)
+            self.writtenFrameCount += AVAudioFramePosition(buffer.frameLength)
             try? self.audioFile?.write(from: buffer)
         }
         guard status == noErr, let procID else { throw TapError.osStatus("creating IO proc", status) }
@@ -142,17 +150,23 @@ final class SystemAudioTap {
     /// pick back up on the same objects. No audio is captured while paused.
     func pause() {
         guard let procID = ioProcID else { return }
+        let targetFrame = currentTimelineFrame()
         AudioDeviceStop(aggregateDeviceID, procID)
+        padSilence(toFrame: targetFrame)
     }
 
     func resume() {
         guard let procID = ioProcID else { return }
+        segmentStartUptime = ProcessInfo.processInfo.systemUptime
+        segmentStartFrame = writtenFrameCount
         AudioDeviceStart(aggregateDeviceID, procID)
     }
 
     func stop() {
         if let procID = ioProcID {
+            let targetFrame = currentTimelineFrame()
             AudioDeviceStop(aggregateDeviceID, procID)
+            padSilence(toFrame: targetFrame)
             AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
             ioProcID = nil
         }
@@ -164,7 +178,66 @@ final class SystemAudioTap {
             AudioHardwareDestroyProcessTap(tapID)
             tapID = kAudioObjectUnknown
         }
+        if captureSampleRate > 0 {
+            let writtenDuration = Double(writtenFrameCount) / captureSampleRate
+            let capturedAudioDuration = Double(capturedAudioFrameCount) / captureSampleRate
+            Self.logger.info("System audio capture stopped: writtenFrames=\(self.writtenFrameCount) audioFrames=\(self.capturedAudioFrameCount) sampleRate=\(self.captureSampleRate) writtenDuration=\(writtenDuration) audioDuration=\(capturedAudioDuration)")
+        }
+        captureFormat = nil
+        captureSampleRate = 0
+        segmentStartUptime = 0
+        segmentStartFrame = 0
+        writtenFrameCount = 0
+        capturedAudioFrameCount = 0
         audioFile = nil
+    }
+
+    private func padSilenceBefore(bufferFrameLength: AVAudioFrameCount) {
+        guard captureSampleRate > 0 else { return }
+        let elapsedFrames = AVAudioFramePosition((ProcessInfo.processInfo.systemUptime - segmentStartUptime) * captureSampleRate)
+        let bufferFrames = AVAudioFramePosition(bufferFrameLength)
+        let bufferStartFrame = max(segmentStartFrame, segmentStartFrame + elapsedFrames - bufferFrames)
+        padSilence(toFrame: bufferStartFrame)
+    }
+
+    private func padSilenceToCurrentTimeline() {
+        padSilence(toFrame: currentTimelineFrame())
+    }
+
+    private func currentTimelineFrame() -> AVAudioFramePosition {
+        guard captureSampleRate > 0 else { return writtenFrameCount }
+        let elapsedFrames = AVAudioFramePosition((ProcessInfo.processInfo.systemUptime - segmentStartUptime) * captureSampleRate)
+        return segmentStartFrame + elapsedFrames
+    }
+
+    private func padSilence(toFrame targetFrame: AVAudioFramePosition) {
+        guard let format = captureFormat, targetFrame > writtenFrameCount else { return }
+
+        var remainingFrames = targetFrame - writtenFrameCount
+        if writtenFrameCount == 0 {
+            Self.logger.info("System audio first data offset: insertedSilenceFrames=\(remainingFrames) sampleRate=\(self.captureSampleRate) offset=\(Double(remainingFrames) / self.captureSampleRate)")
+        }
+
+        while remainingFrames > 0 {
+            let frameCount = AVAudioFrameCount(min(remainingFrames, 8192))
+            guard let silentBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
+            silentBuffer.frameLength = frameCount
+
+            for buffer in UnsafeMutableAudioBufferListPointer(silentBuffer.mutableAudioBufferList) {
+                if let data = buffer.mData {
+                    memset(data, 0, Int(buffer.mDataByteSize))
+                }
+            }
+
+            do {
+                try audioFile?.write(from: silentBuffer)
+                writtenFrameCount += AVAudioFramePosition(frameCount)
+                remainingFrames -= AVAudioFramePosition(frameCount)
+            } catch {
+                Self.logger.error("Failed to write system-audio timeline silence: \(error.localizedDescription)")
+                return
+            }
+        }
     }
 
     /// AAC-in-.m4a settings for a PCM source of the given sample rate/channel count.
@@ -216,11 +289,28 @@ final class SystemAudioTap {
         return nil
     }
 
-    /// UID of the stable system-sounds output device, used to give the tap's aggregate device
-    /// a real hardware clock (see comment at the call site in `start(outputURL:)`). Deliberately
-    /// not the user's default output device, which can be a Bluetooth device running at a
-    /// different/unstable rate.
-    private static func systemOutputDeviceUID() throws -> String {
+    private struct ClockDevice {
+        let uid: String
+        let name: String
+        let transportType: UInt32
+        let sampleRate: Double
+        let outputChannelCount: UInt32
+    }
+
+    /// Chooses a hardware clock for the aggregate device. Prefer built-in output even when the
+    /// user listens on Bluetooth; the subdevice is only a timing source for the tap.
+    private static func stableOutputClockDevice() throws -> ClockDevice {
+        let devices = allClockDevices().filter { $0.outputChannelCount > 0 }
+        if let builtIn = devices.first(where: { $0.transportType == kAudioDeviceTransportTypeBuiltIn }) {
+            return builtIn
+        }
+        if let nonBluetooth = devices.first(where: { !isBluetoothTransport($0.transportType) }) {
+            return nonBluetooth
+        }
+        return try defaultSystemOutputDevice()
+    }
+
+    private static func defaultSystemOutputDevice() throws -> ClockDevice {
         var deviceID: AudioDeviceID = kAudioObjectUnknown
         var deviceAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
@@ -228,21 +318,116 @@ final class SystemAudioTap {
             mElement: kAudioObjectPropertyElementMain
         )
         var deviceSize = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &deviceAddress, 0, nil, &deviceSize, &deviceID)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &deviceAddress, 0, nil, &deviceSize, &deviceID)
         guard status == noErr else { throw TapError.osStatus("getting default output device", status) }
 
-        var uidAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
+        guard let device = clockDevice(for: deviceID) else {
+            throw TapError.formatUnavailable
+        }
+        return device
+    }
+
+    private static func allClockDevices() -> [ClockDevice] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var uid: CFString = "" as CFString
-        var uidSize = UInt32(MemoryLayout<CFString?>.size)
-        status = withUnsafeMutablePointer(to: &uid) { ptr -> OSStatus in
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, ptr)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else {
+            return []
         }
-        guard status == noErr else { throw TapError.osStatus("getting default output device UID", status) }
-        return uid as String
+
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDs) == noErr else {
+            return []
+        }
+
+        return deviceIDs.compactMap(clockDevice(for:))
+    }
+
+    private static func clockDevice(for deviceID: AudioDeviceID) -> ClockDevice? {
+        guard let uid = stringProperty(deviceID: deviceID, selector: kAudioDevicePropertyDeviceUID) else {
+            return nil
+        }
+
+        return ClockDevice(
+            uid: uid,
+            name: stringProperty(deviceID: deviceID, selector: kAudioObjectPropertyName) ?? "Unknown Audio Device",
+            transportType: uint32Property(deviceID: deviceID, selector: kAudioDevicePropertyTransportType) ?? 0,
+            sampleRate: doubleProperty(deviceID: deviceID, selector: kAudioDevicePropertyNominalSampleRate) ?? 0,
+            outputChannelCount: outputChannelCount(for: deviceID)
+        )
+    }
+
+    private static func stringProperty(deviceID: AudioDeviceID, selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var value: CFString = "" as CFString
+        var uidSize = UInt32(MemoryLayout<CFString?>.size)
+        let status = withUnsafeMutablePointer(to: &value) { ptr -> OSStatus in
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &uidSize, ptr)
+        }
+        guard status == noErr else { return nil }
+        return value as String
+    }
+
+    private static func uint32Property(deviceID: AudioDeviceID, selector: AudioObjectPropertySelector) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
+        guard status == noErr else { return nil }
+        return value
+    }
+
+    private static func doubleProperty(deviceID: AudioDeviceID, selector: AudioObjectPropertySelector) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Double = 0
+        var size = UInt32(MemoryLayout<Double>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
+        guard status == noErr else { return nil }
+        return value
+    }
+
+    private static func outputChannelCount(for deviceID: AudioDeviceID) -> UInt32 {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr, size > 0 else {
+            return 0
+        }
+
+        let rawPointer = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { rawPointer.deallocate() }
+
+        let bufferList = rawPointer.bindMemory(to: AudioBufferList.self, capacity: 1)
+        var mutableSize = size
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &mutableSize, bufferList) == noErr else {
+            return 0
+        }
+
+        return UnsafeMutableAudioBufferListPointer(bufferList).reduce(0) { $0 + $1.mNumberChannels }
+    }
+
+    private static func isBluetoothTransport(_ transportType: UInt32) -> Bool {
+        transportType == kAudioDeviceTransportTypeBluetooth
     }
 
     private static func tapStreamFormat(tapID: AudioObjectID) -> AVAudioFormat? {
