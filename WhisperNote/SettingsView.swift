@@ -272,7 +272,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.1"
     }
 }
 
@@ -299,6 +299,15 @@ struct ChangelogView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    ChangelogSection(
+                        version: "1.2.1",
+                        date: "July 7, 2026",
+                        changes: [
+                            "Added editable summary text in the Summaries tab, including find and replace support.",
+                            "Updated project agent instructions and added AGENTS.md."
+                        ]
+                    )
+
                     ChangelogSection(
                         version: "1.2",
                         date: "July 1, 2026",

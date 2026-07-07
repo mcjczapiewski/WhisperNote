@@ -254,6 +254,14 @@ class SummaryManager: ObservableObject {
         }
     }
 
+    // Update summary content
+    func updateSummaryContent(id: UUID, newContent: String) {
+        if let index = summaries.firstIndex(where: { $0.id == id }) {
+            summaries[index].content = newContent
+            saveSummaries()
+        }
+    }
+
     // Public method to reload summaries from disk
     func reloadSummaries() {
         loadSummaries()

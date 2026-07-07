@@ -17,6 +17,11 @@ struct SummaryView: View {
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
+    @State private var isEditingSummary = false
+    @State private var editedSummaryContent = ""
+    @State private var showingFindReplaceDialog = false
+    @State private var findText = ""
+    @State private var replaceText = ""
     // Define the export format separately to avoid complex expressions
     @State private var exportFormat: UTType = .plainText
 
@@ -40,6 +45,9 @@ struct SummaryView: View {
                     showingDeleteConfirmation: $showingDeleteConfirmation,
                     isShowingExportOptions: $isShowingExportOptions,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
+                    isEditingSummary: $isEditingSummary,
+                    editedSummaryContent: $editedSummaryContent,
+                    showingFindReplaceDialog: $showingFindReplaceDialog,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog
                 )
@@ -49,6 +57,12 @@ struct SummaryView: View {
         .onAppear {
             // Set the markdown format on appear to avoid complex expression in property initialization
             exportFormat = TextDocument.markdownUTType
+        }
+        .onChange(of: selectedSummary?.id) { _ in
+            isEditingSummary = false
+            editedSummaryContent = ""
+            findText = ""
+            replaceText = ""
         }
         .alert(isPresented: $showingError) {
             Alert(
@@ -116,6 +130,14 @@ struct SummaryView: View {
                 summaryManager: summaryManager
             )
         }
+        .sheet(isPresented: $showingFindReplaceDialog) {
+            FindReplaceView(
+                findText: $findText,
+                replaceText: $replaceText,
+                editedContent: $editedSummaryContent,
+                showingFindReplaceDialog: $showingFindReplaceDialog
+            )
+        }
     }
 }
 
@@ -149,6 +171,9 @@ struct MainContentView: View {
     @Binding var showingDeleteConfirmation: Bool
     @Binding var isShowingExportOptions: Bool
     @Binding var showingSummaryParamsDialog: Bool
+    @Binding var isEditingSummary: Bool
+    @Binding var editedSummaryContent: String
+    @Binding var showingFindReplaceDialog: Bool
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
 
@@ -172,6 +197,9 @@ struct MainContentView: View {
                     summaryManager: summaryManager,
                     isShowingExportOptions: $isShowingExportOptions,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
+                    isEditingSummary: $isEditingSummary,
+                    editedSummaryContent: $editedSummaryContent,
+                    showingFindReplaceDialog: $showingFindReplaceDialog,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog,
                     selectedSummaryBinding: $selectedSummary
@@ -377,6 +405,9 @@ struct SummaryDetailView: View {
     @ObservedObject var summaryManager: SummaryManager
     @Binding var isShowingExportOptions: Bool
     @Binding var showingSummaryParamsDialog: Bool
+    @Binding var isEditingSummary: Bool
+    @Binding var editedSummaryContent: String
+    @Binding var showingFindReplaceDialog: Bool
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
     @Binding var selectedSummaryBinding: Summary?
@@ -433,6 +464,20 @@ struct SummaryDetailView: View {
                 }
                 .disabled(selectedSummary.status != .completed)
 
+                Button(action: {
+                    if !isEditingSummary {
+                        editedSummaryContent = selectedSummary.content
+                        isEditingSummary = true
+                    } else {
+                        summaryManager.updateSummaryContent(id: selectedSummary.id, newContent: editedSummaryContent)
+                        selectedSummaryBinding = summaryManager.summaries.first(where: { $0.id == selectedSummary.id })
+                        isEditingSummary = false
+                    }
+                }) {
+                    Label(isEditingSummary ? "Save" : "Edit", systemImage: isEditingSummary ? "checkmark" : "pencil")
+                }
+                .disabled(selectedSummary.status != .completed)
+
 Button(action: {
     // Store the current summary ID
     let currentSummaryId = selectedSummary.id
@@ -470,15 +515,35 @@ Button(action: {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if selectedSummary.status == .completed {
-                ScrollView {
-                    // Wrap the Markdown view in a VStack with a fixed width to avoid layout issues
+                if isEditingSummary {
                     VStack {
-                        Markdown(selectedSummary.content)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button(action: {
+                                showingFindReplaceDialog = true
+                            }) {
+                                Label("Find & Replace", systemImage: "magnifyingglass")
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+
+                        TextEditor(text: $editedSummaryContent)
+                            .font(.body)
+                            .padding()
+                            .border(Color.gray.opacity(0.2))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
+                } else {
+                    ScrollView {
+                        // Wrap the Markdown view in a VStack with a fixed width to avoid layout issues
+                        VStack {
+                            Markdown(selectedSummary.content)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
                 }
             } else if selectedSummary.status == .failed {
                 VStack {
