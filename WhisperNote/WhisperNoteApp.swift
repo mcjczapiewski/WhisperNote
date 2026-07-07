@@ -5,8 +5,6 @@ struct WhisperNoteApp: App {
     @StateObject private var audioRecorder = AudioRecorder()
 
     init() {
-        KeychainStorage.migrateLegacyAPIKeysFromUserDefaults()
-
         // Migrate stale defaultLLMModel stored value to a valid model id.
         // ponytail: one-time migration, no abstraction needed
         let key = "defaultLLMModel"

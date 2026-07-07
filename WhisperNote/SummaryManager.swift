@@ -8,7 +8,7 @@ class SummaryManager: ObservableObject {
 
     private let directoryManager = DirectoryManager.shared
     private let debugLogger = DebugLogger.shared
-    private var apiKey: String { KeychainStorage.string(for: .openRouterAPIKey) }
+    private var apiKey: String { UserDefaults.standard.string(forKey: "openrouterApiKey") ?? "" }
 
     init() {
         loadSummaries()

@@ -22,7 +22,6 @@
 		3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */; };
 		3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */; };
 		5B5B5B5B5B5B5B5B5B5B5B5B /* DebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */; };
-		6E6E6E6E6E6E6E6E6E6E6E6E /* KeychainStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6F6F6F6F6F6F6F6F6F6F6F /* KeychainStorage.swift */; };
 		E1E1E1E1E1E1E1E1E1E1E1E1 /* ReadOnlyTranscriptTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E2E2E2E2E2E2E2E2E2E2E2 /* ReadOnlyTranscriptTextView.swift */; };
 		A1B2C3D4E5F6012345678901 /* FinderHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678902 /* FinderHelper.swift */; };
 		A1B2C3D4E5F6012345678903 /* MarkdownTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */; };
@@ -48,7 +47,6 @@
 		4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioCapture.swift; sourceTree = "<group>"; };
 		4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryManager.swift; sourceTree = "<group>"; };
 		5A5A5A5A5A5A5A5A5A5A5A5A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		6F6F6F6F6F6F6F6F6F6F6F6F /* KeychainStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStorage.swift; sourceTree = "<group>"; };
 		E2E2E2E2E2E2E2E2E2E2E2E2 /* ReadOnlyTranscriptTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadOnlyTranscriptTextView.swift; sourceTree = "<group>"; };
 		D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogger.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6012345678902 /* FinderHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderHelper.swift; sourceTree = "<group>"; };
@@ -98,7 +96,6 @@
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
-				6F6F6F6F6F6F6F6F6F6F6F6F /* KeychainStorage.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
 				A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */,
 				D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */,
@@ -196,7 +193,6 @@
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
 				3F3F3F3F3F3F3F3F3F3F3F3F /* DirectoryManager.swift in Sources */,
-				6E6E6E6E6E6E6E6E6E6E6E6E /* KeychainStorage.swift in Sources */,
 				A1B2C3D4E5F6012345678901 /* FinderHelper.swift in Sources */,
 				A1B2C3D4E5F6012345678903 /* MarkdownTextRenderer.swift in Sources */,
 				5B5B5B5B5B5B5B5B5B5B5B5B /* DebugLogger.swift in Sources */,
@@ -350,7 +346,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -383,7 +379,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

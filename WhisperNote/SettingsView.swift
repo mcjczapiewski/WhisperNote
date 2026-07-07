@@ -6,9 +6,9 @@ struct SettingsView: View {
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
+    @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
+    @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
 
-    @State private var elevenlabsApiKey = ""
-    @State private var openrouterApiKey = ""
     @State private var isShowingDirectoryPicker = false
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
     @State private var showAlert = false
@@ -270,32 +270,10 @@ struct SettingsView: View {
         .sheet(isPresented: $isShowingChangelog) {
             ChangelogView()
         }
-        .onAppear(perform: loadAPIKeys)
-        .onChange(of: elevenlabsApiKey) { value in
-            saveAPIKey(value, for: .elevenLabsAPIKey)
-        }
-        .onChange(of: openrouterApiKey) { value in
-            saveAPIKey(value, for: .openRouterAPIKey)
-        }
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.1"
-    }
-
-    private func loadAPIKeys() {
-        KeychainStorage.migrateLegacyAPIKeysFromUserDefaults()
-        elevenlabsApiKey = KeychainStorage.string(for: .elevenLabsAPIKey)
-        openrouterApiKey = KeychainStorage.string(for: .openRouterAPIKey)
-    }
-
-    private func saveAPIKey(_ value: String, for key: KeychainStorage.Key) {
-        do {
-            try KeychainStorage.set(value, for: key)
-        } catch {
-            alertMessage = error.localizedDescription
-            showAlert = true
-        }
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.2"
     }
 }
 
