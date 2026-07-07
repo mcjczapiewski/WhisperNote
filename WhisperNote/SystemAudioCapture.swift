@@ -78,11 +78,24 @@ final class SystemAudioTap {
         guard status == noErr else { throw TapError.osStatus("creating tap", status) }
         tapID = tap
 
+        // ponytail: a tap-only aggregate device has no hardware clock of its own, so Core
+        // Audio only pumps its IO proc once a tapped process is actually emitting audio —
+        // recording silently starts late (reproduced: system audio only began once a YouTube
+        // video started playing, well after the mic track). Anchoring the aggregate device to
+        // the real default output device as its main subdevice gives it a continuously running
+        // clock from the moment it starts. The subdevice is never selected as system output, so
+        // this doesn't route or duplicate any audio — it's purely a timing source.
+        let outputUID = try Self.defaultOutputDeviceUID()
+
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "WhisperNote System Audio",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
+            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceSubDeviceListKey: [
+                [kAudioSubDeviceUIDKey: outputUID]
+            ],
             kAudioAggregateDeviceTapListKey: [
                 [kAudioSubTapUIDKey: tapDescription.uuid.uuidString,
                  kAudioSubTapDriftCompensationKey: true]
@@ -195,6 +208,33 @@ final class SystemAudioTap {
             if pid == myPID { return processID }
         }
         return nil
+    }
+
+    /// UID of the system's current default output device, used to give the tap's aggregate
+    /// device a real hardware clock (see comment at the call site in `start(outputURL:)`).
+    private static func defaultOutputDeviceUID() throws -> String {
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var deviceAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &deviceAddress, 0, nil, &deviceSize, &deviceID)
+        guard status == noErr else { throw TapError.osStatus("getting default output device", status) }
+
+        var uidAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uid: CFString = "" as CFString
+        var uidSize = UInt32(MemoryLayout<CFString?>.size)
+        status = withUnsafeMutablePointer(to: &uid) { ptr -> OSStatus in
+            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, ptr)
+        }
+        guard status == noErr else { throw TapError.osStatus("getting default output device UID", status) }
+        return uid as String
     }
 
     private static func tapStreamFormat(tapID: AudioObjectID) -> AVAudioFormat? {
