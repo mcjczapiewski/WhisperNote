@@ -1,6 +1,12 @@
-# WhisperNote
+<div align="center">
+  <img width="100" height="100" alt="AppIcon" src="https://github.com/user-attachments/assets/6fb84144-73ea-477c-b4f6-65956f8cbee8" />
 
-WhisperNote is an open-source macOS app for recording, importing, transcribing, and summarizing spoken audio. It is built for macOS users who want a local-first workflow similar to Granola or MacWhisper, without adding meeting bots or inviting third-party assistants to calls.
+  # WhisperNote
+
+  WhisperNote is an open-source macOS app for recording, importing, transcribing, and summarizing spoken audio. It is built for macOS users who want a local-first workflow similar to Granola or MacWhisper, without adding meeting bots or inviting third-party assistants to calls.
+
+  <img width="912" height="867" alt="app-main-tab" src="https://github.com/user-attachments/assets/4dcd9e2e-7a8b-4fb2-85e1-1d1b28a54229" />
+</div>
 
 ## What It Does
 
