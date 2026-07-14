@@ -134,6 +134,12 @@ struct RecordingView: View {
                 .fontWeight(.bold)
                 .padding(.bottom, 20)
 
+            if !audioRecorder.recoverableSessions.isEmpty || !audioRecorder.corruptRecordingBundles.isEmpty {
+                recoveryPanel
+                    .padding(.horizontal)
+                    .padding(.bottom, 12)
+            }
+
             if let currentRecording = audioRecorder.currentRecording {
                 Text("Recording: \(currentRecording.name)")
                     .font(.headline)
@@ -161,10 +167,17 @@ struct RecordingView: View {
 
                 HStack(spacing: 30) {
                     Button(action: {
-                        if audioRecorder.isRecording {
-                            audioRecorder.pauseRecording()
-                        } else {
-                            audioRecorder.resumeRecording()
+                        Task {
+                            if audioRecorder.isRecording {
+                                await audioRecorder.pauseRecording()
+                            } else {
+                                do {
+                                    try await audioRecorder.resumeRecording()
+                                } catch {
+                                    alertMessage = "Couldn't resume recording: \(error.localizedDescription)"
+                                    showingAlert = true
+                                }
+                            }
                         }
                     }) {
                         Image(systemName: audioRecorder.isRecording ? "pause.circle.fill" : "play.circle.fill")
@@ -175,7 +188,9 @@ struct RecordingView: View {
                     .buttonStyle(PlainButtonStyle())
 
                     Button(action: {
-                        audioRecorder.stopRecording()
+                        Task {
+                            _ = await audioRecorder.stopRecording()
+                        }
                     }) {
                         Image(systemName: "stop.circle.fill")
                             .resizable()
@@ -183,6 +198,7 @@ struct RecordingView: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .disabled(audioRecorder.isStoppingRecording)
                 }
                 .padding()
             } else {
@@ -313,6 +329,7 @@ struct RecordingView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                     .padding(.top, 20)
+                    .disabled(!audioRecorder.isInitialRecoveryComplete)
 
                     Button(action: { showingImporter = true }) {
                         Label("Import Audio File(s)", systemImage: "square.and.arrow.down")
@@ -474,121 +491,14 @@ struct RecordingView: View {
                     .keyboardShortcut(.cancelAction)
 
                     Button("Start Recording") {
-                        if !recordingName.isEmpty {
-                            // Check if Bluetooth headphones are connected and warn the user
-                            if SystemAudioCapture.isBluetoothHeadphonesConnected() {
-                                // We'll still proceed, but show a warning first
-                                audioWarningMessage = "Bluetooth headphones detected. Audio quality may be affected.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
-                                showingAudioWarning = true
-
-                                // Proceed with recording
-                                do {
-                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
-                                    showingNamePrompt = false
-                                    recordingName = ""
-                                } catch let error as AudioRecorderError {
-                                    // Handle our custom error types
-                                    switch error {
-                                    case .permissionDenied:
-                                        // Check all permissions again
-                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                        alertMessage = """
-                                        Permission error
-
-                                        Current permission status:
-                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
-                                        """
-                                    case .directoryError:
-                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
-                                    case .recordingFailed:
-                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
-                                    default:
-                                        alertMessage = error.localizedDescription
-                                    }
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                } catch {
-                                    // Handle other errors with more detailed information
-                                    print("Recording error: \(error.localizedDescription)")
-
-                                    // Check permissions to provide more context
-                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                    alertMessage = """
-                                    Recording error: \(error.localizedDescription)
-
-                                    Current permission status:
-                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                    Please check your system settings and try again.
-                                    """
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                }
-                            } else {
-                                // No Bluetooth headphones, proceed normally
-                                do {
-                                    try audioRecorder.startRecording(name: recordingName, microphoneId: selectedMicrophoneId)
-                                    showingNamePrompt = false
-                                    recordingName = ""
-                                } catch let error as AudioRecorderError {
-                                    // Handle our custom error types
-                                    switch error {
-                                    case .permissionDenied:
-                                        // Check all permissions again
-                                        let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                        let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                        alertMessage = """
-                                        Permission error
-
-                                        Current permission status:
-                                        Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                        System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                        Please enable all permissions in System Settings > Privacy & Security, then restart the app.
-                                        """
-                                    case .directoryError:
-                                        alertMessage = "There was an issue with the recording directory. Please try again with a different recording name."
-                                    case .recordingFailed:
-                                        alertMessage = "Failed to start recording. Please check your audio setup and try again."
-                                    default:
-                                        alertMessage = error.localizedDescription
-                                    }
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                } catch {
-                                    // Handle other errors with more detailed information
-                                    print("Recording error: \(error.localizedDescription)")
-
-                                    // Check permissions to provide more context
-                                    let hasMicPermission = audioRecorder.hasMicrophonePermission()
-                                    let hasSystemAudioPermission = audioRecorder.hasSystemAudioPermission()
-
-                                    alertMessage = """
-                                    Recording error: \(error.localizedDescription)
-
-                                    Current permission status:
-                                    Microphone: \(hasMicPermission ? "✓ Granted" : "❌ Missing")
-                                    System Audio: \(hasSystemAudioPermission ? "✓ Granted" : "❌ Missing")
-
-                                    Please check your system settings and try again.
-                                    """
-                                    showingAlert = true
-                                    showingNamePrompt = false
-                                }
-                            }
-                        }
+                        beginRecording()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(recordingName.isEmpty)
+                    .disabled(
+                        recordingName.isEmpty ||
+                        audioRecorder.isStartingRecording ||
+                        !audioRecorder.isInitialRecoveryComplete
+                    )
                 }
                 .padding()
             }
@@ -601,8 +511,9 @@ struct RecordingView: View {
             }
             Button("Delete", role: .destructive) {
                 if let recording = recordingToDelete {
-                    // Delete the recording
-                    audioRecorder.deleteRecording(id: recording.id)
+                    Task {
+                        await audioRecorder.deleteRecording(id: recording.id)
+                    }
                     recordingToDelete = nil
                 }
             }
@@ -742,7 +653,9 @@ struct RecordingView: View {
             }
             Button("Delete", role: .destructive) {
                 if let gid = groupToDelete {
-                    audioRecorder.deleteGroup(groupId: gid)
+                    Task {
+                        await audioRecorder.deleteGroup(groupId: gid)
+                    }
                     groupToDelete = nil
                 }
             }
@@ -839,6 +752,123 @@ struct RecordingView: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+
+    private var recoveryPanel: some View {
+        GroupBox("Interrupted Recordings") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(audioRecorder.recoverableSessions) { session in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(session.manifest.displayName)
+                            .font(.headline)
+                        Text(session.statusDescription)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            if !audioRecorder.recordings.contains(where: { $0.id == session.id }) {
+                                Button("Recover") {
+                                    Task { await audioRecorder.recoverSession(id: session.id) }
+                                }
+                            }
+                            if session.inspection.canRetryMerge {
+                                Button("Retry Merge") {
+                                    Task { await audioRecorder.retryMergeSession(id: session.id) }
+                                }
+                            }
+                            Button("Show in Finder") {
+                                FinderHelper.showInFinder(session.bundleURL)
+                            }
+                            Button("Dismiss", role: .destructive) {
+                                Task { await audioRecorder.dismissRecoverySession(id: session.id) }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(audioRecorder.isRecoveryActionInFlight(id: session.id))
+                    }
+
+                    if session.id != audioRecorder.recoverableSessions.last?.id {
+                        Divider()
+                    }
+                }
+
+                if !audioRecorder.recoverableSessions.isEmpty,
+                   !audioRecorder.corruptRecordingBundles.isEmpty {
+                    Divider()
+                }
+
+                ForEach(audioRecorder.corruptRecordingBundles) { bundle in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(bundle.bundleURL.lastPathComponent)
+                            .font(.headline)
+                        Text("The recovery manifest is damaged or unsafe. Known audio files can be repaired when the folder has a trustworthy session ID.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Button("Recover Known Files") {
+                                Task { await audioRecorder.recoverCorruptBundle(bundle) }
+                            }
+                            Button("Show in Finder") {
+                                FinderHelper.showInFinder(bundle.bundleURL)
+                            }
+                            Button("Dismiss", role: .destructive) {
+                                audioRecorder.dismissCorruptBundle(bundle)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(audioRecorder.isCorruptRecoveryActionInFlight(id: bundle.id))
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func beginRecording() {
+        let name = recordingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+
+        if SystemAudioCapture.isBluetoothHeadphonesConnected() {
+            audioWarningMessage = "Bluetooth headphones detected. Audio quality may be affected.\n\nAvailable audio devices: \(SystemAudioCapture.getAvailableAudioDevices().joined(separator: ", "))"
+            showingAudioWarning = true
+        }
+
+        Task {
+            do {
+                let outcome = try await audioRecorder.startRecording(
+                    name: name,
+                    microphoneId: selectedMicrophoneId
+                )
+                switch outcome {
+                case .started:
+                    recordingName = ""
+                    showingNamePrompt = false
+                case .alreadyActive:
+                    alertMessage = "A recording is already starting or in progress."
+                    showingAlert = true
+                }
+            } catch {
+                presentRecordingStartError(error)
+                showingNamePrompt = false
+            }
+        }
+    }
+
+    private func presentRecordingStartError(_ error: Error) {
+        if let recorderError = error as? AudioRecorderError, recorderError == .permissionDenied {
+            alertMessage = """
+            Permission error
+
+            Current permission status:
+            Microphone: \(audioRecorder.hasMicrophonePermission() ? "✓ Granted" : "❌ Missing")
+            System Audio: \(audioRecorder.hasSystemAudioPermission() ? "✓ Granted" : "❌ Missing")
+
+            Please enable all permissions in System Settings > Privacy & Security, then restart the app.
+            """
+        } else {
+            alertMessage = "Couldn't start recording: \(error.localizedDescription)"
+        }
+        showingAlert = true
     }
 
     private var recordingListRowBackground: some View {

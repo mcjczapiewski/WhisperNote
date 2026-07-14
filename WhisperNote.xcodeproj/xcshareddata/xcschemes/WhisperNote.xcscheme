@@ -62,7 +62,18 @@
             value = "$(TEMP_DIR)/WhisperNoteTestsHome"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "WHISPERNOTE_TEST_MODE"
+            value = "unit"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-WHISPERNOTE_TEST_MODE unit"
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Release"

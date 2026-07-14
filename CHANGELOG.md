@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1 — July 14, 2026
+
+- Added atomic recording-session manifests and launch recovery so interrupted recordings can be finalized without duplicate library entries.
+- Made recording start and stop awaitable, consolidated duplicate start handling, and added recover, retry, Finder, and dismiss actions for preserved sessions.
+- Added staged audio imports with rollback and explicit batch partial-failure reporting.
+- Made recording deletion transaction-safe, added exact legacy-session migration and crash reconciliation for imports, and rejected unsafe recovery-manifest paths.
+- Serialized recovery actions and separated raw-track recovery from explicit combined-audio merge retries.
+- Added offline coverage for manifest states, recovery file combinations and merge fallback, lifecycle idempotency, import rollback, and a generated short-audio integration fixture.
+
 ## 1.4.0 — July 14, 2026
 
 - Added an offline XCTest foundation for Swift Package Manager with model compatibility, processing status, and language-model configuration coverage.
