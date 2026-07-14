@@ -57,6 +57,9 @@ iOSInjectionProject/
 .idea/
 .claude/
 
+# Private product planning documents
+docs/private/
+
 # Local secrets and machine-specific config
 .env
 .env.*
