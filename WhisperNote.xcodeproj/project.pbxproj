@@ -27,7 +27,19 @@
 		A1B2C3D4E5F6012345678903 /* MarkdownTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */; };
 		70063B092DCA8CC700590413 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 70063B082DCA8CC700590413 /* MarkdownUI */; };
 		7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04391e39b44d41c58a6485d9 /* TextDocument.swift */; };
+		F00000000000000000000001 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* ModelsTests.swift */; };
+		F00000000000000000000002 /* ReleaseInvariantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* ReleaseInvariantTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F80000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0F0F0F0F0F0F0F0F0F0F0F0F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0B0B0B0B0B0B0B0B0B0B0B0B;
+			remoteInfo = WhisperNote;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		AA01AA01AA01AA01AA01AA01 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
@@ -51,6 +63,9 @@
 		D6D6D6D6D6D6D6D6D6D6D6D6 /* DebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogger.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6012345678902 /* FinderHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderHelper.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6012345678904 /* MarkdownTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextRenderer.swift; sourceTree = "<group>"; };
+		F10000000000000000000001 /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
+		F10000000000000000000002 /* ReleaseInvariantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseInvariantTests.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 /* WhisperNoteTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhisperNoteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +77,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F40000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -69,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				9A9A9A9A9A9A9A9A9A9A9A9A /* WhisperNote */,
+				F20000000000000000000001 /* WhisperNoteTests */,
 				CD01CD01CD01CD01CD01CD01 /* CHANGELOG.md */,
 				8B8B8B8B8B8B8B8B8B8B8B8B /* Products */,
 			);
@@ -78,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				0A0A0A0A0A0A0A0A0A0A0A0A /* WhisperNote.app */,
+				F10000000000000000000003 /* WhisperNoteTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,6 +132,15 @@
 			path = WhisperNote;
 			sourceTree = "<group>";
 		};
+		F20000000000000000000001 /* WhisperNoteTests */ = {
+			isa = PBXGroup;
+			children = (
+				F10000000000000000000001 /* ModelsTests.swift */,
+				F10000000000000000000002 /* ReleaseInvariantTests.swift */,
+			);
+			path = WhisperNoteTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -128,6 +161,24 @@
 			productReference = 0A0A0A0A0A0A0A0A0A0A0A0A /* WhisperNote.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F30000000000000000000001 /* WhisperNoteTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F50000000000000000000001 /* Build configuration list for PBXNativeTarget "WhisperNoteTests" */;
+			buildPhases = (
+				F40000000000000000000001 /* Sources */,
+				F40000000000000000000002 /* Frameworks */,
+				F40000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F70000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = WhisperNoteTests;
+			productName = WhisperNoteTests;
+			productReference = F10000000000000000000003 /* WhisperNoteTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -140,6 +191,10 @@
 				TargetAttributes = {
 					0B0B0B0B0B0B0B0B0B0B0B0B = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					F30000000000000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = 0B0B0B0B0B0B0B0B0B0B0B0B;
 					};
 				};
 			};
@@ -160,6 +215,7 @@
 			projectRoot = "";
 			targets = (
 				0B0B0B0B0B0B0B0B0B0B0B0B /* WhisperNote */,
+				F30000000000000000000001 /* WhisperNoteTests */,
 			);
 		};
 /* End PBXProject section */
@@ -171,6 +227,13 @@
 			files = (
 				BB01BB01BB01BB01BB01BB01 /* AppIcon.icns in Resources */,
 				CC01CC01CC01CC01CC01CC01 /* CHANGELOG.md in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F40000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,7 +264,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F40000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F00000000000000000000001 /* ModelsTests.swift in Sources */,
+				F00000000000000000000002 /* ReleaseInvariantTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F70000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0B0B0B0B0B0B0B0B0B0B0B0B /* WhisperNote */;
+			targetProxy = F80000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		6A6A6A6A6A6A6A6A6A6A6A6A /* Debug */ = {
@@ -346,7 +426,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -379,12 +459,42 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.3.2;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F60000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WhisperNote.app/Contents/MacOS/WhisperNote";
+			};
+			name = Debug;
+		};
+		F60000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WhisperNote.app/Contents/MacOS/WhisperNote";
 			};
 			name = Release;
 		};
@@ -396,6 +506,15 @@
 			buildConfigurations = (
 				6C6C6C6C6C6C6C6C6C6C6C6C /* Debug */,
 				6D6D6D6D6D6D6D6D6D6D6D6D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F50000000000000000000001 /* Build configuration list for PBXNativeTarget "WhisperNoteTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F60000000000000000000001 /* Debug */,
+				F60000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
