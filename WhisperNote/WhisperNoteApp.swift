@@ -23,7 +23,7 @@ enum WhisperNoteRuntime {
 
 @main
 struct WhisperNoteApp: App {
-    @StateObject private var audioRecorder = AudioRecorder()
+    @StateObject private var model = WhisperNoteAppModel()
 
     init() {
         // Migrate stale defaultLLMModel stored value to a valid model id.
@@ -36,13 +36,14 @@ struct WhisperNoteApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("WhisperNote", id: "main") {
             if WhisperNoteRuntime.isUnitTestMode {
                 Color.clear
             } else {
                 ContentView()
                     .frame(minWidth: 800, minHeight: 600)
-                    .environmentObject(audioRecorder)
+                    .whisperNoteEnvironment(model)
+                    .task { await model.bootstrap() }
             }
         }
         .windowStyle(HiddenTitleBarWindowStyle())
@@ -50,5 +51,29 @@ struct WhisperNoteApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
         }
+
+        MenuBarExtra {
+            if !WhisperNoteRuntime.isUnitTestMode {
+                MenuBarRecordingView()
+                    .whisperNoteEnvironment(model)
+                    .task { await model.bootstrap() }
+            }
+        } label: {
+            Image(systemName: model.audioRecorder.currentRecording == nil ? "mic" : "record.circle.fill")
+                .task { await model.bootstrap() }
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+private extension View {
+    func whisperNoteEnvironment(_ model: WhisperNoteAppModel) -> some View {
+        environmentObject(model.audioRecorder)
+            .environmentObject(model.transcriptionManager)
+            .environmentObject(model.summaryManager)
+            .environmentObject(model.workflowCoordinator)
+            .environmentObject(model.navigationRouter)
+            .environmentObject(model.commandCoordinator)
+            .environmentObject(model.shortcutManager)
     }
 }

@@ -7,6 +7,7 @@ struct RecordingView: View {
     @EnvironmentObject var transcriptionManager: TranscriptionManager
     @EnvironmentObject var workflowCoordinator: PostRecordingWorkflowCoordinator
     @EnvironmentObject var navigationRouter: AppNavigationRouter
+    @EnvironmentObject var commandCoordinator: RecordingCommandCoordinator
     @State private var recordingName = ""
     @State private var showingNamePrompt = false
     @State private var showingAlert = false
@@ -175,12 +176,11 @@ struct RecordingView: View {
                     Button(action: {
                         Task {
                             if audioRecorder.isRecording {
-                                await audioRecorder.pauseRecording()
+                                await commandCoordinator.pause()
                             } else {
-                                do {
-                                    try await audioRecorder.resumeRecording()
-                                } catch {
-                                    alertMessage = "Couldn't resume recording: \(error.localizedDescription)"
+                                await commandCoordinator.resume()
+                                if let error = commandCoordinator.lastError {
+                                    alertMessage = "Couldn't resume recording: \(error)"
                                     showingAlert = true
                                 }
                             }
@@ -195,12 +195,7 @@ struct RecordingView: View {
 
                     Button(action: {
                         Task {
-                            switch await audioRecorder.stopRecording() {
-                            case .saved(let recording):
-                                await workflowCoordinator.recordingDidSave(recording)
-                            case .alreadyStopped, .alreadyStopping, .recoverable:
-                                break
-                            }
+                            _ = await commandCoordinator.stop()
                         }
                     }) {
                         Image(systemName: "stop.circle.fill")
@@ -209,7 +204,7 @@ struct RecordingView: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(audioRecorder.isStoppingRecording)
+                    .disabled(audioRecorder.isStoppingRecording || commandCoordinator.isBusy)
                 }
                 .padding()
             } else {
@@ -850,7 +845,7 @@ struct RecordingView: View {
 
         Task {
             do {
-                let outcome = try await audioRecorder.startRecording(
+                let outcome = try await commandCoordinator.start(
                     name: name,
                     microphoneId: selectedMicrophoneId
                 )

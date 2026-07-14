@@ -4,6 +4,7 @@ import MarkdownUI
 
 struct SettingsView: View {
     @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
+    @EnvironmentObject private var shortcutManager: GlobalShortcutManager
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
@@ -64,6 +65,41 @@ struct SettingsView: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                     }
                     .padding(.top, 10)
+                }
+                .padding()
+            }
+            .padding(.horizontal)
+
+            GroupBox(label: Text("Global Recording Shortcut").font(.headline)) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Control quick recording while another app is active. The shortcut is disabled until you enable it.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Toggle(
+                        "Enable global start/stop shortcut",
+                        isOn: Binding(
+                            get: { shortcutManager.isEnabled },
+                            set: { shortcutManager.setEnabled($0) }
+                        )
+                    )
+
+                    HStack {
+                        Text("Shortcut")
+                        ShortcutCaptureView(
+                            shortcut: shortcutManager.shortcut,
+                            onCapture: { shortcutManager.updateShortcut($0) }
+                        )
+                        .frame(width: 150, height: 30)
+                        .help("Click, then press the desired shortcut")
+                        Button("Restore ⌥⌘R") { shortcutManager.restoreSuggested() }
+                    }
+
+                    if let error = shortcutManager.errorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                 }
                 .padding()
             }
@@ -325,7 +361,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.2"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.3"
     }
 }
 
