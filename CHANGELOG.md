@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.2 — July 14, 2026
+
+- Added optional Record to Results automation that can transcribe and summarize a successfully saved live recording with snapshotted language, model, and Meeting Minutes prompt settings.
+- Added durable, retryable processing jobs with stable transcript and summary identities, actionable missing-key states, cancellation, relaunch recovery, and notification-safe completion.
+- Added persistent processing status, per-recording actions, and direct navigation to Settings or completed transcript and summary results.
+
 ## 1.4.1 — July 14, 2026
 
 - Added atomic recording-session manifests and launch recovery so interrupted recordings can be finalized without duplicate library entries.

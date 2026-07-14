@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct TranscriptView: View {
     @EnvironmentObject var transcriptionManager: TranscriptionManager
     @EnvironmentObject var summaryManager: SummaryManager
+    @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @State private var selectedTranscript: Transcript?
     @State private var isTranscribing = false
     @State private var showingError = false
@@ -119,6 +120,15 @@ struct TranscriptView: View {
                 generateCustomPrompt: generateCustomPrompt
             )
         }
+        .onAppear { selectRoutedTranscript() }
+        .onChange(of: navigationRouter.transcriptID) { _ in selectRoutedTranscript() }
+    }
+
+    private func selectRoutedTranscript() {
+        guard let id = navigationRouter.transcriptID,
+              let transcript = transcriptionManager.transcripts.first(where: { $0.id == id }) else { return }
+        selectedTranscript = transcript
+        navigationRouter.consumeTranscriptRoute(id)
     }
 
     private func prepareExport(for transcript: Transcript) {

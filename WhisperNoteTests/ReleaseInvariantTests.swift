@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.1"
+    private let expectedVersion = "1.4.2"
 
     func testReleaseVersionIsAlignedAcrossProjectSettingsAndChangelog() throws {
         try skipSourceAssertionsWhenHosted()

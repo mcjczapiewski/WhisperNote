@@ -16,6 +16,51 @@ class SummaryManager: ObservableObject {
         saveSummaries()
     }
 
+    func summary(id: UUID) -> Summary? {
+        summaries.first(where: { $0.id == id })
+    }
+
+    func summarizeForWorkflow(
+        _ transcript: Transcript,
+        summaryID: UUID,
+        prompt: String,
+        model: String
+    ) async throws -> Summary {
+        if let existing = summary(id: summaryID), existing.status == .completed {
+            return existing
+        }
+        guard !apiKey.isEmpty else { throw SummaryError.missingApiKey }
+
+        var artifact = summary(id: summaryID) ?? Summary(
+            id: summaryID,
+            name: transcript.name,
+            date: Date(),
+            content: "",
+            transcriptId: transcript.id,
+            model: model,
+            prompt: prompt,
+            status: .pending
+        )
+        artifact.model = model
+        artifact.prompt = prompt
+        artifact.status = .inProgress
+        try upsertAndPersist(artifact)
+
+        let content: String
+        do {
+            content = try await callOpenRouterAPI(prompt: prompt, model: model, transcript: transcript)
+        } catch {
+            artifact.status = .failed
+            try upsertAndPersist(artifact)
+            if let typed = error as? SummaryError { throw typed }
+            throw SummaryError.unknown(error)
+        }
+        artifact.content = content
+        artifact.status = .completed
+        try upsertAndPersist(artifact)
+        return artifact
+    }
+
     func generateSummary(for transcript: Transcript, with customPrompt: String? = nil, model: String? = nil) async throws -> Summary {
         guard !apiKey.isEmpty else {
             throw SummaryError.missingApiKey
@@ -236,6 +281,23 @@ class SummaryManager: ObservableObject {
             try data.write(to: url)
         } catch {
             print("Failed to save summaries: \(error)")
+        }
+    }
+
+    private func upsertAndPersist(_ summary: Summary) throws {
+        do {
+            try ArtifactUpsertTransaction.commit(
+                current: summaries,
+                artifact: summary,
+                persist: { candidate in
+                    let data = try JSONEncoder().encode(candidate)
+                    let url = self.directoryManager.getSummariesDirectory().appendingPathComponent("summaries.json")
+                    try data.write(to: url, options: .atomic)
+                },
+                publish: { self.summaries = $0 }
+            )
+        } catch {
+            throw ArtifactPersistenceError.summary(error)
         }
     }
 
