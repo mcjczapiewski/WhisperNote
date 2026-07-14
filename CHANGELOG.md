@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0 — July 14, 2026
+
+- Added an offline XCTest foundation for Swift Package Manager with model compatibility, processing status, and language-model configuration coverage.
+- Added a hosted macOS unit-test target to the Xcode project to validate app-module integration.
+- Added release-invariant tests that keep the Xcode marketing version, in-app fallback version, and changelog heading aligned.
+
 ## 1.3.2 — July 7, 2026
 
 - Added live system audio level reporting to the existing recording input meter, combined with microphone level without changing recorded audio volume.

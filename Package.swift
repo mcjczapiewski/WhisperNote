@@ -22,6 +22,11 @@ let package = Package(
                 "Info.plist",
                 "WhisperNote.entitlements"
             ]
+        ),
+        .testTarget(
+            name: "WhisperNoteTests",
+            dependencies: ["WhisperNote"],
+            path: "WhisperNoteTests"
         )
     ]
 )
