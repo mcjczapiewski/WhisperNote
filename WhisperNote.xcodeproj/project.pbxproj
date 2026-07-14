@@ -40,6 +40,11 @@
 		E00000000000000000000004 /* PostRecordingWorkflowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000004 /* PostRecordingWorkflowCoordinator.swift */; };
 		E00000000000000000000005 /* ProcessingStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000005 /* ProcessingStatusView.swift */; };
 		E00000000000000000000006 /* ProcessingWorkflowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000006 /* ProcessingWorkflowTests.swift */; };
+		A30000000000000000000001 /* RecordingCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000001 /* RecordingCommandCoordinator.swift */; };
+		A30000000000000000000002 /* GlobalShortcutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000002 /* GlobalShortcutManager.swift */; };
+		A30000000000000000000003 /* WhisperNoteAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000003 /* WhisperNoteAppModel.swift */; };
+		A30000000000000000000004 /* MenuBarRecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000004 /* MenuBarRecordingView.swift */; };
+		A30000000000000000000005 /* MenuBarCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000005 /* MenuBarCaptureTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +93,11 @@
 		E10000000000000000000004 /* PostRecordingWorkflowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRecordingWorkflowCoordinator.swift; sourceTree = "<group>"; };
 		E10000000000000000000005 /* ProcessingStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingStatusView.swift; sourceTree = "<group>"; };
 		E10000000000000000000006 /* ProcessingWorkflowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingWorkflowTests.swift; sourceTree = "<group>"; };
+		A40000000000000000000001 /* RecordingCommandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingCommandCoordinator.swift; sourceTree = "<group>"; };
+		A40000000000000000000002 /* GlobalShortcutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalShortcutManager.swift; sourceTree = "<group>"; };
+		A40000000000000000000003 /* WhisperNoteAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperNoteAppModel.swift; sourceTree = "<group>"; };
+		A40000000000000000000004 /* MenuBarRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarRecordingView.swift; sourceTree = "<group>"; };
+		A40000000000000000000005 /* MenuBarCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCaptureTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -149,6 +159,10 @@
 				E10000000000000000000003 /* AppNavigationRouter.swift */,
 				E10000000000000000000004 /* PostRecordingWorkflowCoordinator.swift */,
 				E10000000000000000000005 /* ProcessingStatusView.swift */,
+				A40000000000000000000001 /* RecordingCommandCoordinator.swift */,
+				A40000000000000000000002 /* GlobalShortcutManager.swift */,
+				A40000000000000000000003 /* WhisperNoteAppModel.swift */,
+				A40000000000000000000004 /* MenuBarRecordingView.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
@@ -170,6 +184,7 @@
 				F10000000000000000000002 /* ReleaseInvariantTests.swift */,
 				D10000000000000000000005 /* RecordingReliabilityTests.swift */,
 				E10000000000000000000006 /* ProcessingWorkflowTests.swift */,
+				A40000000000000000000005 /* MenuBarCaptureTests.swift */,
 			);
 			path = WhisperNoteTests;
 			sourceTree = "<group>";
@@ -294,6 +309,10 @@
 				E00000000000000000000003 /* AppNavigationRouter.swift in Sources */,
 				E00000000000000000000004 /* PostRecordingWorkflowCoordinator.swift in Sources */,
 				E00000000000000000000005 /* ProcessingStatusView.swift in Sources */,
+				A30000000000000000000001 /* RecordingCommandCoordinator.swift in Sources */,
+				A30000000000000000000002 /* GlobalShortcutManager.swift in Sources */,
+				A30000000000000000000003 /* WhisperNoteAppModel.swift in Sources */,
+				A30000000000000000000004 /* MenuBarRecordingView.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
@@ -314,6 +333,7 @@
 				F00000000000000000000002 /* ReleaseInvariantTests.swift in Sources */,
 				D00000000000000000000005 /* RecordingReliabilityTests.swift in Sources */,
 				E00000000000000000000006 /* ProcessingWorkflowTests.swift in Sources */,
+				A30000000000000000000005 /* MenuBarCaptureTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -470,7 +490,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -503,7 +523,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.2;
+				MARKETING_VERSION = 1.4.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

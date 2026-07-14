@@ -2,7 +2,39 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.2"
+    private let expectedVersion = "1.4.3"
+
+    func testRecordingViewRoutesLifecycleThroughCommandCoordinator() throws {
+        try skipSourceAssertionsWhenHosted()
+        let recordingView = try sourceContents(at: "WhisperNote/RecordingView.swift")
+        XCTAssertFalse(recordingView.contains("audioRecorder.startRecording("))
+        XCTAssertFalse(recordingView.contains("audioRecorder.pauseRecording("))
+        XCTAssertFalse(recordingView.contains("audioRecorder.resumeRecording("))
+        XCTAssertFalse(recordingView.contains("audioRecorder.stopRecording("))
+        XCTAssertFalse(recordingView.contains("workflowCoordinator.recordingDidSave("))
+    }
+
+    func testMenuBarAndShortcutUseAppRootServices() throws {
+        try skipSourceAssertionsWhenHosted()
+        let app = try sourceContents(at: "WhisperNote/WhisperNoteApp.swift")
+        let model = try sourceContents(at: "WhisperNote/WhisperNoteAppModel.swift")
+        let shortcut = try sourceContents(at: "WhisperNote/GlobalShortcutManager.swift")
+        XCTAssertTrue(app.contains("Window(\"WhisperNote\", id: \"main\")"))
+        XCTAssertTrue(app.contains("MenuBarExtra"))
+        XCTAssertTrue(model.contains("let commandCoordinator: RecordingCommandCoordinator"))
+        XCTAssertTrue(shortcut.contains("RegisterEventHotKey"))
+        XCTAssertFalse(shortcut.contains("addGlobalMonitorForEvents"))
+    }
+
+    func testShortcutCaptureResignsFocusAfterEveryCaptureAttempt() throws {
+        try skipSourceAssertionsWhenHosted()
+        let menu = try sourceContents(at: "WhisperNote/MenuBarRecordingView.swift")
+        guard let capture = menu.range(of: "onCapture?(GlobalShortcut")?.lowerBound,
+              let resign = menu.range(of: "window?.makeFirstResponder(nil)")?.lowerBound else {
+            return XCTFail("Shortcut capture must deliver its result and then resign first responder")
+        }
+        XCTAssertLessThan(capture, resign)
+    }
 
     func testReleaseVersionIsAlignedAcrossProjectSettingsAndChangelog() throws {
         try skipSourceAssertionsWhenHosted()
@@ -41,12 +73,12 @@ final class ReleaseInvariantTests: XCTestCase {
 
     func testHostedXcodeTestsSkipLaunchPermissionWarmup() throws {
         try skipSourceAssertionsWhenHosted()
-        let contentView = try sourceContents(at: "WhisperNote/ContentView.swift")
+        let appModel = try sourceContents(at: "WhisperNote/WhisperNoteAppModel.swift")
         let audioRecorder = try sourceContents(at: "WhisperNote/AudioRecorder.swift")
         let app = try sourceContents(at: "WhisperNote/WhisperNoteApp.swift")
 
-        XCTAssertTrue(contentView.contains(
-            "guard !WhisperNoteRuntime.isUnitTestMode else { return }"
+        XCTAssertTrue(appModel.contains(
+            "guard !didBootstrap, !WhisperNoteRuntime.isUnitTestMode else { return }"
         ))
         XCTAssertTrue(audioRecorder.contains(
             "guard !WhisperNoteRuntime.isUnitTestMode else { return }"

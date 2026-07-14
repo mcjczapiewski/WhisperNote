@@ -3,10 +3,10 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var audioRecorder: AudioRecorder
-    @StateObject private var transcriptionManager = TranscriptionManager()
-    @StateObject private var summaryManager = SummaryManager()
-    @StateObject private var workflowCoordinator = PostRecordingWorkflowCoordinator()
-    @StateObject private var navigationRouter = AppNavigationRouter()
+    @EnvironmentObject private var transcriptionManager: TranscriptionManager
+    @EnvironmentObject private var summaryManager: SummaryManager
+    @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
+    @EnvironmentObject private var navigationRouter: AppNavigationRouter
 
     var body: some View {
         VStack(spacing: 8) {
@@ -55,15 +55,5 @@ struct ContentView: View {
         }
         .padding()
         .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
-        .task {
-            guard !WhisperNoteRuntime.isUnitTestMode else { return }
-            await workflowCoordinator.attach(
-                transcriptionManager: transcriptionManager,
-                summaryManager: summaryManager,
-                recordings: { audioRecorder.recordings }
-            )
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            _ = await audioRecorder.checkAndRequestPermissions()
-        }
     }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3 — July 14, 2026
+
+- Added an always-available menu bar controller for quick recording, pause/resume, stop, duration, permissions, processing status, results, and window navigation.
+- Added an optional configurable global recording shortcut, disabled by default, with ⌥⌘R as the suggested binding and collision-safe Carbon registration without Accessibility permission.
+- Unified recording lifecycle commands and app-root service ownership so the main window, menu bar, and shortcut share one durable session and one Record to Results handoff.
+
 ## 1.4.2 — July 14, 2026
 
 - Added optional Record to Results automation that can transcribe and summarize a successfully saved live recording with snapshotted language, model, and Meeting Minutes prompt settings.
