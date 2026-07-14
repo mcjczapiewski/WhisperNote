@@ -87,3 +87,38 @@ let llmModels: [LLMModel] = [
 ]
 
 let defaultLLMModelId = "openai/gpt-4o-mini"
+
+enum ArtifactPersistenceError: LocalizedError {
+    case transcript(Error)
+    case summary(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .transcript(let error):
+            return "The transcript could not be saved: \(error.localizedDescription)"
+        case .summary(let error):
+            return "The summary could not be saved: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Builds a replacement array off to the side and publishes it only after the
+/// caller's durable write succeeds. Shared by workflow transcript and summary
+/// upserts so an in-memory completed artifact can never outrun its disk record.
+struct ArtifactUpsertTransaction {
+    static func commit<Element: Identifiable>(
+        current: [Element],
+        artifact: Element,
+        persist: ([Element]) throws -> Void,
+        publish: ([Element]) -> Void
+    ) throws where Element.ID: Equatable {
+        var candidate = current
+        if let index = candidate.firstIndex(where: { $0.id == artifact.id }) {
+            candidate[index] = artifact
+        } else {
+            candidate.append(artifact)
+        }
+        try persist(candidate)
+        publish(candidate)
+    }
+}

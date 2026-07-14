@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct RecordingView: View {
     @EnvironmentObject var audioRecorder: AudioRecorder
     @EnvironmentObject var transcriptionManager: TranscriptionManager
+    @EnvironmentObject var workflowCoordinator: PostRecordingWorkflowCoordinator
+    @EnvironmentObject var navigationRouter: AppNavigationRouter
     @State private var recordingName = ""
     @State private var showingNamePrompt = false
     @State private var showingAlert = false
@@ -25,7 +27,8 @@ struct RecordingView: View {
     @State private var pendingImportURL: URL?
     @State private var importRecordingName = ""
 
-    private let languages = [
+    enum TranscriptionLanguageCatalog {
+        static let all: [(String, String)] = [
         ("afr", "Afrikaans"),
         ("amh", "Amharic"),
         ("ara", "Arabic"),
@@ -124,8 +127,11 @@ struct RecordingView: View {
         ("cym", "Welsh"),
         ("wol", "Wolof"),
         ("xho", "Xhosa"),
-        ("zul", "Zulu")
-    ]
+            ("zul", "Zulu")
+        ]
+    }
+
+    private let languages = TranscriptionLanguageCatalog.all
 
     var body: some View {
         VStack {
@@ -189,7 +195,12 @@ struct RecordingView: View {
 
                     Button(action: {
                         Task {
-                            _ = await audioRecorder.stopRecording()
+                            switch await audioRecorder.stopRecording() {
+                            case .saved(let recording):
+                                await workflowCoordinator.recordingDidSave(recording)
+                            case .alreadyStopped, .alreadyStopping, .recoverable:
+                                break
+                            }
                         }
                     }) {
                         Image(systemName: "stop.circle.fill")
@@ -685,6 +696,10 @@ struct RecordingView: View {
                 Text(recording.date, style: .date)
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                ProcessingStatusView(recordingID: recording.id, compact: true)
+                    .environmentObject(workflowCoordinator)
+                    .environmentObject(navigationRouter)
             }
 
             Spacer()

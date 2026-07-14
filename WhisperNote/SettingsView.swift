@@ -3,11 +3,17 @@ import UniformTypeIdentifiers
 import MarkdownUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
     @AppStorage("elevenlabsApiKey") private var elevenlabsApiKey = ""
     @AppStorage("openrouterApiKey") private var openrouterApiKey = ""
+    @AppStorage("autoTranscribeAfterRecording") private var autoTranscribeAfterRecording = false
+    @AppStorage("autoTranscriptionLanguage") private var autoTranscriptionLanguage = "eng"
+    @AppStorage("autoSummarizeAfterRecording") private var autoSummarizeAfterRecording = false
+    @AppStorage("autoSummaryModel") private var autoSummaryModel = defaultLLMModelId
+    @AppStorage("processingCompletionNotifications") private var processingCompletionNotifications = false
 
     @State private var isShowingDirectoryPicker = false
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
@@ -58,6 +64,47 @@ struct SettingsView: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                     }
                     .padding(.top, 10)
+                }
+                .padding()
+            }
+            .padding(.horizontal)
+
+            GroupBox(label: Text("Record to Results").font(.headline)) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Optionally process a live recording after it has been saved successfully. Defaults are captured when processing begins.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Toggle("Automatically transcribe new recordings", isOn: $autoTranscribeAfterRecording)
+
+                    Picker("Transcription Language", selection: $autoTranscriptionLanguage) {
+                        ForEach(RecordingView.TranscriptionLanguageCatalog.all, id: \.0) { language in
+                            Text(language.1).tag(language.0)
+                        }
+                    }
+                    .disabled(!autoTranscribeAfterRecording)
+
+                    Toggle("Automatically create a summary", isOn: $autoSummarizeAfterRecording)
+                        .disabled(!autoTranscribeAfterRecording)
+
+                    Picker("Summary Model", selection: $autoSummaryModel) {
+                        ForEach(llmModels) { model in
+                            Text(model.displayName).tag(model.id)
+                        }
+                    }
+                    .disabled(!autoTranscribeAfterRecording || !autoSummarizeAfterRecording)
+
+                    HStack {
+                        Text("Template")
+                        Spacer()
+                        Text("Meeting Minutes")
+                            .foregroundColor(.secondary)
+                    }
+                    .font(.subheadline)
+                    .disabled(!autoTranscribeAfterRecording || !autoSummarizeAfterRecording)
+
+                    Toggle("Notify when results are ready", isOn: $processingCompletionNotifications)
+                        .disabled(!autoTranscribeAfterRecording)
                 }
                 .padding()
             }
@@ -270,10 +317,15 @@ struct SettingsView: View {
         .sheet(isPresented: $isShowingChangelog) {
             ChangelogView()
         }
+        .onChange(of: autoTranscribeAfterRecording) { enabled in
+            if !enabled { autoSummarizeAfterRecording = false }
+        }
+        .onChange(of: elevenlabsApiKey) { _ in workflowCoordinator.transcriptionCredentialDidChange() }
+        .onChange(of: openrouterApiKey) { _ in workflowCoordinator.summaryCredentialDidChange() }
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.2"
     }
 }
 

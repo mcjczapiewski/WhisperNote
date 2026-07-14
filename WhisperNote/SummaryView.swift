@@ -4,6 +4,7 @@ import MarkdownUI
 
 struct SummaryView: View {
     @EnvironmentObject var summaryManager: SummaryManager
+    @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @State private var selectedSummary: Summary?
     @State private var isGenerating = false
     @State private var showingError = false
@@ -57,7 +58,9 @@ struct SummaryView: View {
         .onAppear {
             // Set the markdown format on appear to avoid complex expression in property initialization
             exportFormat = TextDocument.markdownUTType
+            selectRoutedSummary()
         }
+        .onChange(of: navigationRouter.summaryID) { _ in selectRoutedSummary() }
         .onChange(of: selectedSummary?.id) { _ in
             isEditingSummary = false
             editedSummaryContent = ""
@@ -138,6 +141,13 @@ struct SummaryView: View {
                 showingFindReplaceDialog: $showingFindReplaceDialog
             )
         }
+    }
+
+    private func selectRoutedSummary() {
+        guard let id = navigationRouter.summaryID,
+              let summary = summaryManager.summaries.first(where: { $0.id == id }) else { return }
+        selectedSummary = summary
+        navigationRouter.consumeSummaryRoute(id)
     }
 }
 

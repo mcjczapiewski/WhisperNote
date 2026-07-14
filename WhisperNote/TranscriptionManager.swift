@@ -14,6 +14,54 @@ class TranscriptionManager: ObservableObject {
         migrateLegacyJSONArchives()
     }
 
+    func transcript(id: UUID) -> Transcript? {
+        transcripts.first(where: { $0.id == id })
+    }
+
+    /// Workflow-specific stable-ID upsert. Persisting each artifact transition is
+    /// part of the operation: a disk failure is surfaced to the coordinator rather
+    /// than allowing its job to advance past an artifact that only exists in memory.
+    func transcribeForWorkflow(
+        _ recording: Recording,
+        transcriptID: UUID,
+        language: String
+    ) async throws -> Transcript {
+        if let existing = transcript(id: transcriptID), existing.status == .completed {
+            return existing
+        }
+        guard !apiKey.isEmpty else { throw TranscriptionError.missingApiKey }
+        guard FileManager.default.fileExists(atPath: recording.filePath.path) else {
+            throw TranscriptionError.fileReadError
+        }
+
+        var artifact = transcript(id: transcriptID) ?? Transcript(
+            id: transcriptID,
+            name: recording.name,
+            date: Date(),
+            content: "",
+            recordingId: recording.id,
+            status: .pending
+        )
+        artifact.status = .inProgress
+        try upsertAndPersist(artifact)
+
+        let result: (content: String, formatted: String, jsonPath: URL?)
+        do {
+            result = try await performTranscription(recording, language: language)
+        } catch {
+            artifact.status = .failed
+            try upsertAndPersist(artifact)
+            if let typed = error as? TranscriptionError { throw typed }
+            throw TranscriptionError.unknown(error)
+        }
+        artifact.content = result.content
+        artifact.formattedContent = result.formatted
+        artifact.jsonFilePath = result.jsonPath
+        artifact.status = .completed
+        try upsertAndPersist(artifact)
+        return artifact
+    }
+
     func transcribeRecording(_ recording: Recording, language: String = "eng") async throws -> Transcript {
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
@@ -355,6 +403,23 @@ class TranscriptionManager: ObservableObject {
             try data.write(to: url)
         } catch {
             print("Failed to save transcripts: \(error)")
+        }
+    }
+
+    private func upsertAndPersist(_ transcript: Transcript) throws {
+        do {
+            try ArtifactUpsertTransaction.commit(
+                current: transcripts,
+                artifact: transcript,
+                persist: { candidate in
+                    let data = try JSONEncoder().encode(candidate)
+                    let url = self.directoryManager.getTranscriptsDirectory().appendingPathComponent("transcripts.json")
+                    try data.write(to: url, options: .atomic)
+                },
+                publish: { self.transcripts = $0 }
+            )
+        } catch {
+            throw ArtifactPersistenceError.transcript(error)
         }
     }
 
