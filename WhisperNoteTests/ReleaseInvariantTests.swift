@@ -2,9 +2,10 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.0"
+    private let expectedVersion = "1.4.1"
 
     func testReleaseVersionIsAlignedAcrossProjectSettingsAndChangelog() throws {
+        try skipSourceAssertionsWhenHosted()
         let project = try sourceContents(at: "WhisperNote.xcodeproj/project.pbxproj")
         let settings = try sourceContents(at: "WhisperNote/SettingsView.swift")
         let changelog = try sourceContents(at: "CHANGELOG.md")
@@ -26,19 +27,32 @@ final class ReleaseInvariantTests: XCTestCase {
     }
 
     func testHostedXcodeTestsUseIsolatedUserHome() throws {
+        try skipSourceAssertionsWhenHosted()
         let scheme = try sourceContents(
             at: "WhisperNote.xcodeproj/xcshareddata/xcschemes/WhisperNote.xcscheme"
         )
 
         XCTAssertTrue(scheme.contains("key = \"CFFIXED_USER_HOME\""))
         XCTAssertTrue(scheme.contains("value = \"$(TEMP_DIR)/WhisperNoteTestsHome\""))
+        XCTAssertTrue(scheme.contains("key = \"WHISPERNOTE_TEST_MODE\""))
+        XCTAssertTrue(scheme.contains("value = \"unit\""))
+        XCTAssertTrue(scheme.contains("argument = \"-WHISPERNOTE_TEST_MODE unit\""))
     }
 
     func testHostedXcodeTestsSkipLaunchPermissionWarmup() throws {
+        try skipSourceAssertionsWhenHosted()
         let contentView = try sourceContents(at: "WhisperNote/ContentView.swift")
+        let audioRecorder = try sourceContents(at: "WhisperNote/AudioRecorder.swift")
+        let app = try sourceContents(at: "WhisperNote/WhisperNoteApp.swift")
 
         XCTAssertTrue(contentView.contains(
-            "guard ProcessInfo.processInfo.environment[\"XCTestConfigurationFilePath\"] == nil else { return }"
+            "guard !WhisperNoteRuntime.isUnitTestMode else { return }"
+        ))
+        XCTAssertTrue(audioRecorder.contains(
+            "guard !WhisperNoteRuntime.isUnitTestMode else { return }"
+        ))
+        XCTAssertTrue(app.contains(
+            "if WhisperNoteRuntime.isUnitTestMode"
         ))
     }
 
@@ -53,6 +67,12 @@ final class ReleaseInvariantTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent(relativePath),
             encoding: .utf8
         )
+    }
+
+    private func skipSourceAssertionsWhenHosted() throws {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            throw XCTSkip("The sandboxed app test host cannot access repository source files; SwiftPM covers these invariants.")
+        }
     }
 
     private func settingsFallbackVersion(in source: String) throws -> String {

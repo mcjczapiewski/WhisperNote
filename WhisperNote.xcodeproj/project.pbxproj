@@ -29,6 +29,11 @@
 		7b81a6d0c7da438e889ecf20 /* TextDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04391e39b44d41c58a6485d9 /* TextDocument.swift */; };
 		F00000000000000000000001 /* ModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000001 /* ModelsTests.swift */; };
 		F00000000000000000000002 /* ReleaseInvariantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* ReleaseInvariantTests.swift */; };
+		D00000000000000000000001 /* AudioMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000001 /* AudioMerger.swift */; };
+		D00000000000000000000002 /* RecordingSessionManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000002 /* RecordingSessionManifest.swift */; };
+		D00000000000000000000003 /* RecordingRecoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000003 /* RecordingRecoveryService.swift */; };
+		D00000000000000000000004 /* RecordingImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000004 /* RecordingImportService.swift */; };
+		D00000000000000000000005 /* RecordingReliabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000005 /* RecordingReliabilityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +71,11 @@
 		F10000000000000000000001 /* ModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelsTests.swift; sourceTree = "<group>"; };
 		F10000000000000000000002 /* ReleaseInvariantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseInvariantTests.swift; sourceTree = "<group>"; };
 		F10000000000000000000003 /* WhisperNoteTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhisperNoteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D10000000000000000000001 /* AudioMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMerger.swift; sourceTree = "<group>"; };
+		D10000000000000000000002 /* RecordingSessionManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingSessionManifest.swift; sourceTree = "<group>"; };
+		D10000000000000000000003 /* RecordingRecoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingRecoveryService.swift; sourceTree = "<group>"; };
+		D10000000000000000000004 /* RecordingImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingImportService.swift; sourceTree = "<group>"; };
+		D10000000000000000000005 /* RecordingReliabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingReliabilityTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,6 +128,10 @@
 				4A4A4A4A4A4A4A4A4A4A4A4A /* Models.swift */,
 				04391e39b44d41c58a6485d9 /* TextDocument.swift */,
 				4B4B4B4B4B4B4B4B4B4B4B4B /* AudioRecorder.swift */,
+				D10000000000000000000001 /* AudioMerger.swift */,
+				D10000000000000000000002 /* RecordingSessionManifest.swift */,
+				D10000000000000000000003 /* RecordingRecoveryService.swift */,
+				D10000000000000000000004 /* RecordingImportService.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
@@ -137,6 +151,7 @@
 			children = (
 				F10000000000000000000001 /* ModelsTests.swift */,
 				F10000000000000000000002 /* ReleaseInvariantTests.swift */,
+				D10000000000000000000005 /* RecordingReliabilityTests.swift */,
 			);
 			path = WhisperNoteTests;
 			sourceTree = "<group>";
@@ -252,6 +267,10 @@
 				1A1A1A1A1A1A1A1A1A1A1A1A /* WhisperNoteApp.swift in Sources */,
 				3A3A3A3A3A3A3A3A3A3A3A3A /* Models.swift in Sources */,
 				3B3B3B3B3B3B3B3B3B3B3B3B /* AudioRecorder.swift in Sources */,
+				D00000000000000000000001 /* AudioMerger.swift in Sources */,
+				D00000000000000000000002 /* RecordingSessionManifest.swift in Sources */,
+				D00000000000000000000003 /* RecordingRecoveryService.swift in Sources */,
+				D00000000000000000000004 /* RecordingImportService.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
@@ -270,6 +289,7 @@
 			files = (
 				F00000000000000000000001 /* ModelsTests.swift in Sources */,
 				F00000000000000000000002 /* ReleaseInvariantTests.swift in Sources */,
+				D00000000000000000000005 /* RecordingReliabilityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -426,7 +446,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -459,7 +479,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.0;
+				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

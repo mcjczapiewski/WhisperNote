@@ -43,7 +43,7 @@ struct ContentView: View {
         .padding()
         .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
         .task {
-            guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+            guard !WhisperNoteRuntime.isUnitTestMode else { return }
             try? await Task.sleep(nanoseconds: 300_000_000)
             _ = await audioRecorder.checkAndRequestPermissions()
         }

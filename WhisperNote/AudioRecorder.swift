@@ -11,6 +11,104 @@ struct MicDevice: Identifiable, Equatable {
     let localizedName: String
 }
 
+enum RecordingStartOutcome {
+    case started(Recording)
+    case alreadyActive(Recording?)
+}
+
+enum RecordingStopOutcome {
+    case saved(Recording)
+    case alreadyStopped
+    case alreadyStopping
+    case recoverable(RecoverableRecordingSession)
+}
+
+protocol MicrophoneAudioWriting: AnyObject {
+    func write(from buffer: AVAudioPCMBuffer) throws
+}
+
+extension AVAudioFile: MicrophoneAudioWriting { }
+
+/// The audio render callback's complete mutable boundary. AVAudioEngine can deliver a
+/// final callback while a tap is being removed, so file ownership, warm-up mutation,
+/// writes, reset, and invalidation must share one lock instead of reaching into
+/// AudioRecorder's UI-owned state.
+final class MicrophoneCaptureSession: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writer: (any MicrophoneAudioWriting)?
+    private var warmupFramesRemaining: AVAudioFramePosition
+    private var isActive = true
+
+    init(writer: any MicrophoneAudioWriting, warmupFrames: AVAudioFramePosition) {
+        self.writer = writer
+        self.warmupFramesRemaining = max(0, warmupFrames)
+    }
+
+    func process(_ buffer: AVAudioPCMBuffer) -> Double? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isActive, let writer else { return nil }
+
+        applyWarmupMute(to: buffer)
+        try? writer.write(from: buffer)
+        return Self.normalizedLevel(in: buffer)
+    }
+
+    func resetWarmup(frames: AVAudioFramePosition) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isActive else { return }
+        warmupFramesRemaining = max(0, frames)
+    }
+
+    /// Waits for an in-flight write, then makes every later render callback a no-op.
+    func stop() {
+        lock.lock()
+        isActive = false
+        writer = nil
+        warmupFramesRemaining = 0
+        lock.unlock()
+    }
+
+    func remainingWarmupFrames() -> AVAudioFramePosition {
+        lock.lock()
+        defer { lock.unlock() }
+        return warmupFramesRemaining
+    }
+
+    private func applyWarmupMute(to buffer: AVAudioPCMBuffer) {
+        guard warmupFramesRemaining > 0, buffer.frameLength > 0 else { return }
+        let framesToMute = AVAudioFrameCount(
+            min(warmupFramesRemaining, AVAudioFramePosition(buffer.frameLength))
+        )
+        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
+            guard let data = audioBuffer.mData else { continue }
+            let bytesPerFrame = Int(audioBuffer.mDataByteSize) / Int(buffer.frameLength)
+            memset(data, 0, Int(framesToMute) * bytesPerFrame)
+        }
+        warmupFramesRemaining -= AVAudioFramePosition(framesToMute)
+    }
+
+    private static func normalizedLevel(in buffer: AVAudioPCMBuffer) -> Double {
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard channelCount > 0, frameLength > 0 else { return 0 }
+
+        var sum: Float = 0
+        for channel in 0..<channelCount {
+            let samples = channelData[channel]
+            for frame in 0..<frameLength {
+                let sample = samples[frame]
+                sum += sample * sample
+            }
+        }
+        let rms = sqrt(sum / Float(channelCount * frameLength))
+        let decibels = 20 * log10(max(rms, 0.000_001))
+        return max(0, min(1, (Double(decibels) + 60) / 60))
+    }
+}
+
 class AudioRecorder: NSObject, ObservableObject {
     @Published var recordings: [Recording] = []
     @Published var isRecording = false
@@ -21,6 +119,13 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var lastError: String? // Surfaced to the UI (stop/merge/import failures)
     @Published var audioLevel: Double = 0
     @Published var availableMicrophones: [MicDevice] = []
+    @Published var recoverableSessions: [RecoverableRecordingSession] = []
+    @Published var corruptRecordingBundles: [CorruptRecordingBundle] = []
+    @Published private(set) var corruptRecoveryActionsInFlight: Set<String> = []
+    @Published private(set) var recoveryActionsInFlight: Set<UUID> = []
+    @Published var isStartingRecording = false
+    @Published var isStoppingRecording = false
+    @Published private(set) var isInitialRecoveryComplete = false
 
     private var durationTimer: Timer?
     private var microphoneStateTimer: Timer?
@@ -28,31 +133,46 @@ class AudioRecorder: NSObject, ObservableObject {
     private var accumulatedTime: TimeInterval = 0
 
     @AppStorage("audioQuality") private var audioQuality = "high"
-    private let audioFormat = "m4a"
-
-    private let directoryManager = DirectoryManager.shared
+    private lazy var directoryManager = DirectoryManager.shared
     private let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private let manifestStore: RecordingSessionManifestStore
+    private let recoveryService: RecordingRecoveryService
+    private let legacyMigrationService: LegacyRecordingMigrationService
+    private let importService: RecordingImportService
+    private let libraryMutations = RecordingLibraryMutationCoordinator()
 
     // Logging
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "AudioRecorder")
-    private let debugLogger = DebugLogger.shared
-    private let mergedAudioSampleRate = 48_000.0
-    private let mergedAudioBitRate = 64_000
-    private let mergedAudioChannels = 1
-
     // Recording state (Core Audio process tap + AVAudioEngine, replacing RecordKit)
     private var recordingEngine: AVAudioEngine?
-    private var micFile: AVAudioFile?
-    private var micWarmupFramesRemaining: AVAudioFramePosition = 0
+    private var microphoneCaptureSession: MicrophoneCaptureSession?
     private var systemAudioTap: SystemAudioTap?
     private var micAudioLevel: Double = 0
     private var systemAudioLevel: Double = 0
     private var systemAudioPermissionAvailable = true
     private var recordingDirectoryURL: URL?
+    private var currentManifest: RecordingSessionManifest?
+    private var lifecycleGate = RecordingLifecycleGate()
+    private var initialRecoveryGate = InitialRecordingRecoveryGate()
+    private var recoveryActionGate = RecordingSessionActionGate()
+    private var deletionActionGate = RecordingSessionActionGate()
     private let micWarmupMuteDuration = 0.97
 
     override init() {
+        let manifestStore = RecordingSessionManifestStore()
+        let audioMerger = AVFoundationAudioMerger()
+        self.manifestStore = manifestStore
+        self.recoveryService = RecordingRecoveryService(
+            manifestStore: manifestStore,
+            audioMerger: audioMerger
+        )
+        self.legacyMigrationService = LegacyRecordingMigrationService(
+            manifestStore: manifestStore,
+            audioMerger: audioMerger
+        )
+        self.importService = RecordingImportService(audioMerger: audioMerger, manifestStore: manifestStore)
         super.init()
+        guard !WhisperNoteRuntime.isUnitTestMode else { return }
         loadRecordings()
 
         // Start with microphone unmuted
@@ -73,6 +193,10 @@ class AudioRecorder: NSObject, ObservableObject {
         // Load devices without prompting; ContentView triggers the permission flow after launch.
         Task {
             await loadAvailableMicrophones()
+        }
+
+        Task { @MainActor [weak self] in
+            await self?.recoverInterruptedSessionsOnLaunch()
         }
     }
 
@@ -97,116 +221,122 @@ class AudioRecorder: NSObject, ObservableObject {
         systemAudioTap?.stop()
     }
 
-    func startRecording(name: String, microphoneId: String = "") throws {
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .denied {
-            print("Microphone permission is denied")
+    @MainActor
+    func startRecording(name: String, microphoneId: String = "") async throws -> RecordingStartOutcome {
+        guard initialRecoveryGate.canStartRecording else {
+            throw AudioRecorderError.recoveryInProgress
+        }
+        guard lifecycleGate.beginStart() else {
+            return .alreadyActive(currentRecording)
+        }
+        isStartingRecording = true
+        defer { isStartingRecording = false }
+
+        guard AVCaptureDevice.authorizationStatus(for: .audio) != .denied,
+              await checkAndRequestPermissions() else {
+            lifecycleGate.didFailStart()
             throw AudioRecorderError.permissionDenied
         }
 
-        // Get the base recordings directory from the directory manager
-        let baseDirectory = directoryManager.getRecordingsDirectory()
+        let sessionID = UUID()
+        let createdAt = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let bundleURL = directoryManager.getRecordingsDirectory().appendingPathComponent(
+            "recording_\(formatter.string(from: createdAt))_\(sessionID.uuidString)",
+            isDirectory: true
+        )
 
-        // Create a completely unique directory using UUID
-        let uuid = UUID().uuidString
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-        let dateString = dateFormatter.string(from: Date())
-
-        // Sanitize the name to remove characters that might cause issues in filenames
-        let sanitizedName = name.replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
-
-        // Create a unique directory name with UUID to ensure uniqueness
-        let uniqueDirName = "recording_\(dateString)_\(uuid)"
-        let uniqueDirectory = baseDirectory.appendingPathComponent(uniqueDirName)
-
-        if FileManager.default.fileExists(atPath: uniqueDirectory.path) {
-            do {
-                try FileManager.default.removeItem(at: uniqueDirectory)
-            } catch {
-                logger.error("Failed to remove existing directory: \(error.localizedDescription)")
-                throw AudioRecorderError.directoryError
-            }
-        }
         do {
-            try FileManager.default.createDirectory(at: uniqueDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         } catch {
-            logger.error("Failed to create recording directory: \(error.localizedDescription)")
+            lifecycleGate.didFailStart()
             throw AudioRecorderError.directoryError
         }
 
-        // Store the recording metadata for later use
-        let metadata = [
-            "name": sanitizedName,
-            "date": dateString,
-            "uuid": uuid
-        ]
-        UserDefaults.standard.set(metadata, forKey: "lastRecordingMetadata")
+        var manifest = RecordingSessionManifest(
+            sessionID: sessionID,
+            displayName: name,
+            createdAt: createdAt,
+            selectedInputID: microphoneId
+        )
 
-        self.recordingDirectoryURL = uniqueDirectory
-        logger.info("Using unique directory: \(uniqueDirectory.path)")
+        do {
+            try await manifestStore.write(manifest, to: bundleURL)
+        } catch {
+            try? FileManager.default.removeItem(at: bundleURL)
+            lifecycleGate.didFailStart()
+            throw AudioRecorderError.manifestWriteFailed
+        }
 
-        Task {
-            do {
-                let micPermissionGranted = await checkAndRequestPermissions()
-                guard micPermissionGranted else {
-                    logger.error("Microphone permission denied")
-                    throw AudioRecorderError.permissionDenied
-                }
+        recordingDirectoryURL = bundleURL
+        currentManifest = manifest
+        let microphoneURL = manifest.url(for: manifest.microphonePath, in: bundleURL)
+        let systemURL = manifest.url(for: manifest.systemAudioPath, in: bundleURL)
 
-                let micURL = uniqueDirectory.appendingPathComponent("mic_recording.m4a")
-                let systemURL = uniqueDirectory.appendingPathComponent("system_recording.m4a")
+        var captureDidBegin = false
+        do {
+            try startMicCapture(to: microphoneURL, microphoneId: microphoneId)
+            captureDidBegin = true
 
-                try startMicCapture(to: micURL, microphoneId: microphoneId)
-
-                let tap = SystemAudioTap()
-                tap.levelHandler = { [weak self, weak tap] level in
-                    DispatchQueue.main.async { [weak self, weak tap] in
-                        guard let self, let tap, self.systemAudioTap === tap else { return }
-                        self.systemAudioLevel = self.isRecording ? level : 0
-                        self.updateAudioLevel()
-                    }
-                }
-                self.systemAudioTap = tap
-                try tap.start(outputURL: systemURL)
-
-                await MainActor.run {
-                    self.isRecording = true
-                    self.isPaused = false
-
-                    let placeholderURL = uniqueDirectory.appendingPathComponent("\(name)_placeholder.\(audioFormat)")
-                    let newRecording = Recording(
-                        name: name,
-                        date: Date(),
-                        duration: 0,
-                        filePath: placeholderURL,
-                        systemAudioFilePath: nil // Merged into a single file at stop time
-                    )
-                    self.currentRecording = newRecording
-
-                    self.startTime = Date()
-                    self.accumulatedTime = 0
-                    self.durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                        guard let self else { return }
-                        if let startTime = self.startTime {
-                            self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
-                        }
-                        self.currentRecording?.duration = self.recordingDuration
-                    }
-                }
-            } catch {
-                logger.error("Failed to start recording: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.stopMicCapture()
-                    self.systemAudioTap?.stop()
-                    self.systemAudioTap = nil
-                    self.lastError = "Couldn't start recording: \(error.localizedDescription)"
+            let tap = SystemAudioTap()
+            tap.levelHandler = { [weak self, weak tap] level in
+                DispatchQueue.main.async { [weak self, weak tap] in
+                    guard let self, let tap, self.systemAudioTap === tap else { return }
+                    self.systemAudioLevel = self.isRecording ? level : 0
+                    self.updateAudioLevel()
                 }
             }
+            systemAudioTap = tap
+            try tap.start(outputURL: systemURL)
+
+            manifest.state = .capturing
+            manifest.captureStartedAt = Date()
+            manifest.updatedAt = Date()
+            try await manifestStore.write(manifest, to: bundleURL)
+            currentManifest = manifest
+
+            let recording = Recording(
+                id: sessionID,
+                name: name,
+                date: manifest.captureStartedAt ?? createdAt,
+                duration: 0,
+                filePath: microphoneURL,
+                systemAudioFilePath: nil
+            )
+            currentRecording = recording
+            isRecording = true
+            isPaused = false
+            startTime = Date()
+            accumulatedTime = 0
+            lifecycleGate.didStart()
+            startDurationTimer()
+            return .started(recording)
+        } catch {
+            stopMicCapture()
+            systemAudioTap?.stop()
+            systemAudioTap = nil
+            systemAudioLevel = 0
+            updateAudioLevel()
+
+            manifest.state = .failed
+            manifest.failureCode = .captureFailed
+            manifest.updatedAt = Date()
+            try? await manifestStore.write(manifest, to: bundleURL)
+            if FailedStartRecoveryPolicy.shouldSurfaceSession(captureDidBegin: captureDidBegin) {
+                let recoverable = await recoveryService.inspect(manifest: manifest, bundleURL: bundleURL)
+                addRecoverableSessionAtMostOnce(recoverable)
+            }
+            currentManifest = nil
+            recordingDirectoryURL = nil
+            lifecycleGate.didFailStart()
+            throw error
         }
     }
 
-    func pauseRecording() {
-        guard isRecording, !isPaused else { return }
+    @MainActor
+    func pauseRecording() async {
+        guard lifecycleGate.pause() else { return }
 
         // Actually stop capturing — the paused interval is not written to either file.
         recordingEngine?.pause()
@@ -221,15 +351,30 @@ class AudioRecorder: NSObject, ObservableObject {
         if let startTime = startTime {
             accumulatedTime += Date().timeIntervalSince(startTime)
         }
+        startTime = nil
         durationTimer?.invalidate()
+
+        if var manifest = currentManifest, let bundleURL = recordingDirectoryURL {
+            manifest.state = .paused
+            manifest.duration = accumulatedTime
+            manifest.updatedAt = Date()
+            do {
+                try await manifestStore.write(manifest, to: bundleURL)
+                currentManifest = manifest
+            } catch {
+                lastError = "Recording paused, but its recovery state couldn't be saved."
+            }
+        }
     }
 
-    func resumeRecording() {
-        guard !isRecording, isPaused else { return }
+    @MainActor
+    func resumeRecording() async throws {
+        guard lifecycleGate.phase == .paused else { return }
 
         resetMicWarmupMute()
-        try? recordingEngine?.start()
+        try recordingEngine?.start()
         systemAudioTap?.resume()
+        guard lifecycleGate.resume() else { return }
 
         micAudioLevel = 0
         systemAudioLevel = 0
@@ -237,9 +382,26 @@ class AudioRecorder: NSObject, ObservableObject {
         isRecording = true
         isPaused = false
         startTime = Date()
+        startDurationTimer()
 
+        if var manifest = currentManifest, let bundleURL = recordingDirectoryURL {
+            manifest.state = .capturing
+            manifest.duration = accumulatedTime
+            manifest.updatedAt = Date()
+            do {
+                try await manifestStore.write(manifest, to: bundleURL)
+                currentManifest = manifest
+            } catch {
+                lastError = "Recording resumed, but its recovery state couldn't be saved."
+            }
+        }
+    }
+
+    @MainActor
+    private func startDurationTimer() {
+        durationTimer?.invalidate()
         durationTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+            guard let self else { return }
             if let startTime = self.startTime {
                 self.recordingDuration = Date().timeIntervalSince(startTime) + self.accumulatedTime
             }
@@ -268,50 +430,41 @@ class AudioRecorder: NSObject, ObservableObject {
             commonFormat: format.commonFormat,
             interleaved: format.isInterleaved
         )
-        micFile = file
-        micWarmupFramesRemaining = AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
+        let captureSession = MicrophoneCaptureSession(
+            writer: file,
+            warmupFrames: AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
+        )
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak engine] buffer, _ in
-            guard let self, let engine, self.recordingEngine === engine else { return }
-            self.applyMicWarmupMute(to: buffer)
-            try? self.micFile?.write(from: buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, weak captureSession] buffer, _ in
+            guard let captureSession, let normalizedLevel = captureSession.process(buffer) else { return }
 
-            guard let channelData = buffer.floatChannelData else { return }
-            let channelCount = Int(buffer.format.channelCount)
-            let frameLength = Int(buffer.frameLength)
-            guard channelCount > 0, frameLength > 0 else { return }
-
-            var sum: Float = 0
-            for channel in 0..<channelCount {
-                let samples = channelData[channel]
-                for frame in 0..<frameLength {
-                    let sample = samples[frame]
-                    sum += sample * sample
-                }
-            }
-
-            let rms = sqrt(sum / Float(channelCount * frameLength))
-            let decibels = 20 * log10(max(rms, 0.000_001))
-            let normalizedLevel = max(0, min(1, (Double(decibels) + 60) / 60))
-
-            DispatchQueue.main.async { [weak self, weak engine] in
-                guard let self, self.recordingEngine === engine else { return }
+            DispatchQueue.main.async { [weak self, weak captureSession] in
+                guard let self, let captureSession,
+                      self.microphoneCaptureSession === captureSession else { return }
                 self.micAudioLevel = self.isRecording ? normalizedLevel : 0
                 self.updateAudioLevel()
             }
         }
 
-        engine.prepare()
-        try engine.start()
         recordingEngine = engine
+        microphoneCaptureSession = captureSession
+        do {
+            engine.prepare()
+            try engine.start()
+        } catch {
+            stopMicCapture()
+            throw error
+        }
     }
 
     private func stopMicCapture() {
-        recordingEngine?.inputNode.removeTap(onBus: 0)
-        recordingEngine?.stop()
+        let engine = recordingEngine
+        let captureSession = microphoneCaptureSession
+        captureSession?.stop()
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
         recordingEngine = nil
-        micFile = nil
-        micWarmupFramesRemaining = 0
+        microphoneCaptureSession = nil
         micAudioLevel = 0
         updateAudioLevel()
     }
@@ -322,23 +475,11 @@ class AudioRecorder: NSObject, ObservableObject {
 
     private func resetMicWarmupMute() {
         guard let format = recordingEngine?.inputNode.outputFormat(forBus: 0), format.sampleRate > 0 else {
-            micWarmupFramesRemaining = 0
             return
         }
-        micWarmupFramesRemaining = AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
-    }
-
-    private func applyMicWarmupMute(to buffer: AVAudioPCMBuffer) {
-        guard micWarmupFramesRemaining > 0, buffer.frameLength > 0 else { return }
-        let framesToMute = AVAudioFrameCount(min(micWarmupFramesRemaining, AVAudioFramePosition(buffer.frameLength)))
-
-        for audioBuffer in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
-            guard let data = audioBuffer.mData else { continue }
-            let bytesPerFrame = Int(audioBuffer.mDataByteSize) / Int(buffer.frameLength)
-            memset(data, 0, Int(framesToMute) * bytesPerFrame)
-        }
-
-        micWarmupFramesRemaining -= AVAudioFramePosition(framesToMute)
+        microphoneCaptureSession?.resetWarmup(
+            frames: AVAudioFramePosition(format.sampleRate * micWarmupMuteDuration)
+        )
     }
 
     /// Redirects the engine's input to a specific device by AVCaptureDevice.uniqueID
@@ -357,202 +498,187 @@ class AudioRecorder: NSObject, ObservableObject {
         )
     }
 
-    func stopRecording() {
-        guard let currentRecording = currentRecording else { return }
-        guard let bundleURL = recordingDirectoryURL else { return }
+    @MainActor
+    func stopRecording() async -> RecordingStopOutcome {
+        guard currentRecording != nil, let bundleURL = recordingDirectoryURL,
+              var manifest = currentManifest else {
+            return lifecycleGate.phase == .stopping ? .alreadyStopping : .alreadyStopped
+        }
+        guard lifecycleGate.beginStop() else {
+            return lifecycleGate.phase == .stopping ? .alreadyStopping : .alreadyStopped
+        }
 
-        // Stop capture immediately so both files are fully flushed before we merge them.
+        isStoppingRecording = true
+        defer { isStoppingRecording = false }
+
+        if isRecording, let startTime {
+            accumulatedTime += Date().timeIntervalSince(startTime)
+        }
+        let finalDuration = max(accumulatedTime, recordingDuration)
+        durationTimer?.invalidate()
+        startTime = nil
+        isRecording = false
+        isPaused = false
+
+        // Capture must be stopped before probing or merging so both files are flushed.
         stopMicCapture()
         systemAudioTap?.stop()
         systemAudioTap = nil
         systemAudioLevel = 0
         updateAudioLevel()
 
-        Task {
-            do {
-                // Find and merge the audio files in the bundle directory
-                func findAndMergeAudioFiles() async throws -> URL {
-                    do {
-                        // Look for audio files in the bundle directory
-                        let fileManager = FileManager.default
-                        let bundleContents = try fileManager.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)
+        manifest.state = .stopping
+        manifest.duration = finalDuration
+        manifest.updatedAt = Date()
+        do {
+            try await manifestStore.write(manifest, to: bundleURL)
+            currentManifest = manifest
+        } catch {
+            lastError = "Audio capture stopped, but its recovery state couldn't be updated."
+        }
 
-                        // Log all files found in the bundle
-                        logger.info("Files in bundle: \(bundleContents.map { $0.lastPathComponent }.joined(separator: ", "))")
-
-                        // First check if we already have a merged recording file
-                        if let mergedAudioURL = bundleContents.first(where: { url in
-                            return url.lastPathComponent == "recording.m4a"
-                        }) {
-                            logger.info("Found existing merged audio file: \(mergedAudioURL.path)")
-                            return mergedAudioURL
-                        }
-
-                        // Find the microphone audio file
-                        guard let micAudioURL = bundleContents.first(where: { url in
-                            return url.lastPathComponent == "mic_recording.m4a"
-                        }) else {
-                            logger.warning("Microphone audio file not found")
-
-                            // If no microphone file, look for any audio file
-                            if let audioURL = bundleContents.first(where: { url in
-                                let pathExtension = url.pathExtension.lowercased()
-                                return pathExtension == "m4a" || pathExtension == "wav" || pathExtension == "mp4" || pathExtension == "mov"
-                            }) {
-                                logger.info("Found generic audio file: \(audioURL.path)")
-                                return audioURL
-                            } else {
-                                logger.warning("No audio file found in bundle directory: \(bundleURL.path)")
-                                throw AudioRecorderError.recordingFailed
-                            }
-                        }
-
-                        // Find the system audio file
-                        guard let systemAudioURL = bundleContents.first(where: { url in
-                            return url.lastPathComponent == "system_recording.m4a"
-                        }) else {
-                            logger.warning("System audio file not found, using microphone audio only")
-                            return micAudioURL
-                        }
-
-                        // Create the output URL for the merged file
-                        let mergedAudioURL = bundleURL.appendingPathComponent("recording.m4a")
-
-                        // Merge the audio files
-                        logger.info("Merging microphone and system audio files...")
-                        do {
-                            // Merge the audio files using AVFoundation
-                            let mergedURL = try await mergeAudioFiles(
-                                microphoneURL: micAudioURL,
-                                systemAudioURL: systemAudioURL,
-                                outputURL: mergedAudioURL
-                            )
-                            logger.info("Audio files successfully merged to: \(mergedURL.path)")
-                            return mergedURL
-                        } catch {
-                            logger.error("Failed to merge audio files: \(error.localizedDescription)")
-                            // Preserve the recording: keep the microphone audio and warn
-                            // the user rather than silently dropping system audio.
-                            await MainActor.run {
-                                lastError = "Saved microphone audio, but system audio couldn't be merged: \(error.localizedDescription)"
-                            }
-                            return micAudioURL
-                        }
-                    } catch {
-                        logger.error("Error examining bundle directory: \(error.localizedDescription)")
-                        throw error
+        let session = await recoveryService.inspect(manifest: manifest, bundleURL: bundleURL)
+        do {
+            switch try await recoveryService.recover(session) {
+            case .recovered(let recording, let usedFallback):
+                do {
+                    try await libraryMutations.withLock {
+                        try addRecordingAtMostOnce(recording)
                     }
-                }
-
-                // Get the audio file URL by finding and merging the files
-                let audioFileURL = try await findAndMergeAudioFiles()
-
-                await MainActor.run {
-                    // Update state
-                    isRecording = false
-                    isPaused = false
-                    durationTimer?.invalidate()
-
-                    // Update the final duration
-                    if let startTime = startTime {
-                        accumulatedTime += Date().timeIntervalSince(startTime)
+                    if usedFallback {
+                        lastError = "The recording was saved from an available raw track because the combined export was unavailable."
+                        await retainMergeRetryIfAvailable(in: bundleURL)
                     }
-
-                    // Create the final recording object with the correct duration and file path
-                    let recordingPath = audioFileURL
-
-                    let finalRecording = Recording(
-                        id: currentRecording.id,
-                        name: currentRecording.name,
-                        date: currentRecording.date,
-                        duration: accumulatedTime,
-                        filePath: recordingPath,
-                        systemAudioFilePath: nil
+                    resetActiveRecordingState()
+                    return .saved(recording)
+                } catch {
+                    var failedManifest = (try? await manifestStore.read(from: bundleURL)) ?? manifest
+                    failedManifest.state = .failed
+                    failedManifest.failureCode = .metadataWriteFailed
+                    failedManifest.updatedAt = Date()
+                    try? await manifestStore.write(failedManifest, to: bundleURL)
+                    let recoverable = await recoveryService.inspect(
+                        manifest: failedManifest,
+                        bundleURL: bundleURL
                     )
-
-                    // Add to recordings array
-                    recordings.append(finalRecording)
-
-                    // Reset state
-                    self.currentRecording = nil
-                    startTime = nil
-                    accumulatedTime = 0
-                    recordingDuration = 0
-                    recordingDirectoryURL = nil
-
-                    // Save recordings to disk
-                    saveRecordings()
+                    addRecoverableSessionAtMostOnce(recoverable)
+                    resetActiveRecordingState()
+                    lastError = "The audio is preserved, but its recording entry couldn't be saved. Use Recover to retry."
+                    return .recoverable(recoverable)
                 }
-            } catch {
-                logger.error("Error stopping recording: \(error.localizedDescription)")
-                // Reset recording state so the UI isn't stuck "recording", and surface the error.
-                await MainActor.run {
-                    isRecording = false
-                    isPaused = false
-                    durationTimer?.invalidate()
-                    self.currentRecording = nil
-                    startTime = nil
-                    accumulatedTime = 0
-                    recordingDuration = 0
-                    recordingDirectoryURL = nil
-                    lastError = "Couldn't save the recording: \(error.localizedDescription)"
-                }
+
+            case .unavailable(let recoverable):
+                addRecoverableSessionAtMostOnce(recoverable)
+                resetActiveRecordingState()
+                lastError = "The recording session is preserved, but no usable audio could be finalized yet."
+                return .recoverable(recoverable)
+
+            case .ignored:
+                resetActiveRecordingState()
+                return .alreadyStopped
             }
+        } catch {
+            let recoverable = await recoveryService.inspect(manifest: manifest, bundleURL: bundleURL)
+            addRecoverableSessionAtMostOnce(recoverable)
+            resetActiveRecordingState()
+            lastError = "The recording session is preserved for recovery: \(error.localizedDescription)"
+            return .recoverable(recoverable)
         }
     }
 
     // MARK: - Persistence
 
-    private func saveRecordings() {
+    @MainActor
+    private func resetActiveRecordingState() {
+        lifecycleGate.finishStop()
+        currentRecording = nil
+        currentManifest = nil
+        startTime = nil
+        accumulatedTime = 0
+        recordingDuration = 0
+        recordingDirectoryURL = nil
+    }
+
+    @MainActor
+    private func addRecordingAtMostOnce(_ recording: Recording) throws {
+        guard !recordings.contains(where: { $0.id == recording.id }) else { return }
+        recordings.append(recording)
         do {
-            let data = try JSONEncoder().encode(recordings)
-            let directory = directoryManager.getRecordingsDirectory()
-            let url = directory.appendingPathComponent("recordings.json")
-            try data.write(to: url)
+            try saveRecordings()
         } catch {
-            print("Failed to save recordings: \(error)")
+            recordings.removeAll { $0.id == recording.id }
+            throw error
         }
     }
 
+    @MainActor
+    private func replaceRecordingAudioAtomically(with replacement: Recording) throws {
+        let updatedRecordings = RecordingLibraryUpdate.replacingAudio(in: recordings, with: replacement)
+        try saveRecordings(updatedRecordings)
+        recordings = updatedRecordings
+    }
+
+    @MainActor
+    private func addRecoverableSessionAtMostOnce(_ session: RecoverableRecordingSession) {
+        recoverableSessions.removeAll { $0.id == session.id }
+        recoverableSessions.append(session)
+        recoverableSessions.sort { $0.manifest.createdAt < $1.manifest.createdAt }
+    }
+
+    private func saveRecordings(_ recordingsToSave: [Recording]? = nil) throws {
+        let data = try JSONEncoder().encode(recordingsToSave ?? recordings)
+        let url = directoryManager.getRecordingsDirectory().appendingPathComponent("recordings.json")
+        try data.write(to: url, options: .atomic)
+    }
+
     // Delete a recording by ID
-    func deleteRecording(id: UUID) {
-        if let index = recordings.firstIndex(where: { $0.id == id }) {
-            let recording = recordings[index]
+    @MainActor
+    func deleteRecording(id: UUID) async {
+        guard deletionActionGate.begin(id) else { return }
+        defer { deletionActionGate.finish(id) }
+        await libraryMutations.withLock {
+            await deleteRecordingLocked(id: id)
+        }
+    }
 
-            // Check if the file is in a RecordKit bundle directory
-            let fileURL = recording.filePath
-            let isInBundle = fileURL.pathComponents.contains { $0.contains("_20") && ($0.contains("-") || $0.contains("_")) }
+    @MainActor
+    private func deleteRecordingLocked(id: UUID) async {
+        guard let recording = recordings.first(where: { $0.id == id }) else { return }
+        let originalRecordings = recordings
+        let bundleURL = recording.filePath.deletingLastPathComponent()
+        let manifestURL = bundleURL.appendingPathComponent(RecordingSessionManifest.filename)
+        let hasManifest = FileManager.default.fileExists(atPath: manifestURL.path)
+        let deletionURL = RecordingBundleDeletionPolicy.deletionURL(
+            for: recording,
+            recordingsDirectory: directoryManager.getRecordingsDirectory(),
+            hasManifest: hasManifest
+        )
+        let originalManifest = hasManifest ? try? await manifestStore.read(from: bundleURL) : nil
 
-            if isInBundle {
-                // Try to delete the parent directory (the bundle)
-                let bundleURL = fileURL.deletingLastPathComponent()
-                do {
-                    try FileManager.default.removeItem(at: bundleURL)
-                    print("Deleted recording bundle directory at: \(bundleURL.path)")
-                } catch {
-                    print("Error deleting recording bundle directory: \(error.localizedDescription)")
-
-                    // Fall back to deleting just the file
-                    do {
-                        try FileManager.default.removeItem(at: recording.filePath)
-                        print("Deleted audio file at: \(recording.filePath.path)")
-                    } catch {
-                        print("Error deleting audio file: \(error.localizedDescription)")
-                    }
+        do {
+            let updatedRecordings = try await RecordingDeletionTransaction.execute(
+                currentRecordings: originalRecordings,
+                deleting: id,
+                prepareForDeletion: {
+                    guard var manifest = originalManifest else { return }
+                    manifest.state = .dismissed
+                    manifest.updatedAt = Date()
+                    try await self.manifestStore.write(manifest, to: bundleURL)
+                },
+                rollbackPreparation: {
+                    guard let originalManifest else { return }
+                    try await self.manifestStore.write(originalManifest, to: bundleURL)
+                },
+                persistRecordings: { try self.saveRecordings($0) },
+                deleteFiles: {
+                    guard FileManager.default.fileExists(atPath: deletionURL.path) else { return }
+                    try FileManager.default.removeItem(at: deletionURL)
                 }
-            } else {
-                // Just delete the individual file
-                do {
-                    try FileManager.default.removeItem(at: recording.filePath)
-                    print("Deleted audio file at: \(recording.filePath.path)")
-                } catch {
-                    print("Error deleting audio file: \(error.localizedDescription)")
-                }
-            }
-
-            // Remove from recordings array
-            recordings.remove(at: index)
-            saveRecordings()
+            )
+            recordings = updatedRecordings
+            recoverableSessions.removeAll { $0.id == id }
+        } catch {
+            lastError = "Couldn't delete \(recording.name): \(error.localizedDescription)"
         }
     }
 
@@ -581,6 +707,289 @@ class AudioRecorder: NSObject, ObservableObject {
                 print("Failed to load recordings from default directory: \(error)")
             }
         }
+    }
+
+    @MainActor
+    private func recoverInterruptedSessionsOnLaunch() async {
+        defer {
+            initialRecoveryGate.finish()
+            isInitialRecoveryComplete = true
+        }
+        do {
+            let recordingsDirectory = directoryManager.getRecordingsDirectory()
+            try importService.cleanupInterruptedStaging(in: recordingsDirectory)
+            await migrateLegacyInterruptedRecordingIfNeeded(in: recordingsDirectory)
+            let scan = try await recoveryService.scan(
+                recordingsDirectory: recordingsDirectory,
+                excluding: Set(recordings.map(\.id)).union([currentManifest?.sessionID].compactMap { $0 })
+            )
+
+            for scannedSession in scan.sessions {
+                guard currentManifest?.sessionID != scannedSession.id else { continue }
+                var session = scannedSession
+
+                if let match = RecordingLibraryReferenceReconciler.matchingRecording(
+                    for: session.manifest,
+                    bundleURL: session.bundleURL,
+                    recordingsDirectory: recordingsDirectory,
+                    recordings: recordings
+                ), match.recording.id != session.id {
+                    let reconciledManifest = RecordingLibraryReferenceReconciler.reidentifiedManifest(
+                        session.manifest,
+                        recording: match.recording,
+                        audioFilename: match.audioFilename
+                    )
+                    do {
+                        try await manifestStore.write(reconciledManifest, to: session.bundleURL)
+                        session = await recoveryService.inspect(
+                            manifest: reconciledManifest,
+                            bundleURL: session.bundleURL
+                        )
+                    } catch {
+                        // The existing library row already owns this safe bundle. Never
+                        // create a second row with the stale folder UUID if reconciliation
+                        // cannot be persisted; the next launch will retry the rewrite.
+                        lastError = "Couldn't reconcile a legacy recording entry: \(error.localizedDescription)"
+                        continue
+                    }
+                }
+
+                if recordings.contains(where: { $0.id == session.id }) {
+                    if session.manifest.failureCode == .mergeFailed,
+                       session.inspection.canRetryMerge {
+                        addRecoverableSessionAtMostOnce(session)
+                    }
+                    continue
+                }
+                do {
+                    switch try await recoveryService.recover(session) {
+                    case .recovered(let recording, let usedFallback):
+                        do {
+                            try await libraryMutations.withLock {
+                                try addRecordingAtMostOnce(recording)
+                            }
+                            if usedFallback {
+                                lastError = "Recovered \(recording.name) from an available raw audio track."
+                                await retainMergeRetryIfAvailable(in: session.bundleURL)
+                            }
+                        } catch {
+                            addRecoverableSessionAtMostOnce(session)
+                        }
+                    case .unavailable(let recoverable):
+                        addRecoverableSessionAtMostOnce(recoverable)
+                    case .ignored:
+                        break
+                    }
+                } catch {
+                    addRecoverableSessionAtMostOnce(session)
+                }
+            }
+
+            corruptRecordingBundles = scan.corruptBundleURLs.map(CorruptRecordingBundle.init(bundleURL:))
+            if !scan.corruptBundleURLs.isEmpty {
+                lastError = "Some interrupted recording manifests are damaged. Their folders were preserved for inspection."
+            }
+        } catch {
+            lastError = "Couldn't scan interrupted recordings: \(error.localizedDescription)"
+        }
+    }
+
+    private func migrateLegacyInterruptedRecordingIfNeeded(in recordingsDirectory: URL) async {
+        let defaults = UserDefaults.standard
+        let rawMetadata = defaults.dictionary(forKey: "lastRecordingMetadata")
+        let metadata = rawMetadata?.reduce(into: [String: String]()) { result, pair in
+            if let value = pair.value as? String { result[pair.key] = value }
+        }
+        switch await legacyMigrationService.migrate(
+            metadata: metadata,
+            recordingsDirectory: recordingsDirectory,
+            existingRecordings: recordings
+        ) {
+        case .migrated, .conclusivelyAbsentOrInvalid:
+            defaults.removeObject(forKey: "lastRecordingMetadata")
+        case .retainedForRetry:
+            break
+        }
+    }
+
+    @MainActor
+    private func retainMergeRetryIfAvailable(in bundleURL: URL) async {
+        guard let manifest = try? await manifestStore.read(from: bundleURL),
+              manifest.failureCode == .mergeFailed else { return }
+        let session = await recoveryService.inspect(manifest: manifest, bundleURL: bundleURL)
+        if session.inspection.canRetryMerge {
+            addRecoverableSessionAtMostOnce(session)
+        }
+    }
+
+    @MainActor
+    func recoverSession(id: UUID) async {
+        guard let session = recoverableSessions.first(where: { $0.id == id }),
+              !recordings.contains(where: { $0.id == id }) else { return }
+        guard recoveryActionGate.begin(id) else { return }
+        recoveryActionsInFlight.insert(id)
+        defer {
+            recoveryActionGate.finish(id)
+            recoveryActionsInFlight.remove(id)
+        }
+
+        do {
+            switch try await recoveryService.recoverAvailableAudio(session) {
+            case .recovered(let recording, let usedFallback):
+                let insertionAllowed = try await libraryMutations.withLock {
+                    guard await recoveryMetadataInsertionIsAllowed(for: session) else { return false }
+                    try addRecordingAtMostOnce(recording)
+                    return true
+                }
+                guard insertionAllowed else {
+                    recoverableSessions.removeAll { $0.id == id }
+                    return
+                }
+                recoverableSessions.removeAll { $0.id == id }
+                if usedFallback {
+                    lastError = "Recovered \(recording.name) from an available raw audio track."
+                }
+            case .unavailable(let refreshed):
+                addRecoverableSessionAtMostOnce(refreshed)
+                lastError = refreshed.statusDescription
+            case .ignored:
+                recoverableSessions.removeAll { $0.id == id }
+            }
+        } catch {
+            lastError = "Recovery failed: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func retryMergeSession(id: UUID) async {
+        guard let session = recoverableSessions.first(where: { $0.id == id }),
+              session.inspection.canRetryMerge else { return }
+        guard recoveryActionGate.begin(id) else { return }
+        recoveryActionsInFlight.insert(id)
+        defer {
+            recoveryActionGate.finish(id)
+            recoveryActionsInFlight.remove(id)
+        }
+
+        do {
+            switch try await recoveryService.retryMerge(session) {
+            case .recovered(let recording, _):
+                do {
+                    let replacementAllowed = try await libraryMutations.withLock {
+                        guard await recoveryMetadataInsertionIsAllowed(for: session) else { return false }
+                        try replaceRecordingAudioAtomically(with: recording)
+                        return true
+                    }
+                    guard replacementAllowed else {
+                        recoverableSessions.removeAll { $0.id == id }
+                        return
+                    }
+                } catch {
+                    // The merged file is valid, but keep the retry marker until its
+                    // library entry can be atomically repointed on a later attempt.
+                    if var retryManifest = try? await manifestStore.read(from: session.bundleURL) {
+                        retryManifest.state = .completed
+                        retryManifest.failureCode = .mergeFailed
+                        retryManifest.resolvedAudioPath = recordings.first(where: { $0.id == id })?.filePath.lastPathComponent
+                        retryManifest.updatedAt = Date()
+                        try? await manifestStore.write(retryManifest, to: session.bundleURL)
+                    }
+                    await retainMergeRetryIfAvailable(in: session.bundleURL)
+                    throw error
+                }
+                recoverableSessions.removeAll { $0.id == id }
+            case .unavailable(let refreshed):
+                addRecoverableSessionAtMostOnce(refreshed)
+                lastError = "The merge retry failed. Both raw tracks remain available; use Recover to save one of them."
+            case .ignored:
+                recoverableSessions.removeAll { $0.id == id }
+            }
+        } catch {
+            lastError = "Merge retry failed: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func dismissRecoverySession(id: UUID) async {
+        guard let session = recoverableSessions.first(where: { $0.id == id }) else { return }
+        guard recoveryActionGate.begin(id) else { return }
+        recoveryActionsInFlight.insert(id)
+        defer {
+            recoveryActionGate.finish(id)
+            recoveryActionsInFlight.remove(id)
+        }
+        do {
+            try await recoveryService.dismiss(session)
+            recoverableSessions.removeAll { $0.id == id }
+        } catch {
+            lastError = "Couldn't dismiss the recovery session: \(error.localizedDescription)"
+        }
+    }
+
+    func isRecoveryActionInFlight(id: UUID) -> Bool {
+        recoveryActionsInFlight.contains(id)
+    }
+
+    private func recoveryMetadataInsertionIsAllowed(for session: RecoverableRecordingSession) async -> Bool {
+        guard let latest = try? await manifestStore.read(from: session.bundleURL) else { return false }
+        return latest.state != .dismissed
+    }
+
+    @MainActor
+    func recoverCorruptBundle(_ bundle: CorruptRecordingBundle) async {
+        guard corruptRecoveryActionsInFlight.insert(bundle.id).inserted else { return }
+        defer { corruptRecoveryActionsInFlight.remove(bundle.id) }
+        let suffix = String(bundle.bundleURL.lastPathComponent.suffix(36))
+        guard let sessionID = UUID(uuidString: suffix) else {
+            lastError = "This damaged bundle has no trustworthy session identifier. Use Show in Finder to inspect it."
+            return
+        }
+
+        let createdAt = (try? bundle.bundleURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
+        var manifest = RecordingSessionManifest(
+            sessionID: sessionID,
+            displayName: bundle.bundleURL.lastPathComponent,
+            createdAt: createdAt,
+            selectedInputID: "",
+            state: .failed
+        )
+        if let importedAudioFilename = RecordingManifestRepairCandidate.audioFilename(in: bundle.bundleURL) {
+            manifest.mergedPath = importedAudioFilename
+        }
+        manifest.failureCode = .manifestWriteFailed
+
+        do {
+            try manifest.validatePaths(in: bundle.bundleURL)
+            let candidate = await recoveryService.inspect(manifest: manifest, bundleURL: bundle.bundleURL)
+            guard candidate.inspection.hasAnyValidAudio else {
+                lastError = "No valid known audio files were found in this damaged bundle."
+                return
+            }
+            try await manifestStore.write(manifest, to: bundle.bundleURL)
+            corruptRecordingBundles.removeAll { $0.id == bundle.id }
+            addRecoverableSessionAtMostOnce(candidate)
+            await recoverSession(id: sessionID)
+        } catch {
+            lastError = "Couldn't repair the damaged recording manifest: \(error.localizedDescription)"
+        }
+    }
+
+    @MainActor
+    func dismissCorruptBundle(_ bundle: CorruptRecordingBundle) {
+        guard !corruptRecoveryActionsInFlight.contains(bundle.id) else { return }
+        do {
+            try Data("dismissed".utf8).write(
+                to: bundle.bundleURL.appendingPathComponent(RecordingSessionManifest.dismissalFilename),
+                options: .atomic
+            )
+            corruptRecordingBundles.removeAll { $0.id == bundle.id }
+        } catch {
+            lastError = "Couldn't dismiss the damaged recording bundle: \(error.localizedDescription)"
+        }
+    }
+
+    func isCorruptRecoveryActionInFlight(id: String) -> Bool {
+        corruptRecoveryActionsInFlight.contains(id)
     }
 
     // MARK: - Microphone Control
@@ -789,279 +1198,30 @@ class AudioRecorder: NSObject, ObservableObject {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
-    /// Merge two audio files into a single file
-    /// - Parameters:
-    ///   - microphoneURL: URL of the microphone audio file
-    ///   - systemAudioURL: URL of the system audio file
-    ///   - outputURL: URL where the merged file will be saved
-    /// - Returns: URL of the merged file
-    private func mergeAudioFiles(microphoneURL: URL, systemAudioURL: URL, outputURL: URL) async throws -> URL {
-        logger.info("Merging audio files: \(microphoneURL.lastPathComponent) and \(systemAudioURL.lastPathComponent)")
-
-        // Get file sizes for logging
-        let microphoneFileSize = (try? FileManager.default.attributesOfItem(atPath: microphoneURL.path)[.size] as? NSNumber)?.int64Value ?? 0
-        let systemAudioFileSize = (try? FileManager.default.attributesOfItem(atPath: systemAudioURL.path)[.size] as? NSNumber)?.int64Value ?? 0
-
-        logger.info("Original file sizes - Microphone: \(ByteCountFormatter.string(fromByteCount: microphoneFileSize, countStyle: .file)), System Audio: \(ByteCountFormatter.string(fromByteCount: systemAudioFileSize, countStyle: .file))")
-
-        // Check if both files exist
-        guard FileManager.default.fileExists(atPath: microphoneURL.path) else {
-            logger.error("Microphone audio file not found at: \(microphoneURL.path)")
-            throw AudioRecorderError.fileNotFound
-        }
-
-        guard FileManager.default.fileExists(atPath: systemAudioURL.path) else {
-            logger.error("System audio file not found at: \(systemAudioURL.path)")
-            throw AudioRecorderError.fileNotFound
-        }
-
-        // Create AVAssets for both files
-        let microphoneAsset = AVAsset(url: microphoneURL)
-        let systemAudioAsset = AVAsset(url: systemAudioURL)
-
-        // Get audio tracks from the assets
-        guard let microphoneTrack = try? await microphoneAsset.loadTracks(withMediaType: .audio).first,
-              let systemAudioTrack = try? await systemAudioAsset.loadTracks(withMediaType: .audio).first else {
-            logger.error("Failed to get audio tracks from assets")
-            throw AudioRecorderError.recordingFailed
-        }
-
-        // Get the time ranges for both tracks
-        let microphoneDuration = try await microphoneAsset.load(.duration)
-        let systemAudioDuration = try await systemAudioAsset.load(.duration)
-
-        logger.info("Microphone duration: \(microphoneDuration.seconds) seconds")
-        logger.info("System audio duration: \(systemAudioDuration.seconds) seconds")
-
-        // Check if microphone file is significantly smaller than system audio file
-        // This could indicate that the microphone was muted or has silence compression
-        let sizeRatio = Double(microphoneFileSize) / Double(systemAudioFileSize)
-        let hasSignificantSizeDifference = sizeRatio < 0.1 // Microphone file is less than 10% of system audio file
-
-        if hasSignificantSizeDifference {
-            logger.info("Detected significant file size difference: microphone file is \(Int(sizeRatio * 100))% of system audio file size")
-            logger.info("This suggests the microphone may have been muted or contains mostly silence")
-        }
-
-        // Check if there's a significant difference in durations (more than 10%)
-        let durationRatio = microphoneDuration.seconds / systemAudioDuration.seconds
-        let hasDurationDiscrepancy = abs(durationRatio - 1.0) > 0.1
-
-        if hasDurationDiscrepancy {
-            logger.warning("Detected significant duration discrepancy between microphone and system audio: ratio = \(durationRatio)")
-            logger.warning("Keeping each track at its own duration so a short track does not truncate the merge.")
-        }
-
-        // Get the format descriptions to check sample rates
-        if let microphoneFormatObj = try await microphoneTrack.load(.formatDescriptions).first,
-           let systemAudioFormatObj = try await systemAudioTrack.load(.formatDescriptions).first {
-
-            // These objects are already CMFormatDescription objects, no need to cast
-            let microphoneFormat = microphoneFormatObj
-            let systemAudioFormat = systemAudioFormatObj
-
-            if let micASBD = CMAudioFormatDescriptionGetStreamBasicDescription(microphoneFormat)?.pointee,
-               let sysASBD = CMAudioFormatDescriptionGetStreamBasicDescription(systemAudioFormat)?.pointee {
-
-                logger.info("Microphone sample rate: \(micASBD.mSampleRate) Hz, channels: \(micASBD.mChannelsPerFrame)")
-                logger.info("System audio sample rate: \(sysASBD.mSampleRate) Hz, channels: \(sysASBD.mChannelsPerFrame)")
-
-                // Check if sample rates are different
-                if abs(micASBD.mSampleRate - sysASBD.mSampleRate) > 1.0 {
-                    logger.warning("Different sample rates detected between microphone and system audio")
-                }
-            }
-        }
-
-        // Check specifically for MacBook internal microphone, which is known to have sample rate issues
-        let microphoneAssetName = microphoneURL.lastPathComponent.lowercased()
-        if microphoneAssetName.contains("macbook") ||
-           microphoneAssetName.contains("built-in") ||
-           microphoneAssetName.contains("internal") {
-            logger.warning("Detected MacBook internal microphone usage, which may have sample rate synchronization issues")
-        }
-
-        // Create a composition
-        let composition = AVMutableComposition()
-
-        // Create audio tracks in the composition
-        guard let compositionTrack1 = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid),
-              let compositionTrack2 = composition.addMutableTrack(
-                withMediaType: .audio,
-                preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            logger.error("Failed to create composition tracks")
-            throw AudioRecorderError.recordingFailed
-        }
-
-        // Insert each source at its own duration. If system capture is short or fails timing,
-        // the merged recording should still preserve the full microphone track.
-        do {
-            try compositionTrack1.insertTimeRange(CMTimeRange(start: .zero, duration: microphoneDuration), of: microphoneTrack, at: .zero)
-            try compositionTrack2.insertTimeRange(CMTimeRange(start: .zero, duration: systemAudioDuration), of: systemAudioTrack, at: .zero)
-        } catch {
-            logger.error("Failed to insert time ranges: \(error.localizedDescription)")
-            throw AudioRecorderError.recordingFailed
-        }
-        let outputDuration = max(microphoneDuration, systemAudioDuration)
-
-        // Set audio mixing to ensure both tracks are audible
-        let audioMix = AVMutableAudioMix()
-
-        // Create audio mix parameters for both tracks
-        let track1MixParameters = AVMutableAudioMixInputParameters(track: compositionTrack1)
-        track1MixParameters.trackID = compositionTrack1.trackID
-        track1MixParameters.setVolume(1.0, at: .zero)
-
-        let track2MixParameters = AVMutableAudioMixInputParameters(track: compositionTrack2)
-        track2MixParameters.trackID = compositionTrack2.trackID
-        track2MixParameters.setVolume(1.0, at: .zero)
-
-        if hasDurationDiscrepancy {
-            logger.info("Duration discrepancy detected; merged output duration will be \(outputDuration.seconds) seconds")
-        }
-
-        audioMix.inputParameters = [track1MixParameters, track2MixParameters]
-
-        // Remove the output file if it already exists
-        if FileManager.default.fileExists(atPath: outputURL.path) {
-            do {
-                try FileManager.default.removeItem(at: outputURL)
-                logger.info("Removed existing file at: \(outputURL.path)")
-            } catch {
-                logger.error("Failed to remove existing file: \(error.localizedDescription)")
-                throw AudioRecorderError.fileOperationFailed
-            }
-        }
-
-        logger.info("Exporting merged audio as AAC mono, sample rate \(self.mergedAudioSampleRate), bitrate \(self.mergedAudioBitRate)")
-        debugLogger.log(
-            "Merge export started. micSize=\(microphoneFileSize) systemSize=\(systemAudioFileSize) duration=\(outputDuration.seconds) output=\(outputURL.lastPathComponent) settings=aac mono \(mergedAudioBitRate)bps \(Int(mergedAudioSampleRate))Hz",
-            area: .recordings,
-            contextURL: outputURL
-        )
-
-        do {
-            try await exportMixedAudio(composition: composition, audioMix: audioMix, outputURL: outputURL)
-        } catch {
-            debugLogger.log("Merge export failed. error=\(error.localizedDescription)", area: .recordings, contextURL: outputURL)
-            throw error
-        }
-
-        // Log the final file size
-        if let mergedFileSize = try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber {
-            let finalSize = mergedFileSize.int64Value
-            let totalOriginalSize = microphoneFileSize + systemAudioFileSize
-            let compressionRatio = Double(finalSize) / Double(totalOriginalSize)
-
-            logger.info("Merged file size: \(ByteCountFormatter.string(fromByteCount: finalSize, countStyle: .file))")
-            logger.info("Compression ratio: \(String(format: "%.2f", compressionRatio * 100))% of original combined size")
-            debugLogger.log(
-                "Merge export completed. outputSize=\(finalSize) compressionRatio=\(String(format: "%.2f", compressionRatio * 100))%",
-                area: .recordings,
-                contextURL: outputURL
-            )
-        }
-
-        logger.info("Audio files successfully merged to: \(outputURL.path)")
-        return outputURL
-    }
-
-    private func exportMixedAudio(composition: AVMutableComposition, audioMix: AVMutableAudioMix, outputURL: URL) async throws {
-        let reader = try AVAssetReader(asset: composition)
-
-        let readerSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: mergedAudioSampleRate,
-            AVNumberOfChannelsKey: mergedAudioChannels,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false
-        ]
-
-        let audioTracks = composition.tracks(withMediaType: .audio)
-        let readerOutput = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: readerSettings)
-        readerOutput.audioMix = audioMix
-
-        guard reader.canAdd(readerOutput) else {
-            throw AudioRecorderError.recordingFailed
-        }
-        reader.add(readerOutput)
-
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
-        let writerSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: mergedAudioSampleRate,
-            AVNumberOfChannelsKey: mergedAudioChannels,
-            AVEncoderBitRateKey: mergedAudioBitRate
-        ]
-
-        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: writerSettings)
-        writerInput.expectsMediaDataInRealTime = false
-
-        guard writer.canAdd(writerInput) else {
-            throw AudioRecorderError.recordingFailed
-        }
-        writer.add(writerInput)
-
-        guard reader.startReading() else {
-            throw reader.error ?? AudioRecorderError.recordingFailed
-        }
-        guard writer.startWriting() else {
-            reader.cancelReading()
-            throw writer.error ?? AudioRecorderError.recordingFailed
-        }
-
-        writer.startSession(atSourceTime: .zero)
-
-        let queue = DispatchQueue(label: "WhisperNote.AudioMergeWriter")
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            writerInput.requestMediaDataWhenReady(on: queue) {
-                while writerInput.isReadyForMoreMediaData {
-                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                        if !writerInput.append(sampleBuffer) {
-                            reader.cancelReading()
-                            writerInput.markAsFinished()
-                            continuation.resume(throwing: writer.error ?? AudioRecorderError.recordingFailed)
-                            return
-                        }
-                    } else {
-                        writerInput.markAsFinished()
-                        writer.finishWriting {
-                            if reader.status == .failed || reader.status == .cancelled {
-                                continuation.resume(throwing: reader.error ?? AudioRecorderError.recordingFailed)
-                            } else if writer.status == .failed || writer.status == .cancelled {
-                                continuation.resume(throwing: writer.error ?? AudioRecorderError.recordingFailed)
-                            } else {
-                                continuation.resume()
-                            }
-                        }
-                        return
-                    }
-                }
-            }
-        }
-    }
-
     func importRecording(from sourceURL: URL) {
         importRecording(from: sourceURL, named: nil)
     }
 
     func importRecording(from sourceURL: URL, named customName: String?) {
-        Task {
+        Task { @MainActor in
             do {
-                let recording = try await importSingle(from: sourceURL, groupId: nil, groupName: nil, customName: customName)
-                await MainActor.run {
-                    recordings.append(recording)
-                    saveRecordings()
+                let recording = try await importService.importSingle(
+                    from: sourceURL,
+                    into: directoryManager.getRecordingsDirectory(),
+                    groupId: nil,
+                    groupName: nil,
+                    customName: customName
+                )
+                do {
+                    try await libraryMutations.withLock {
+                        try addRecordingAtMostOnce(recording)
+                    }
+                } catch {
+                    try? FileManager.default.removeItem(at: recording.filePath.deletingLastPathComponent())
+                    throw error
                 }
             } catch {
-                await MainActor.run {
-                    lastError = "Import failed for \(sourceURL.lastPathComponent): \(error.localizedDescription)"
-                }
+                lastError = "Import failed for \(sourceURL.lastPathComponent): \(error.localizedDescription)"
             }
         }
     }
@@ -1077,66 +1237,63 @@ class AudioRecorder: NSObject, ObservableObject {
             return "Imported batch — \(df.string(from: Date())) (\(urls.count) files)"
         }()
 
-        Task {
-            var imported: [Recording] = []
-            for sourceURL in urls {
-                do {
-                    let recording = try await importSingle(from: sourceURL, groupId: groupId, groupName: groupName, customName: nil)
-                    imported.append(recording)
-                } catch {
-                    await MainActor.run {
-                        lastError = "Import failed for \(sourceURL.lastPathComponent): \(error.localizedDescription)"
+        Task { @MainActor in
+            let result = await importService.importBatch(
+                from: urls,
+                into: directoryManager.getRecordingsDirectory(),
+                groupId: groupId,
+                groupName: groupName
+            )
+
+            if !result.recordings.isEmpty {
+                let didPersist = await libraryMutations.withLock {
+                    let insertedIDs = Set(result.recordings.map(\.id))
+                    recordings.append(contentsOf: result.recordings.filter { recording in
+                        !recordings.contains(where: { $0.id == recording.id })
+                    })
+                    do {
+                        try saveRecordings()
+                        return true
+                    } catch {
+                        recordings.removeAll { insertedIDs.contains($0.id) }
+                        return false
                     }
                 }
+                if !didPersist {
+                    for recording in result.recordings {
+                        try? FileManager.default.removeItem(at: recording.filePath.deletingLastPathComponent())
+                    }
+                    lastError = "The imported files were rolled back because their metadata couldn't be saved."
+                    return
+                }
             }
-            guard !imported.isEmpty else { return }
-            let importedFinal = imported
-            await MainActor.run {
-                recordings.append(contentsOf: importedFinal)
-                saveRecordings()
+
+            if !result.failures.isEmpty {
+                let failedNames = result.failures.map(\.filename).joined(separator: ", ")
+                lastError = "Imported \(result.recordings.count) of \(urls.count) files. Failed: \(failedNames)."
             }
         }
     }
 
-    private func importSingle(from sourceURL: URL, groupId: UUID?, groupName: String?, customName: String?) async throws -> Recording {
-        let didAccess = sourceURL.startAccessingSecurityScopedResource()
-        defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
-        let uniqueDir = directoryManager.getRecordingsDirectory()
-            .appendingPathComponent("import_\(dateFormatter.string(from: Date()))_\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: uniqueDir, withIntermediateDirectories: true)
-
-        let ext = sourceURL.pathExtension.isEmpty ? "m4a" : sourceURL.pathExtension
-        let destURL = uniqueDir.appendingPathComponent("recording.\(ext)")
-        try FileManager.default.copyItem(at: sourceURL, to: destURL)
-
-        let duration = try await AVAsset(url: destURL).load(.duration).seconds
-        let sourceName = sourceURL.deletingPathExtension().lastPathComponent
-        let trimmedCustomName = customName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let name = trimmedCustomName.isEmpty ? sourceName : trimmedCustomName
-        debugLogger.log("Imported recording. source=\(sourceURL.path) destination=\(destURL.path) name=\(name) duration=\(duration)", area: .recordings, contextURL: destURL)
-        return Recording(name: name, date: Date(), duration: duration,
-                         filePath: destURL, systemAudioFilePath: nil,
-                         groupId: groupId, groupName: groupName)
-    }
-
     /// Delete every recording belonging to a group.
-    func deleteGroup(groupId: UUID) {
+    @MainActor
+    func deleteGroup(groupId: UUID) async {
         let ids = recordings.filter { $0.groupId == groupId }.map { $0.id }
         for id in ids {
-            deleteRecording(id: id)
+            await deleteRecording(id: id)
         }
     }
 }
 
-enum AudioRecorderError: Error, LocalizedError {
+enum AudioRecorderError: Error, LocalizedError, Equatable {
     case recordingFailed
     case permissionDenied
     case directoryError
     case fileNotFound
     case fileOperationFailed
+    case manifestWriteFailed
+    case invalidAudio
+    case recoveryInProgress
 
     var errorDescription: String? {
         switch self {
@@ -1150,6 +1307,12 @@ enum AudioRecorderError: Error, LocalizedError {
             return "Audio file not found. The recording may have failed or been moved."
         case .fileOperationFailed:
             return "Failed to perform file operation. Please try again."
+        case .manifestWriteFailed:
+            return "The recording recovery manifest couldn't be saved."
+        case .invalidAudio:
+            return "The selected file does not contain valid playable audio."
+        case .recoveryInProgress:
+            return "WhisperNote is still checking interrupted recordings. Try starting again in a moment."
         }
     }
 }
