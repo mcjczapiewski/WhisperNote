@@ -22,7 +22,6 @@ struct SettingsView: View {
     @AppStorage("telemetryWebhookEndpoint") private var telemetryWebhookEndpoint = ""
 
     @State private var isShowingDirectoryPicker = false
-    @State private var selectedDirectoryDisplayName = "Default (Documents)"
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var isShowingChangelog = false
@@ -33,13 +32,9 @@ struct SettingsView: View {
 
     private let audioQualities = ["low", "medium", "high"]
 
-    init() {
-        // Load the saved directory path when the view is initialized
-        if !recordingsDirectory.isEmpty {
-            // Extract the last path component for display
-            let url = URL(fileURLWithPath: recordingsDirectory)
-            selectedDirectoryDisplayName = url.lastPathComponent
-        }
+    private var selectedDirectoryDisplayName: String {
+        guard !recordingsDirectory.isEmpty else { return "Default (Documents)" }
+        return URL(fileURLWithPath: recordingsDirectory).lastPathComponent
     }
 
     var body: some View {
@@ -357,7 +352,6 @@ struct SettingsView: View {
                                 Task {
                                     if await librarySearch.selectLibrary(path: nil, bookmark: nil) {
                                         recordingsDirectory = ""
-                                        selectedDirectoryDisplayName = "Default (Documents)"
                                     }
                                 }
                             }
@@ -435,7 +429,6 @@ struct SettingsView: View {
                     Task {
                         if await librarySearch.selectLibrary(path: selectedURL.path, bookmark: bookmarkData) {
                             recordingsDirectory = selectedURL.path
-                            selectedDirectoryDisplayName = selectedURL.lastPathComponent
                         }
                     }
                 } catch {
@@ -512,7 +505,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.10"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.11"
     }
 }
 
