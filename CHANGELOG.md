@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.12 — July 15, 2026
+
+- Fixed the "Publishing changes from within view updates" console warnings on tab switches by mirroring the tab selection in local view state instead of binding TabView directly to the navigation router.
+
 ## 1.4.11 — July 15, 2026
 
 - Fixed Settings-tab initialization to derive the recording-directory label without writing SwiftUI state while the tab view is updating.
