@@ -14,10 +14,13 @@ struct RecordingView: View {
     @EnvironmentObject var commandCoordinator: RecordingCommandCoordinator
     @State private var recordingName = ""
     @State private var showingNamePrompt = false
+    @State private var recordToResults = false
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingDeleteConfirmation = false
     @State private var recordingToDelete: Recording?
+    @State private var recordingIDsToDelete: Set<UUID> = []
+    @State private var selectedRecordingIDs: Set<UUID> = []
     @State private var showingLanguageSelector = false
     @State private var recordingToTranscribe: Recording?
     @State private var groupToTranscribe: UUID?
@@ -307,6 +310,7 @@ struct RecordingView: View {
 
                                     // Reset selected microphone to default (system preferred)
                                     selectedMicrophoneId = ""
+                                    recordToResults = UserDefaults.standard.bool(forKey: "autoTranscribeAfterRecording")
 
                                     // Refresh available microphones before showing the popup
                                     // This ensures we get the current system default microphone
@@ -362,7 +366,7 @@ struct RecordingView: View {
                     .padding(.leading)
 
                 ScrollViewReader { proxy in
-                List {
+                List(selection: $selectedRecordingIDs) {
                     let ungrouped = audioRecorder.recordings.filter { $0.groupId == nil }
                     let grouped = Dictionary(grouping: audioRecorder.recordings.filter { $0.groupId != nil },
                                              by: { $0.groupId! })
@@ -378,6 +382,7 @@ struct RecordingView: View {
                         )) {
                             ForEach(members) { recording in
                                 recordingRow(recording)
+                                    .tag(recording.id)
                                     .id(routeID(forRecording: recording.id))
                             }
                         } label: {
@@ -444,6 +449,7 @@ struct RecordingView: View {
 
                     ForEach(ungrouped) { recording in
                         recordingRow(recording)
+                            .tag(recording.id)
                             .listRowBackground(recordingListRowBackground)
                             .id(routeID(forRecording: recording.id))
                     }
@@ -487,6 +493,9 @@ struct RecordingView: View {
                 TextField("Recording Name", text: $recordingName)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
+
+                Toggle("Record to Results", isOn: $recordToResults)
+                    .help("Transcribe this recording after it is saved, and create a summary if enabled in Settings.")
 
                 // Microphone selection
                 VStack(alignment: .leading) {
@@ -535,23 +544,29 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            .frame(width: 400, height: 350)
+            .frame(width: 400, height: 390)
             .padding()
         }
         .alert("Delete Recording", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 recordingToDelete = nil
+                recordingIDsToDelete.removeAll()
             }
             Button("Delete", role: .destructive) {
-                if let recording = recordingToDelete {
+                let ids = recordingIDsToDelete.isEmpty ? Set(recordingToDelete.map { [$0.id] } ?? []) : recordingIDsToDelete
+                if !ids.isEmpty {
                     Task {
-                        await audioRecorder.deleteRecording(id: recording.id)
+                        for id in ids { await audioRecorder.deleteRecording(id: id) }
                     }
-                    recordingToDelete = nil
                 }
+                selectedRecordingIDs.subtract(ids)
+                recordingToDelete = nil
+                recordingIDsToDelete.removeAll()
             }
         } message: {
-            if let recording = recordingToDelete {
+            if recordingIDsToDelete.count > 1 {
+                Text("Are you sure you want to delete \(recordingIDsToDelete.count) recordings? This action cannot be undone.")
+            } else if let recording = recordingToDelete {
                 Text("Are you sure you want to delete the recording \"\(recording.name)\"? This action cannot be undone.")
             } else {
                 Text("Are you sure you want to delete this recording? This action cannot be undone.")
@@ -733,6 +748,7 @@ struct RecordingView: View {
 
             Button(action: {
                 recordingToDelete = recording
+                recordingIDsToDelete = selectedRecordingIDs.contains(recording.id) ? selectedRecordingIDs : [recording.id]
                 showingDeleteConfirmation = true
             }) {
                 Image(systemName: "trash")
@@ -789,6 +805,7 @@ struct RecordingView: View {
 
             Button(action: {
                 recordingToDelete = recording
+                recordingIDsToDelete = selectedRecordingIDs.contains(recording.id) ? selectedRecordingIDs : [recording.id]
                 showingDeleteConfirmation = true
             }) {
                 Label("Delete", systemImage: "trash")
@@ -796,7 +813,7 @@ struct RecordingView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(routedRecordingID == recording.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                .fill(selectedRecordingIDs.contains(recording.id) || routedRecordingID == recording.id ? Color.accentColor.opacity(0.18) : Color.clear)
         )
     }
 
@@ -928,7 +945,8 @@ struct RecordingView: View {
             do {
                 let outcome = try await commandCoordinator.start(
                     name: name,
-                    microphoneId: selectedMicrophoneId
+                    microphoneId: selectedMicrophoneId,
+                    recordToResults: recordToResults
                 )
                 switch outcome {
                 case .started:

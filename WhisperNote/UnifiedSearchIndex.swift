@@ -68,6 +68,15 @@ struct UnifiedSearchResult: Equatable, Sendable {
     let destination: UnifiedSearchDestination
     let isStale: Bool
     let isOrphan: Bool
+    let previews: [UnifiedSearchPreview]
+}
+
+struct UnifiedSearchPreview: Equatable, Sendable {
+    let sourceTitle: String
+    let destination: UnifiedSearchDestination
+    let before: String?
+    let match: String
+    let after: String?
 }
 
 /// An immutable, pre-normalized projection of the library. Rebuild it whenever an
@@ -214,7 +223,8 @@ struct UnifiedSearchIndex: Sendable {
                 tags: entry.tags,
                 destination: ranked.destination,
                 isStale: entry.isStale,
-                isOrphan: entry.isOrphan
+                isOrphan: entry.isOrphan,
+                previews: entry.previews(matching: terms)
             )
         }
     }
@@ -285,6 +295,7 @@ private extension UnifiedSearchIndex {
         let destination: UnifiedSearchDestination
         let title: String
         let content: String
+        let sourceContent: String
         let date: Date
         let status: ProcessingStatus?
 
@@ -308,7 +319,14 @@ private extension UnifiedSearchIndex {
 
         mutating func add(artifact: UnifiedSearchDestination, title: String, content: String, date: Date, status: ProcessingStatus?) {
             let normalizedTitle = UnifiedSearchIndex.normalize(title)
-            artifacts.append(Artifact(destination: artifact, title: normalizedTitle, content: UnifiedSearchIndex.normalize(content), date: date, status: status))
+            artifacts.append(Artifact(
+                destination: artifact,
+                title: normalizedTitle,
+                content: UnifiedSearchIndex.normalize(content),
+                sourceContent: content,
+                date: date,
+                status: status
+            ))
             titles.append(normalizedTitle)
             if displayTitle == nil || date >= (artifacts.dropLast().map(\.date).max() ?? .distantPast) { displayTitle = title }
         }
@@ -420,11 +438,39 @@ private extension UnifiedSearchIndex {
                 return String(describing: $0.0.destination) < String(describing: $1.0.destination)
             }.first?.0.destination ?? fallback
         }
+
+        func previews(matching terms: [String]) -> [UnifiedSearchPreview] {
+            guard !terms.isEmpty else { return [] }
+            return artifacts.flatMap { artifact in
+                let sentences = artifact.sourceContent.sentences
+                return sentences.enumerated().compactMap { index, sentence -> UnifiedSearchPreview? in
+                    guard terms.allSatisfy({ UnifiedSearchIndex.normalize(sentence).contains($0) }) else { return nil }
+                    return UnifiedSearchPreview(
+                        sourceTitle: artifact.title,
+                        destination: artifact.destination,
+                        before: index > 0 ? sentences[index - 1] : nil,
+                        match: sentence,
+                        after: index + 1 < sentences.count ? sentences[index + 1] : nil
+                    )
+                }
+            }
+        }
     }
 
     struct Ranked {
         let entry: Entry
         let rank: Int
         let destination: UnifiedSearchDestination
+    }
+}
+
+private extension String {
+    var sentences: [String] {
+        var result: [String] = []
+        enumerateSubstrings(in: startIndex..<endIndex, options: .bySentences) { substring, _, _, _ in
+            guard let sentence = substring?.trimmingCharacters(in: .whitespacesAndNewlines), !sentence.isEmpty else { return }
+            result.append(sentence)
+        }
+        return result
     }
 }

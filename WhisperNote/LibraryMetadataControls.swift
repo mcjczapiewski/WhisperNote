@@ -1,5 +1,13 @@
 import SwiftUI
 
+extension View {
+    func libraryActionButton() -> some View {
+        buttonStyle(.bordered)
+            .controlSize(.regular)
+            .font(.callout.weight(.medium))
+    }
+}
+
 struct LibraryMetadataControls: View {
     @EnvironmentObject private var librarySearch: LibrarySearchController
     let itemKey: LibraryItemKey

@@ -40,6 +40,20 @@ final class RecordingCommandCoordinatorTests: XCTestCase {
         XCTAssertEqual(workflow.saved.map(\.id), [recording.id])
     }
 
+    func testStartRecordToResultsChoiceIsHandedOffWithItsSavedRecording() async throws {
+        let recording = fixtureRecording()
+        let recorder = CommandRecorderFake()
+        recorder.stopOutcomes = [.saved(recording)]
+        let workflow = CommandWorkflowFake()
+        let coordinator = RecordingCommandCoordinator(recorder: recorder, workflow: workflow)
+
+        _ = try await coordinator.start(name: "Per-recording", recordToResults: true)
+        _ = await coordinator.stop()
+
+        XCTAssertEqual(workflow.saved.map(\.id), [recording.id])
+        XCTAssertEqual(workflow.recordToResults, [true])
+    }
+
     func testPausedQuickToggleStopsOnceAndHandsOffSavedResult() async {
         let recording = fixtureRecording()
         let recorder = CommandRecorderFake(current: recording)
@@ -299,7 +313,12 @@ private final class CommandRecorderFake: RecordingCommandHandling {
 @MainActor
 private final class CommandWorkflowFake: SavedRecordingWorkflowHandling {
     var saved: [Recording] = []
+    var recordToResults: [Bool?] = []
     func recordingDidSave(_ recording: Recording) async { saved.append(recording) }
+    func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async {
+        saved.append(recording)
+        self.recordToResults.append(recordToResults)
+    }
 }
 
 @MainActor
