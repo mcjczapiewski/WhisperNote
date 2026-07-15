@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.10 — July 15, 2026
+
+- Deferred tab-route state changes until after SwiftUI updates, removed duplicate microphone discovery on the Recording tab, and initialized Summary export format without an appearance-time state change.
+
 ## 1.4.9 — July 15, 2026
 
 - Fixed unified-search result links so each one opens the exact highlighted sentence that was clicked.

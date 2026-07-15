@@ -129,8 +129,7 @@ struct TranscriptView: View {
                 generateCustomPrompt: generateCustomPrompt
             )
         }
-        .onAppear { selectRoutedTranscript() }
-        .onChange(of: navigationRouter.transcriptID) { _ in selectRoutedTranscript() }
+        .task(id: navigationRouter.transcriptID) { selectRoutedTranscript() }
     }
 
     private func selectRoutedTranscript() {

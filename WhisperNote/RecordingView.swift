@@ -468,13 +468,6 @@ struct RecordingView: View {
             }
         }
         .padding()
-        .onAppear {
-            // Safely initialize audio-related components when the view appears
-            Task {
-                // Just load available microphones without full permission check
-                await audioRecorder.loadAvailableMicrophones()
-            }
-        }
         .alert(isPresented: $showingAlert) {
             Alert(
                 title: Text("Recording Error"),
@@ -736,9 +729,8 @@ struct RecordingView: View {
                 audioRecorder.lastError = nil
             }
         }
-        .onAppear { consumeRecordingRouteIfAvailable() }
-        .onChange(of: navigationRouter.recordingRouteRequestID) { _ in consumeRecordingRouteIfAvailable() }
-        .onChange(of: audioRecorder.recordings.map(\.id)) { _ in consumeRecordingRouteIfAvailable() }
+        .task(id: navigationRouter.recordingRouteRequestID) { consumeRecordingRouteIfAvailable() }
+        .task(id: audioRecorder.recordings.map(\.id)) { consumeRecordingRouteIfAvailable() }
 
     }
 
