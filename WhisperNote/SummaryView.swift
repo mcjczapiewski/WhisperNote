@@ -439,6 +439,8 @@ struct SummaryDetailView: View {
                 Text(selectedSummary.name)
                     .font(.headline)
 
+                LibraryMetadataControls(itemKey: LibraryItemKey(kind: .summary, id: selectedSummary.id))
+
                 Spacer()
 
                 Button(action: {

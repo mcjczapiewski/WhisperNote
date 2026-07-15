@@ -45,6 +45,15 @@
 		A30000000000000000000003 /* WhisperNoteAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000003 /* WhisperNoteAppModel.swift */; };
 		A30000000000000000000004 /* MenuBarRecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000004 /* MenuBarRecordingView.swift */; };
 		A30000000000000000000005 /* MenuBarCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000005 /* MenuBarCaptureTests.swift */; };
+		B30000000000000000000001 /* LibraryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000001 /* LibraryMetadata.swift */; };
+		B30000000000000000000002 /* LibraryMetadataRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* LibraryMetadataRepository.swift */; };
+		B30000000000000000000003 /* UnifiedSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000003 /* UnifiedSearchIndex.swift */; };
+		B30000000000000000000004 /* LibraryMetadataControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000004 /* LibraryMetadataControls.swift */; };
+		B30000000000000000000005 /* LibrarySearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000005 /* LibrarySearchController.swift */; };
+		B30000000000000000000006 /* UnifiedSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000006 /* UnifiedSearchView.swift */; };
+		B30000000000000000000007 /* LibraryMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000007 /* LibraryMetadataTests.swift */; };
+		B30000000000000000000008 /* UnifiedSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000008 /* UnifiedSearchTests.swift */; };
+		B30000000000000000000009 /* UnifiedSearchIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +107,15 @@
 		A40000000000000000000003 /* WhisperNoteAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperNoteAppModel.swift; sourceTree = "<group>"; };
 		A40000000000000000000004 /* MenuBarRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarRecordingView.swift; sourceTree = "<group>"; };
 		A40000000000000000000005 /* MenuBarCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarCaptureTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000001 /* LibraryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMetadata.swift; sourceTree = "<group>"; };
+		B40000000000000000000002 /* LibraryMetadataRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMetadataRepository.swift; sourceTree = "<group>"; };
+		B40000000000000000000003 /* UnifiedSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchIndex.swift; sourceTree = "<group>"; };
+		B40000000000000000000004 /* LibraryMetadataControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMetadataControls.swift; sourceTree = "<group>"; };
+		B40000000000000000000005 /* LibrarySearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchController.swift; sourceTree = "<group>"; };
+		B40000000000000000000006 /* UnifiedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchView.swift; sourceTree = "<group>"; };
+		B40000000000000000000007 /* LibraryMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMetadataTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000008 /* UnifiedSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchTests.swift; sourceTree = "<group>"; };
+		B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchIntegrationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -163,6 +181,12 @@
 				A40000000000000000000002 /* GlobalShortcutManager.swift */,
 				A40000000000000000000003 /* WhisperNoteAppModel.swift */,
 				A40000000000000000000004 /* MenuBarRecordingView.swift */,
+				B40000000000000000000001 /* LibraryMetadata.swift */,
+				B40000000000000000000002 /* LibraryMetadataRepository.swift */,
+				B40000000000000000000003 /* UnifiedSearchIndex.swift */,
+				B40000000000000000000004 /* LibraryMetadataControls.swift */,
+				B40000000000000000000005 /* LibrarySearchController.swift */,
+				B40000000000000000000006 /* UnifiedSearchView.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
@@ -185,6 +209,9 @@
 				D10000000000000000000005 /* RecordingReliabilityTests.swift */,
 				E10000000000000000000006 /* ProcessingWorkflowTests.swift */,
 				A40000000000000000000005 /* MenuBarCaptureTests.swift */,
+				B40000000000000000000007 /* LibraryMetadataTests.swift */,
+				B40000000000000000000008 /* UnifiedSearchTests.swift */,
+				B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */,
 			);
 			path = WhisperNoteTests;
 			sourceTree = "<group>";
@@ -313,6 +340,12 @@
 				A30000000000000000000002 /* GlobalShortcutManager.swift in Sources */,
 				A30000000000000000000003 /* WhisperNoteAppModel.swift in Sources */,
 				A30000000000000000000004 /* MenuBarRecordingView.swift in Sources */,
+				B30000000000000000000001 /* LibraryMetadata.swift in Sources */,
+				B30000000000000000000002 /* LibraryMetadataRepository.swift in Sources */,
+				B30000000000000000000003 /* UnifiedSearchIndex.swift in Sources */,
+				B30000000000000000000004 /* LibraryMetadataControls.swift in Sources */,
+				B30000000000000000000005 /* LibrarySearchController.swift in Sources */,
+				B30000000000000000000006 /* UnifiedSearchView.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
@@ -334,6 +367,9 @@
 				D00000000000000000000005 /* RecordingReliabilityTests.swift in Sources */,
 				E00000000000000000000006 /* ProcessingWorkflowTests.swift in Sources */,
 				A30000000000000000000005 /* MenuBarCaptureTests.swift in Sources */,
+				B30000000000000000000007 /* LibraryMetadataTests.swift in Sources */,
+				B30000000000000000000008 /* UnifiedSearchTests.swift in Sources */,
+				B30000000000000000000009 /* UnifiedSearchIntegrationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -490,7 +526,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -523,7 +559,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

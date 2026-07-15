@@ -6,8 +6,12 @@ class TranscriptionManager: ObservableObject {
     @Published var transcripts: [Transcript] = []
 
     private let directoryManager = DirectoryManager.shared
+    private var boundTranscriptsDirectory = DirectoryManager.shared.getTranscriptsDirectory()
+    private var libraryGeneration = 0
+    private(set) var isLibraryRebinding = false
     private let debugLogger = DebugLogger.shared
     private var apiKey: String { UserDefaults.standard.string(forKey: "elevenlabsApiKey") ?? "" }
+    var testTranscriptionOperation: ((Recording, String) async throws -> (content: String, formatted: String, jsonPath: URL?))?
 
     init() {
         loadTranscripts()
@@ -26,6 +30,8 @@ class TranscriptionManager: ObservableObject {
         transcriptID: UUID,
         language: String
     ) async throws -> Transcript {
+        guard !isLibraryRebinding else { throw TranscriptionError.staleLibrary }
+        let generation = libraryGeneration
         if let existing = transcript(id: transcriptID), existing.status == .completed {
             return existing
         }
@@ -47,12 +53,22 @@ class TranscriptionManager: ObservableObject {
 
         let result: (content: String, formatted: String, jsonPath: URL?)
         do {
-            result = try await performTranscription(recording, language: language)
+            result = try await performTranscription(
+                recording,
+                language: language,
+                expectedGeneration: generation,
+                transcriptsDirectory: boundTranscriptsDirectory
+            )
         } catch {
+            guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
             artifact.status = .failed
             try upsertAndPersist(artifact)
             if let typed = error as? TranscriptionError { throw typed }
             throw TranscriptionError.unknown(error)
+        }
+        guard generation == libraryGeneration else {
+            if let jsonPath = result.jsonPath { try? FileManager.default.removeItem(at: jsonPath) }
+            throw TranscriptionError.staleLibrary
         }
         artifact.content = result.content
         artifact.formattedContent = result.formatted
@@ -63,6 +79,8 @@ class TranscriptionManager: ObservableObject {
     }
 
     func transcribeRecording(_ recording: Recording, language: String = "eng") async throws -> Transcript {
+        guard !isLibraryRebinding else { throw TranscriptionError.staleLibrary }
+        let generation = libraryGeneration
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
         }
@@ -96,7 +114,16 @@ class TranscriptionManager: ObservableObject {
         }
 
         do {
-            let result = try await performTranscription(recording, language: language)
+            let result = try await performTranscription(
+                recording,
+                language: language,
+                expectedGeneration: generation,
+                transcriptsDirectory: boundTranscriptsDirectory
+            )
+            guard generation == libraryGeneration else {
+                if let jsonPath = result.jsonPath { try? FileManager.default.removeItem(at: jsonPath) }
+                throw TranscriptionError.staleLibrary
+            }
 
             var completedTranscript = inProgressTranscript
             completedTranscript.content = result.content
@@ -110,6 +137,7 @@ class TranscriptionManager: ObservableObject {
             }
             return completedTranscript
         } catch {
+            guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
             var failedTranscript = inProgressTranscript
             failedTranscript.status = .failed
 
@@ -130,6 +158,8 @@ class TranscriptionManager: ObservableObject {
     /// Each file is sent to ElevenLabs individually; results are joined once all return.
     /// The combined transcript uses `groupId` as its `recordingId`.
     func transcribeGroup(_ recordings: [Recording], groupId: UUID, groupName: String, language: String = "eng") async throws -> Transcript {
+        guard !isLibraryRebinding else { throw TranscriptionError.staleLibrary }
+        let generation = libraryGeneration
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
         }
@@ -150,7 +180,16 @@ class TranscriptionManager: ObservableObject {
             var plainSections: [String] = []
             var formattedSections: [String] = []
             for recording in recordings {
-                let result = try await performTranscription(recording, language: language)
+                let result = try await performTranscription(
+                    recording,
+                    language: language,
+                    expectedGeneration: generation,
+                    transcriptsDirectory: boundTranscriptsDirectory
+                )
+                guard generation == libraryGeneration else {
+                    if let jsonPath = result.jsonPath { try? FileManager.default.removeItem(at: jsonPath) }
+                    throw TranscriptionError.staleLibrary
+                }
                 plainSections.append("─── \(recording.name) ───\n\(result.content)")
                 formattedSections.append("─── \(recording.name) ───\n\(result.formatted)")
             }
@@ -171,6 +210,7 @@ class TranscriptionManager: ObservableObject {
             }
             return finished
         } catch {
+            guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
             groupTranscript.status = .failed
             let failed = groupTranscript
             if let index = transcripts.firstIndex(where: { $0.id == failed.id }) {
@@ -187,13 +227,27 @@ class TranscriptionManager: ObservableObject {
 
     /// Pure "audio in, text out": uploads a single recording to ElevenLabs and returns
     /// the parsed result. Does NOT touch the `transcripts` array.
-    private func performTranscription(_ recording: Recording, language: String) async throws -> (content: String, formatted: String, jsonPath: URL?) {
+    private func performTranscription(
+        _ recording: Recording,
+        language: String,
+        expectedGeneration: Int,
+        transcriptsDirectory: URL
+    ) async throws -> (content: String, formatted: String, jsonPath: URL?) {
         guard !apiKey.isEmpty else {
             throw TranscriptionError.missingApiKey
         }
         guard FileManager.default.fileExists(atPath: recording.filePath.path) else {
             print("Audio file not found at path: \(recording.filePath.path)")
             throw TranscriptionError.fileReadError
+        }
+        if let testTranscriptionOperation {
+            let result = try await testTranscriptionOperation(recording, language)
+            guard expectedGeneration == libraryGeneration,
+                  transcriptsDirectory == boundTranscriptsDirectory else {
+                if let jsonPath = result.jsonPath { try? FileManager.default.removeItem(at: jsonPath) }
+                throw TranscriptionError.staleLibrary
+            }
+            return result
         }
 
         print("Transcribing with language: \(language)")
@@ -297,13 +351,18 @@ class TranscriptionManager: ObservableObject {
             }
 
             let speakerSegments = compactSpeakerSegments(from: transcriptionResponse)
+            guard expectedGeneration == libraryGeneration,
+                  transcriptsDirectory == boundTranscriptsDirectory else {
+                throw TranscriptionError.staleLibrary
+            }
 
             // Save a compact archive instead of the full per-word response.
             let jsonFilePath = try self.saveCompactJSONResponse(
                 transcriptionResponse,
                 speakerSegments: speakerSegments,
                 rawResponseByteCount: responseData.count,
-                recording: recording
+                recording: recording,
+                transcriptsDirectory: transcriptsDirectory
             )
             debugLogger.log("Transcription completed. textChars=\(transcriptionResponse.text.count) speakerSegments=\(speakerSegments.count)", area: .transcripts, contextURL: recording.filePath)
 
@@ -398,7 +457,7 @@ class TranscriptionManager: ObservableObject {
     private func saveTranscripts() {
         do {
             let data = try JSONEncoder().encode(transcripts)
-            let directory = directoryManager.getTranscriptsDirectory()
+            let directory = boundTranscriptsDirectory
             let url = directory.appendingPathComponent("transcripts.json")
             try data.write(to: url)
         } catch {
@@ -413,7 +472,7 @@ class TranscriptionManager: ObservableObject {
                 artifact: transcript,
                 persist: { candidate in
                     let data = try JSONEncoder().encode(candidate)
-                    let url = self.directoryManager.getTranscriptsDirectory().appendingPathComponent("transcripts.json")
+                    let url = self.boundTranscriptsDirectory.appendingPathComponent("transcripts.json")
                     try data.write(to: url, options: .atomic)
                 },
                 publish: { self.transcripts = $0 }
@@ -425,6 +484,7 @@ class TranscriptionManager: ObservableObject {
 
     // Delete a transcript by ID
     func deleteTranscript(id: UUID) {
+        guard !isLibraryRebinding else { return }
         if let index = transcripts.firstIndex(where: { $0.id == id }) {
             transcripts.remove(at: index)
             saveTranscripts()
@@ -433,6 +493,7 @@ class TranscriptionManager: ObservableObject {
 
     // Update transcript content
     func updateTranscriptContent(id: UUID, newContent: String) {
+        guard !isLibraryRebinding else { return }
         if let index = transcripts.firstIndex(where: { $0.id == id }) {
             var updatedTranscript = transcripts[index]
             updatedTranscript.formattedContent = newContent
@@ -446,9 +507,37 @@ class TranscriptionManager: ObservableObject {
         loadTranscripts()
     }
 
+    func reloadTranscriptsForCurrentLibrary() throws {
+        let url = boundTranscriptsDirectory.appendingPathComponent("transcripts.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            transcripts = []
+            return
+        }
+        transcripts = try JSONDecoder().decode([Transcript].self, from: Data(contentsOf: url))
+    }
+
+    func clearTranscriptsForLibraryRebindFailure() { transcripts = [] }
+
+    func acceptLibrary(transcripts: [Transcript], transcriptsDirectory: URL) {
+        libraryGeneration += 1
+        boundTranscriptsDirectory = transcriptsDirectory
+        self.transcripts = transcripts
+    }
+
+    func beginLibraryRebind() -> Bool {
+        guard !isLibraryRebinding else { return false }
+        isLibraryRebinding = true
+        libraryGeneration += 1
+        return true
+    }
+
+    func finishLibraryRebind() {
+        isLibraryRebinding = false
+    }
+
     private func loadTranscripts() {
         // Try to load from the new directory structure
-        let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
+        let transcriptsDirectory = boundTranscriptsDirectory
         let transcriptsUrl = transcriptsDirectory.appendingPathComponent("transcripts.json")
 
         if FileManager.default.fileExists(atPath: transcriptsUrl.path) {
@@ -544,9 +633,7 @@ class TranscriptionManager: ObservableObject {
     /// include one object per word and one object per space; for long meetings
     /// that is large and slow to inspect, while speaker turns preserve the app's
     /// useful diarization data.
-    private func saveCompactJSONResponse(_ response: ElevenLabsTranscriptionResponse, speakerSegments: [SpeakerSegment], rawResponseByteCount: Int, recording: Recording) throws -> URL {
-        let transcriptsDirectory = directoryManager.getTranscriptsDirectory()
-
+    private func saveCompactJSONResponse(_ response: ElevenLabsTranscriptionResponse, speakerSegments: [SpeakerSegment], rawResponseByteCount: Int, recording: Recording, transcriptsDirectory: URL) throws -> URL {
         // Create a unique filename with recording name and timestamp
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
@@ -554,7 +641,7 @@ class TranscriptionManager: ObservableObject {
 
         // Sanitize the recording name
         let sanitizedName = recording.name.replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "_", options: .regularExpression)
-        let filename = "\(sanitizedName)_\(dateString)_json.json"
+        let filename = "\(sanitizedName)_\(dateString)_\(UUID().uuidString)_json.json"
 
         let fileURL = transcriptsDirectory.appendingPathComponent(filename)
 
@@ -691,6 +778,7 @@ enum TranscriptionError: Error, LocalizedError {
     case fileReadError
     case invalidResponse
     case apiError(statusCode: Int, message: String?)
+    case staleLibrary
     case unknown(Error)
 
     var errorDescription: String? {
@@ -707,6 +795,8 @@ enum TranscriptionError: Error, LocalizedError {
             } else {
                 return "ElevenLabs API error (Status \(statusCode)). Please check your API key and try again."
             }
+        case .staleLibrary:
+            return "Transcription was cancelled because the active library changed."
         case .unknown(let error):
             return "Transcription failed: \(error.localizedDescription)"
         }

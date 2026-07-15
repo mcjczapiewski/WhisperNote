@@ -23,6 +23,14 @@ enum RecordingStopOutcome {
     case recoverable(RecoverableRecordingSession)
 }
 
+enum LibraryPersistenceError: LocalizedError {
+    case staleGeneration
+
+    var errorDescription: String? {
+        "The operation was cancelled because the active library changed."
+    }
+}
+
 protocol MicrophoneAudioWriting: AnyObject {
     func write(from buffer: AVAudioPCMBuffer) throws
 }
@@ -121,6 +129,7 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var availableMicrophones: [MicDevice] = []
     @Published var recoverableSessions: [RecoverableRecordingSession] = []
     @Published var corruptRecordingBundles: [CorruptRecordingBundle] = []
+    @Published private(set) var isLibraryRebinding = false
     @Published private(set) var corruptRecoveryActionsInFlight: Set<String> = []
     @Published private(set) var recoveryActionsInFlight: Set<UUID> = []
     @Published var isStartingRecording = false
@@ -140,6 +149,9 @@ class AudioRecorder: NSObject, ObservableObject {
     private let legacyMigrationService: LegacyRecordingMigrationService
     private let importService: RecordingImportService
     private let libraryMutations = RecordingLibraryMutationCoordinator()
+    private var boundRecordingsDirectory = DirectoryManager.shared.getRecordingsDirectory()
+    private var libraryGeneration = 0
+    var testImportDelayNanoseconds: UInt64 = 0
 
     // Logging
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.whispernote.app", category: "AudioRecorder")
@@ -156,6 +168,8 @@ class AudioRecorder: NSObject, ObservableObject {
     private var initialRecoveryGate = InitialRecordingRecoveryGate()
     private var recoveryActionGate = RecordingSessionActionGate()
     private var deletionActionGate = RecordingSessionActionGate()
+    private var deletionActionsInFlight: Set<UUID> = []
+    private var deletionDrainWaiters: [CheckedContinuation<Void, Never>] = []
     private let micWarmupMuteDuration = 0.97
 
     override init() {
@@ -223,6 +237,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     @MainActor
     func startRecording(name: String, microphoneId: String = "") async throws -> RecordingStartOutcome {
+        guard !isLibraryRebinding else { throw AudioRecorderError.recoveryInProgress }
         guard initialRecoveryGate.canStartRecording else {
             throw AudioRecorderError.recoveryInProgress
         }
@@ -242,7 +257,7 @@ class AudioRecorder: NSObject, ObservableObject {
         let createdAt = Date()
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss"
-        let bundleURL = directoryManager.getRecordingsDirectory().appendingPathComponent(
+        let bundleURL = boundRecordingsDirectory.appendingPathComponent(
             "recording_\(formatter.string(from: createdAt))_\(sessionID.uuidString)",
             isDirectory: true
         )
@@ -600,11 +615,18 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func addRecordingAtMostOnce(_ recording: Recording) throws {
+    private func addRecordingAtMostOnce(
+        _ recording: Recording,
+        directory: URL? = nil,
+        expectedGeneration: Int? = nil
+    ) throws {
+        if let expectedGeneration, expectedGeneration != libraryGeneration {
+            throw LibraryPersistenceError.staleGeneration
+        }
         guard !recordings.contains(where: { $0.id == recording.id }) else { return }
         recordings.append(recording)
         do {
-            try saveRecordings()
+            try saveRecordings(directory: directory, expectedGeneration: expectedGeneration)
         } catch {
             recordings.removeAll { $0.id == recording.id }
             throw error
@@ -625,17 +647,34 @@ class AudioRecorder: NSObject, ObservableObject {
         recoverableSessions.sort { $0.manifest.createdAt < $1.manifest.createdAt }
     }
 
-    private func saveRecordings(_ recordingsToSave: [Recording]? = nil) throws {
+    private func saveRecordings(
+        _ recordingsToSave: [Recording]? = nil,
+        directory: URL? = nil,
+        expectedGeneration: Int? = nil
+    ) throws {
+        if let expectedGeneration, expectedGeneration != libraryGeneration {
+            throw LibraryPersistenceError.staleGeneration
+        }
         let data = try JSONEncoder().encode(recordingsToSave ?? recordings)
-        let url = directoryManager.getRecordingsDirectory().appendingPathComponent("recordings.json")
+        let url = (directory ?? boundRecordingsDirectory).appendingPathComponent("recordings.json")
         try data.write(to: url, options: .atomic)
     }
 
     // Delete a recording by ID
     @MainActor
     func deleteRecording(id: UUID) async {
+        guard !isLibraryRebinding else { return }
         guard deletionActionGate.begin(id) else { return }
-        defer { deletionActionGate.finish(id) }
+        deletionActionsInFlight.insert(id)
+        defer {
+            deletionActionGate.finish(id)
+            deletionActionsInFlight.remove(id)
+            if deletionActionsInFlight.isEmpty {
+                let waiters = deletionDrainWaiters
+                deletionDrainWaiters.removeAll()
+                waiters.forEach { $0.resume() }
+            }
+        }
         await libraryMutations.withLock {
             await deleteRecordingLocked(id: id)
         }
@@ -643,6 +682,8 @@ class AudioRecorder: NSObject, ObservableObject {
 
     @MainActor
     private func deleteRecordingLocked(id: UUID) async {
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         guard let recording = recordings.first(where: { $0.id == id }) else { return }
         let originalRecordings = recordings
         let bundleURL = recording.filePath.deletingLastPathComponent()
@@ -650,7 +691,7 @@ class AudioRecorder: NSObject, ObservableObject {
         let hasManifest = FileManager.default.fileExists(atPath: manifestURL.path)
         let deletionURL = RecordingBundleDeletionPolicy.deletionURL(
             for: recording,
-            recordingsDirectory: directoryManager.getRecordingsDirectory(),
+            recordingsDirectory: recordingsDirectory,
             hasManifest: hasManifest
         )
         let originalManifest = hasManifest ? try? await manifestStore.read(from: bundleURL) : nil
@@ -660,6 +701,10 @@ class AudioRecorder: NSObject, ObservableObject {
                 currentRecordings: originalRecordings,
                 deleting: id,
                 prepareForDeletion: {
+                    guard generation == self.libraryGeneration,
+                          recordingsDirectory == self.boundRecordingsDirectory else {
+                        throw LibraryPersistenceError.staleGeneration
+                    }
                     guard var manifest = originalManifest else { return }
                     manifest.state = .dismissed
                     manifest.updatedAt = Date()
@@ -669,22 +714,36 @@ class AudioRecorder: NSObject, ObservableObject {
                     guard let originalManifest else { return }
                     try await self.manifestStore.write(originalManifest, to: bundleURL)
                 },
-                persistRecordings: { try self.saveRecordings($0) },
+                persistRecordings: {
+                    try self.saveRecordings(
+                        $0,
+                        directory: recordingsDirectory,
+                        expectedGeneration: generation
+                    )
+                },
                 deleteFiles: {
+                    guard generation == self.libraryGeneration,
+                          recordingsDirectory == self.boundRecordingsDirectory else {
+                        throw LibraryPersistenceError.staleGeneration
+                    }
                     guard FileManager.default.fileExists(atPath: deletionURL.path) else { return }
                     try FileManager.default.removeItem(at: deletionURL)
                 }
             )
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             recordings = updatedRecordings
             recoverableSessions.removeAll { $0.id == id }
         } catch {
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             lastError = "Couldn't delete \(recording.name): \(error.localizedDescription)"
         }
     }
 
     private func loadRecordings() {
         // Try to load from custom directory first
-        let customDirectory = directoryManager.getRecordingsDirectory()
+        let customDirectory = boundRecordingsDirectory
         let customUrl = customDirectory.appendingPathComponent("recordings.json")
 
         if FileManager.default.fileExists(atPath: customUrl.path) {
@@ -709,22 +768,91 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
+    /// Replaces the in-memory recording library from the currently selected root.
+    /// Call only from the coordinated library-rebind boundary while writes are paused.
+    @MainActor
+    func reloadRecordingsForCurrentLibrary() async throws {
+        guard currentRecording == nil, !isStartingRecording, !isStoppingRecording else {
+            throw LibraryRebindError.recordingInProgress
+        }
+        let url = boundRecordingsDirectory.appendingPathComponent("recordings.json")
+        recordings = try Self.decodeLibraryArray([Recording].self, at: url)
+        recoverableSessions = []
+        await recoverInterruptedSessionsOnLaunch()
+    }
+
+    @MainActor
+    func clearRecordingsForLibraryRebindFailure() {
+        recordings = []
+        recoverableSessions = []
+    }
+
+    @MainActor
+    func acceptLibrary(recordings: [Recording], recordingsDirectory: URL) async {
+        libraryGeneration += 1
+        boundRecordingsDirectory = recordingsDirectory
+        self.recordings = recordings
+        recoverableSessions = []
+        await recoverInterruptedSessionsOnLaunch()
+    }
+
+    @MainActor
+    func beginLibraryRebind() -> Bool {
+        guard !isLibraryRebinding,
+              currentRecording == nil,
+              !isStartingRecording,
+              !isStoppingRecording else { return false }
+        isLibraryRebinding = true
+        libraryGeneration += 1
+        return true
+    }
+
+    @MainActor
+    func finishLibraryRebind() {
+        isLibraryRebinding = false
+    }
+
+    func waitForDeletionActionsToDrain() async {
+        guard !deletionActionsInFlight.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            deletionDrainWaiters.append(continuation)
+        }
+    }
+
+    nonisolated private static func decodeLibraryArray<T: Decodable>(
+        _ type: [T].Type,
+        at url: URL
+    ) throws -> [T] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode(type, from: Data(contentsOf: url))
+    }
+
     @MainActor
     private func recoverInterruptedSessionsOnLaunch() async {
         defer {
             initialRecoveryGate.finish()
             isInitialRecoveryComplete = true
         }
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         do {
-            let recordingsDirectory = directoryManager.getRecordingsDirectory()
             try importService.cleanupInterruptedStaging(in: recordingsDirectory)
-            await migrateLegacyInterruptedRecordingIfNeeded(in: recordingsDirectory)
+            await migrateLegacyInterruptedRecordingIfNeeded(
+                in: recordingsDirectory,
+                expectedGeneration: generation
+            )
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             let scan = try await recoveryService.scan(
                 recordingsDirectory: recordingsDirectory,
                 excluding: Set(recordings.map(\.id)).union([currentManifest?.sessionID].compactMap { $0 })
             )
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
 
             for scannedSession in scan.sessions {
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 guard currentManifest?.sessionID != scannedSession.id else { continue }
                 var session = scannedSession
 
@@ -741,10 +869,14 @@ class AudioRecorder: NSObject, ObservableObject {
                     )
                     do {
                         try await manifestStore.write(reconciledManifest, to: session.bundleURL)
+                        guard generation == libraryGeneration,
+                              recordingsDirectory == boundRecordingsDirectory else { return }
                         session = await recoveryService.inspect(
                             manifest: reconciledManifest,
                             bundleURL: session.bundleURL
                         )
+                        guard generation == libraryGeneration,
+                              recordingsDirectory == boundRecordingsDirectory else { return }
                     } catch {
                         // The existing library row already owns this safe bundle. Never
                         // create a second row with the stale folder UUID if reconciliation
@@ -764,47 +896,71 @@ class AudioRecorder: NSObject, ObservableObject {
                 do {
                     switch try await recoveryService.recover(session) {
                     case .recovered(let recording, let usedFallback):
+                        guard generation == libraryGeneration,
+                              recordingsDirectory == boundRecordingsDirectory else { return }
                         do {
                             try await libraryMutations.withLock {
-                                try addRecordingAtMostOnce(recording)
+                                try addRecordingAtMostOnce(
+                                    recording,
+                                    directory: recordingsDirectory,
+                                    expectedGeneration: generation
+                                )
                             }
                             if usedFallback {
                                 lastError = "Recovered \(recording.name) from an available raw audio track."
-                                await retainMergeRetryIfAvailable(in: session.bundleURL)
+                                await retainMergeRetryIfAvailable(
+                                    in: session.bundleURL,
+                                    expectedGeneration: generation
+                                )
                             }
                         } catch {
                             addRecoverableSessionAtMostOnce(session)
                         }
                     case .unavailable(let recoverable):
+                        guard generation == libraryGeneration else { return }
                         addRecoverableSessionAtMostOnce(recoverable)
                     case .ignored:
                         break
                     }
                 } catch {
+                    guard generation == libraryGeneration else { return }
                     addRecoverableSessionAtMostOnce(session)
                 }
             }
 
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             corruptRecordingBundles = scan.corruptBundleURLs.map(CorruptRecordingBundle.init(bundleURL:))
             if !scan.corruptBundleURLs.isEmpty {
                 lastError = "Some interrupted recording manifests are damaged. Their folders were preserved for inspection."
             }
         } catch {
-            lastError = "Couldn't scan interrupted recordings: \(error.localizedDescription)"
+            if !Task.isCancelled,
+               generation == libraryGeneration,
+               recordingsDirectory == boundRecordingsDirectory {
+                lastError = "Couldn't scan interrupted recordings: \(error.localizedDescription)"
+            }
         }
     }
 
-    private func migrateLegacyInterruptedRecordingIfNeeded(in recordingsDirectory: URL) async {
+    @MainActor
+    private func migrateLegacyInterruptedRecordingIfNeeded(
+        in recordingsDirectory: URL,
+        expectedGeneration: Int
+    ) async {
         let defaults = UserDefaults.standard
         let rawMetadata = defaults.dictionary(forKey: "lastRecordingMetadata")
         let metadata = rawMetadata?.reduce(into: [String: String]()) { result, pair in
             if let value = pair.value as? String { result[pair.key] = value }
         }
-        switch await legacyMigrationService.migrate(
+        let result = await legacyMigrationService.migrate(
             metadata: metadata,
             recordingsDirectory: recordingsDirectory,
             existingRecordings: recordings
-        ) {
+        )
+        guard expectedGeneration == libraryGeneration,
+              recordingsDirectory == boundRecordingsDirectory else { return }
+        switch result {
         case .migrated, .conclusivelyAbsentOrInvalid:
             defaults.removeObject(forKey: "lastRecordingMetadata")
         case .retainedForRetry:
@@ -813,10 +969,15 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func retainMergeRetryIfAvailable(in bundleURL: URL) async {
+    private func retainMergeRetryIfAvailable(
+        in bundleURL: URL,
+        expectedGeneration: Int? = nil
+    ) async {
         guard let manifest = try? await manifestStore.read(from: bundleURL),
               manifest.failureCode == .mergeFailed else { return }
+        if let expectedGeneration, expectedGeneration != libraryGeneration { return }
         let session = await recoveryService.inspect(manifest: manifest, bundleURL: bundleURL)
+        if let expectedGeneration, expectedGeneration != libraryGeneration { return }
         if session.inspection.canRetryMerge {
             addRecoverableSessionAtMostOnce(session)
         }
@@ -824,6 +985,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
     @MainActor
     func recoverSession(id: UUID) async {
+        guard !isLibraryRebinding else { return }
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         guard let session = recoverableSessions.first(where: { $0.id == id }),
               !recordings.contains(where: { $0.id == id }) else { return }
         guard recoveryActionGate.begin(id) else { return }
@@ -836,13 +1000,21 @@ class AudioRecorder: NSObject, ObservableObject {
         do {
             switch try await recoveryService.recoverAvailableAudio(session) {
             case .recovered(let recording, let usedFallback):
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 let insertionAllowed = try await libraryMutations.withLock {
+                    guard generation == self.libraryGeneration else { return false }
                     guard await recoveryMetadataInsertionIsAllowed(for: session) else { return false }
-                    try addRecordingAtMostOnce(recording)
+                    guard generation == self.libraryGeneration,
+                          recordingsDirectory == self.boundRecordingsDirectory else { return false }
+                    try addRecordingAtMostOnce(
+                        recording,
+                        directory: recordingsDirectory,
+                        expectedGeneration: generation
+                    )
                     return true
                 }
                 guard insertionAllowed else {
-                    recoverableSessions.removeAll { $0.id == id }
                     return
                 }
                 recoverableSessions.removeAll { $0.id == id }
@@ -850,18 +1022,27 @@ class AudioRecorder: NSObject, ObservableObject {
                     lastError = "Recovered \(recording.name) from an available raw audio track."
                 }
             case .unavailable(let refreshed):
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 addRecoverableSessionAtMostOnce(refreshed)
                 lastError = refreshed.statusDescription
             case .ignored:
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 recoverableSessions.removeAll { $0.id == id }
             }
         } catch {
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             lastError = "Recovery failed: \(error.localizedDescription)"
         }
     }
 
     @MainActor
     func retryMergeSession(id: UUID) async {
+        guard !isLibraryRebinding else { return }
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         guard let session = recoverableSessions.first(where: { $0.id == id }),
               session.inspection.canRetryMerge else { return }
         guard recoveryActionGate.begin(id) else { return }
@@ -874,43 +1055,62 @@ class AudioRecorder: NSObject, ObservableObject {
         do {
             switch try await recoveryService.retryMerge(session) {
             case .recovered(let recording, _):
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 do {
                     let replacementAllowed = try await libraryMutations.withLock {
+                        guard generation == self.libraryGeneration else { return false }
                         guard await recoveryMetadataInsertionIsAllowed(for: session) else { return false }
+                        guard generation == self.libraryGeneration,
+                              recordingsDirectory == self.boundRecordingsDirectory else { return false }
                         try replaceRecordingAudioAtomically(with: recording)
                         return true
                     }
                     guard replacementAllowed else {
-                        recoverableSessions.removeAll { $0.id == id }
                         return
                     }
                 } catch {
+                    guard generation == libraryGeneration,
+                          recordingsDirectory == boundRecordingsDirectory else { return }
                     // The merged file is valid, but keep the retry marker until its
                     // library entry can be atomically repointed on a later attempt.
                     if var retryManifest = try? await manifestStore.read(from: session.bundleURL) {
+                        guard generation == libraryGeneration,
+                              recordingsDirectory == boundRecordingsDirectory else { return }
                         retryManifest.state = .completed
                         retryManifest.failureCode = .mergeFailed
                         retryManifest.resolvedAudioPath = recordings.first(where: { $0.id == id })?.filePath.lastPathComponent
                         retryManifest.updatedAt = Date()
                         try? await manifestStore.write(retryManifest, to: session.bundleURL)
                     }
-                    await retainMergeRetryIfAvailable(in: session.bundleURL)
+                    guard generation == libraryGeneration,
+                          recordingsDirectory == boundRecordingsDirectory else { return }
+                    await retainMergeRetryIfAvailable(in: session.bundleURL, expectedGeneration: generation)
                     throw error
                 }
                 recoverableSessions.removeAll { $0.id == id }
             case .unavailable(let refreshed):
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 addRecoverableSessionAtMostOnce(refreshed)
                 lastError = "The merge retry failed. Both raw tracks remain available; use Recover to save one of them."
             case .ignored:
+                guard generation == libraryGeneration,
+                      recordingsDirectory == boundRecordingsDirectory else { return }
                 recoverableSessions.removeAll { $0.id == id }
             }
         } catch {
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             lastError = "Merge retry failed: \(error.localizedDescription)"
         }
     }
 
     @MainActor
     func dismissRecoverySession(id: UUID) async {
+        guard !isLibraryRebinding else { return }
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         guard let session = recoverableSessions.first(where: { $0.id == id }) else { return }
         guard recoveryActionGate.begin(id) else { return }
         recoveryActionsInFlight.insert(id)
@@ -920,8 +1120,12 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         do {
             try await recoveryService.dismiss(session)
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             recoverableSessions.removeAll { $0.id == id }
         } catch {
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             lastError = "Couldn't dismiss the recovery session: \(error.localizedDescription)"
         }
     }
@@ -937,6 +1141,9 @@ class AudioRecorder: NSObject, ObservableObject {
 
     @MainActor
     func recoverCorruptBundle(_ bundle: CorruptRecordingBundle) async {
+        guard !isLibraryRebinding else { return }
+        let generation = libraryGeneration
+        let recordingsDirectory = boundRecordingsDirectory
         guard corruptRecoveryActionsInFlight.insert(bundle.id).inserted else { return }
         defer { corruptRecoveryActionsInFlight.remove(bundle.id) }
         let suffix = String(bundle.bundleURL.lastPathComponent.suffix(36))
@@ -961,21 +1168,28 @@ class AudioRecorder: NSObject, ObservableObject {
         do {
             try manifest.validatePaths(in: bundle.bundleURL)
             let candidate = await recoveryService.inspect(manifest: manifest, bundleURL: bundle.bundleURL)
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             guard candidate.inspection.hasAnyValidAudio else {
                 lastError = "No valid known audio files were found in this damaged bundle."
                 return
             }
             try await manifestStore.write(manifest, to: bundle.bundleURL)
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             corruptRecordingBundles.removeAll { $0.id == bundle.id }
             addRecoverableSessionAtMostOnce(candidate)
             await recoverSession(id: sessionID)
         } catch {
+            guard generation == libraryGeneration,
+                  recordingsDirectory == boundRecordingsDirectory else { return }
             lastError = "Couldn't repair the damaged recording manifest: \(error.localizedDescription)"
         }
     }
 
     @MainActor
     func dismissCorruptBundle(_ bundle: CorruptRecordingBundle) {
+        guard !isLibraryRebinding else { return }
         guard !corruptRecoveryActionsInFlight.contains(bundle.id) else { return }
         do {
             try Data("dismissed".utf8).write(
@@ -1203,15 +1417,25 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     func importRecording(from sourceURL: URL, named customName: String?) {
+        guard !isLibraryRebinding else { return }
+        let generation = libraryGeneration
+        let targetDirectory = boundRecordingsDirectory
         Task { @MainActor in
             do {
+                if testImportDelayNanoseconds > 0 {
+                    try await Task.sleep(nanoseconds: testImportDelayNanoseconds)
+                }
                 let recording = try await importService.importSingle(
                     from: sourceURL,
-                    into: directoryManager.getRecordingsDirectory(),
+                    into: targetDirectory,
                     groupId: nil,
                     groupName: nil,
                     customName: customName
                 )
+                guard generation == libraryGeneration else {
+                    try? FileManager.default.removeItem(at: recording.filePath.deletingLastPathComponent())
+                    return
+                }
                 do {
                     try await libraryMutations.withLock {
                         try addRecordingAtMostOnce(recording)
@@ -1229,21 +1453,33 @@ class AudioRecorder: NSObject, ObservableObject {
     /// Import one or more audio files. When more than one file is given, they share a
     /// single groupId/groupName so the UI can show them as one collapsible group.
     func importRecordings(from urls: [URL]) {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty, !isLibraryRebinding else { return }
         let groupId: UUID? = urls.count > 1 ? UUID() : nil
         let groupName: String? = groupId == nil ? nil : {
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
             return "Imported batch — \(df.string(from: Date())) (\(urls.count) files)"
         }()
+        let generation = libraryGeneration
+        let targetDirectory = boundRecordingsDirectory
 
         Task { @MainActor in
+            if testImportDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: testImportDelayNanoseconds)
+            }
             let result = await importService.importBatch(
                 from: urls,
-                into: directoryManager.getRecordingsDirectory(),
+                into: targetDirectory,
                 groupId: groupId,
                 groupName: groupName
             )
+
+            guard generation == libraryGeneration else {
+                for recording in result.recordings {
+                    try? FileManager.default.removeItem(at: recording.filePath.deletingLastPathComponent())
+                }
+                return
+            }
 
             if !result.recordings.isEmpty {
                 let didPersist = await libraryMutations.withLock {
@@ -1278,6 +1514,7 @@ class AudioRecorder: NSObject, ObservableObject {
     /// Delete every recording belonging to a group.
     @MainActor
     func deleteGroup(groupId: UUID) async {
+        guard !isLibraryRebinding else { return }
         let ids = recordings.filter { $0.groupId == groupId }.map { $0.id }
         for id in ids {
             await deleteRecording(id: id)

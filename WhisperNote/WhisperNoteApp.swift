@@ -75,5 +75,6 @@ private extension View {
             .environmentObject(model.navigationRouter)
             .environmentObject(model.commandCoordinator)
             .environmentObject(model.shortcutManager)
+            .environmentObject(model.librarySearch)
     }
 }

@@ -372,6 +372,8 @@ struct TranscriptDetailView: View {
                 Text(selectedTranscript.name)
                     .font(.headline)
 
+                LibraryMetadataControls(itemKey: LibraryItemKey(kind: .transcript, id: selectedTranscript.id))
+
                 Spacer()
 
                 Button(action: {
