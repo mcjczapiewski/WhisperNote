@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.9"
+    private let expectedVersion = "1.4.10"
 
     func testUnifiedSearchIsAProjectWiredFifthTab() throws {
         try skipSourceAssertionsWhenHosted()
@@ -38,6 +38,20 @@ final class ReleaseInvariantTests: XCTestCase {
         XCTAssertFalse(recordingView.contains("audioRecorder.resumeRecording("))
         XCTAssertFalse(recordingView.contains("audioRecorder.stopRecording("))
         XCTAssertFalse(recordingView.contains("workflowCoordinator.recordingDidSave("))
+    }
+
+    func testTabLifecycleDefersRouteHandlingAndAvoidsDuplicateMicrophoneDiscovery() throws {
+        try skipSourceAssertionsWhenHosted()
+        let recording = try sourceContents(at: "WhisperNote/RecordingView.swift")
+        let transcript = try sourceContents(at: "WhisperNote/TranscriptView.swift")
+        let summary = try sourceContents(at: "WhisperNote/SummaryView.swift")
+
+        XCTAssertTrue(recording.contains(".task(id: navigationRouter.recordingRouteRequestID)"))
+        XCTAssertFalse(recording.contains(".onAppear { consumeRecordingRouteIfAvailable() }"))
+        XCTAssertFalse(recording.contains("// Safely initialize audio-related components when the view appears"))
+        XCTAssertTrue(transcript.contains(".task(id: navigationRouter.transcriptID)"))
+        XCTAssertTrue(summary.contains(".task(id: navigationRouter.summaryID)"))
+        XCTAssertTrue(summary.contains("@State private var exportFormat: UTType = TextDocument.markdownUTType"))
     }
 
     func testSummaryTemplatesAreWiredIntoXcodeTargets() throws {

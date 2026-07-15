@@ -27,10 +27,7 @@ struct SummaryView: View {
     @State private var searchText = ""
     @State private var searchMatch = 0
     @State private var searchFocusLocation: Int?
-    // Define the export format separately to avoid complex expressions
-    @State private var exportFormat: UTType = .plainText
-
-    // Initialize with markdown format in onAppear
+    @State private var exportFormat: UTType = TextDocument.markdownUTType
 
     // MARK: - Main View
     var body: some View {
@@ -64,12 +61,7 @@ struct SummaryView: View {
             }
         }
         .padding()
-        .onAppear {
-            // Set the markdown format on appear to avoid complex expression in property initialization
-            exportFormat = TextDocument.markdownUTType
-            selectRoutedSummary()
-        }
-        .onChange(of: navigationRouter.summaryID) { _ in selectRoutedSummary() }
+        .task(id: navigationRouter.summaryID) { selectRoutedSummary() }
         .onChange(of: selectedSummary?.id) { _ in
             isEditingSummary = false
             editedSummaryContent = ""
