@@ -51,6 +51,14 @@ final class TelemetryController: ObservableObject {
     private static let legacyTokenPreferenceKey = "telemetryWebhookToken"
     static let consentVersion = 1
 
+    // Baked-in delivery default so consenting users send without configuring anything.
+    // This is the public Cloudflare Worker in front of n8n, never the raw n8n webhook.
+    // REPLACE before release with the real Worker route.
+    static let defaultEndpoint = "https://telemetry.example.workers.dev/ingest"
+    // Low-value bot filter, NOT a secret — it ships in the binary. Real protection is the
+    // Worker (rate limiting + holding the n8n URL/secret server-side). REPLACE before release.
+    static let defaultAppToken = "whispernote-public-ingest"
+
     @Published private(set) var consent = TelemetryConsentState.disabled
     @Published private(set) var queuedItemCount = 0
     @Published private(set) var status: TelemetryControllerStatus = .inactive
@@ -150,13 +158,13 @@ final class TelemetryController: ObservableObject {
         await invalidateDelivery()
         do {
             try await queue.optOut()
-            // The delivery token is deleted on opt-out so no old configuration can
-            // deliver a later explicit submission until the user configures it again.
+            // Drop any user override; the baked-in default remains so an explicit feedback
+            // submission after opt-out still delivers. Health stays gated on consent + installID,
+            // both cleared by optOut() above.
             try? credentialStore.deleteToken()
             defaults.removeObject(forKey: Self.endpointPreferenceKey)
-            hasStoredCredential = false
-            isConfigured = false
             feedbackStatusMessage = nil
+            await restoreSavedConfiguration()
             await refresh()
             status = .inactive
         } catch {
@@ -197,6 +205,7 @@ final class TelemetryController: ObservableObject {
         }
     }
 
+    /// Clears any user override and reverts to the baked-in default delivery configuration.
     func clearConfiguration() async {
         await invalidateDelivery()
         defaults.removeObject(forKey: Self.endpointPreferenceKey)
@@ -207,8 +216,7 @@ final class TelemetryController: ObservableObject {
         } catch {
             status = .unavailable
         }
-        await client.updateConfiguration(nil)
-        isConfigured = false
+        await restoreSavedConfiguration()
         await refresh()
     }
 
@@ -288,10 +296,14 @@ final class TelemetryController: ObservableObject {
     private func restoreSavedConfiguration() async {
         do {
             try migrateLegacyCredentialIfNeeded()
-            let endpoint = defaults.string(forKey: Self.endpointPreferenceKey) ?? ""
-            let token = try credentialStore.readToken()
-            hasStoredCredential = token != nil
-            guard let token, let configuration = makeConfiguration(endpoint: endpoint, token: token) else {
+            // Stored override wins; otherwise fall back to the baked-in Worker default so
+            // delivery is configured out of the box.
+            let storedEndpoint = defaults.string(forKey: Self.endpointPreferenceKey) ?? ""
+            let endpoint = storedEndpoint.isEmpty ? Self.defaultEndpoint : storedEndpoint
+            let storedToken = try credentialStore.readToken()
+            hasStoredCredential = storedToken != nil
+            let token = storedToken ?? Self.defaultAppToken
+            guard let configuration = makeConfiguration(endpoint: endpoint, token: token) else {
                 await client.updateConfiguration(nil)
                 isConfigured = false
                 return

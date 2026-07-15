@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.13 — July 15, 2026
+
+- Telemetry and product feedback now deliver to a built-in default endpoint, so consenting users send health signals and feedback without configuring anything. The endpoint/token fields move under an Advanced override for pointing a build at a different (e.g. staging) endpoint. See `docs/telemetry-worker-contract.md` for the Cloudflare Worker that fronts the backend.
+
 ## 1.4.12 — July 15, 2026
 
 - Fixed the "Publishing changes from within view updates" console warnings on tab switches by mirroring the tab selection in local view state instead of binding TabView directly to the navigation router.

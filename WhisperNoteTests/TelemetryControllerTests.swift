@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class TelemetryControllerTests: XCTestCase {
-    func testDefaultOffAndNoConfigurationNeverSends() async throws {
+    func testDefaultOffButConfiguredByDefaultNeverSendsWithoutConsent() async throws {
         let context = ControllerTestContext()
         let controller = context.controller()
 
@@ -12,9 +12,47 @@ final class TelemetryControllerTests: XCTestCase {
         await controller.flush()
 
         XCTAssertFalse(controller.consent.enabled)
-        XCTAssertFalse(controller.isConfigured)
+        // Delivery is configured out of the box via the baked-in default endpoint,
+        // but with consent off and an empty queue nothing is ever sent.
+        XCTAssertTrue(controller.isConfigured)
         XCTAssertEqual(controller.status, .inactive)
         XCTAssertTrue(context.acknowledgingTransport.requests.isEmpty)
+    }
+
+    func testEmptyStoredConfigurationResolvesToBakedInDefault() async throws {
+        let context = ControllerTestContext()
+        let controller = context.controller()
+
+        // No stored endpoint or token, yet delivery is configured from the default.
+        XCTAssertNil(context.defaults.string(forKey: TelemetryController.endpointPreferenceKey))
+        XCTAssertNil(try context.credentials.readToken())
+
+        await controller.bootstrap()
+
+        XCTAssertTrue(controller.isConfigured)
+        XCTAssertFalse(controller.hasStoredCredential) // no user override present
+    }
+
+    func testFeedbackAfterOptOutStillDeliversViaDefault() async throws {
+        let context = ControllerTestContext()
+        let controller = context.controller()
+
+        await controller.enableTelemetry()
+        await controller.optOutAndPurge()
+        let optedOut = try await context.queue.snapshot()
+        XCTAssertFalse(optedOut.consent.enabled)
+        XCTAssertNil(optedOut.installID)
+
+        let submitted = await controller.submitFeedback(category: .bug, message: "Still reachable after opt-out.")
+        XCTAssertEqual(submitted, .sent, controller.feedbackStatusMessage ?? "No feedback status")
+        let request = try XCTUnwrap(context.acknowledgingTransport.requests.first)
+        let batch = try TelemetryJSON.decodeBatch(from: try XCTUnwrap(request.httpBody))
+        guard case .feedback = try XCTUnwrap(batch.items.first) else {
+            return XCTFail("Expected feedback payload")
+        }
+        // Opt-out cleared identity, so a later feedback still carries no install id.
+        let snapshot = try await context.queue.snapshot()
+        XCTAssertNil(snapshot.installID)
     }
 
     func testConfigurationConsentOptOutAndReenableUseFreshIdentity() async throws {
