@@ -10,7 +10,9 @@ class DirectoryManager {
     private let recordingsDirectoryName = "Recordings"
     private let transcriptsDirectoryName = "Transcripts"
     private let summariesDirectoryName = "Summaries"
+    private let templatesDirectoryName = "Templates"
     private let libraryMetadataFilename = "library-metadata.json"
+    private let summaryTemplatesFilename = "summary-templates.json"
 
     private init() {
         // Create base directories on initialization
@@ -29,6 +31,9 @@ class DirectoryManager {
 
         let summariesDir = baseDir.appendingPathComponent(summariesDirectoryName)
         ensureDirectoryExists(at: summariesDir)
+
+        let templatesDir = baseDir.appendingPathComponent(templatesDirectoryName)
+        ensureDirectoryExists(at: templatesDir)
     }
 
     /// Get the base directory for all WhisperNote files
@@ -70,6 +75,25 @@ class DirectoryManager {
         let summariesDir = baseDir.appendingPathComponent(summariesDirectoryName, isDirectory: true)
         ensureDirectoryExists(at: summariesDir)
         return summariesDir
+    }
+
+    /// Get the directory URL for reusable local templates.
+    func getTemplatesDirectory() -> URL {
+        let templatesDir = getBaseDirectory().appendingPathComponent(templatesDirectoryName, isDirectory: true)
+        ensureDirectoryExists(at: templatesDir)
+        return templatesDir
+    }
+
+    /// Canonical versioned store for reusable summary templates.
+    func getSummaryTemplatesURL() -> URL {
+        getTemplatesDirectory().appendingPathComponent(summaryTemplatesFilename, isDirectory: false)
+    }
+
+    /// Pure path construction used by library preflight and tests.
+    static func summaryTemplatesURL(baseDirectory: URL) -> URL {
+        baseDirectory
+            .appendingPathComponent("Templates", isDirectory: true)
+            .appendingPathComponent("summary-templates.json", isDirectory: false)
     }
 
     /// Canonical sidecar for user-managed library metadata such as tags and favorites.

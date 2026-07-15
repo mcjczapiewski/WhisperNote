@@ -71,6 +71,7 @@ private extension View {
         environmentObject(model.audioRecorder)
             .environmentObject(model.transcriptionManager)
             .environmentObject(model.summaryManager)
+            .environmentObject(model.summaryTemplateController)
             .environmentObject(model.workflowCoordinator)
             .environmentObject(model.navigationRouter)
             .environmentObject(model.commandCoordinator)

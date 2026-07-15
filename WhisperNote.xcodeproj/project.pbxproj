@@ -54,6 +54,15 @@
 		B30000000000000000000007 /* LibraryMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000007 /* LibraryMetadataTests.swift */; };
 		B30000000000000000000008 /* UnifiedSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000008 /* UnifiedSearchTests.swift */; };
 		B30000000000000000000009 /* UnifiedSearchIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */; };
+		C30000000000000000000001 /* SummaryTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* SummaryTemplate.swift */; };
+		C30000000000000000000002 /* SummaryTemplateRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* SummaryTemplateRepository.swift */; };
+		C30000000000000000000003 /* SummaryTemplateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000003 /* SummaryTemplateController.swift */; };
+		C30000000000000000000004 /* SummaryTemplateLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000004 /* SummaryTemplateLibraryView.swift */; };
+		C30000000000000000000005 /* SummaryTemplateDraftState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000005 /* SummaryTemplateDraftState.swift */; };
+		C30000000000000000000006 /* SummaryTemplateRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000006 /* SummaryTemplateRepositoryTests.swift */; };
+		C30000000000000000000007 /* SummaryTemplateIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */; };
+		C30000000000000000000008 /* SummaryTemplateStage3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */; };
+		C30000000000000000000009 /* SummaryTemplateDraftStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -116,6 +125,15 @@
 		B40000000000000000000007 /* LibraryMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryMetadataTests.swift; sourceTree = "<group>"; };
 		B40000000000000000000008 /* UnifiedSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchTests.swift; sourceTree = "<group>"; };
 		B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedSearchIntegrationTests.swift; sourceTree = "<group>"; };
+		C40000000000000000000001 /* SummaryTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplate.swift; sourceTree = "<group>"; };
+		C40000000000000000000002 /* SummaryTemplateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateRepository.swift; sourceTree = "<group>"; };
+		C40000000000000000000003 /* SummaryTemplateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateController.swift; sourceTree = "<group>"; };
+		C40000000000000000000004 /* SummaryTemplateLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateLibraryView.swift; sourceTree = "<group>"; };
+		C40000000000000000000005 /* SummaryTemplateDraftState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateDraftState.swift; sourceTree = "<group>"; };
+		C40000000000000000000006 /* SummaryTemplateRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateRepositoryTests.swift; sourceTree = "<group>"; };
+		C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateIntegrationTests.swift; sourceTree = "<group>"; };
+		C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateStage3Tests.swift; sourceTree = "<group>"; };
+		C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateDraftStateTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -187,6 +205,11 @@
 				B40000000000000000000004 /* LibraryMetadataControls.swift */,
 				B40000000000000000000005 /* LibrarySearchController.swift */,
 				B40000000000000000000006 /* UnifiedSearchView.swift */,
+				C40000000000000000000001 /* SummaryTemplate.swift */,
+				C40000000000000000000002 /* SummaryTemplateRepository.swift */,
+				C40000000000000000000003 /* SummaryTemplateController.swift */,
+				C40000000000000000000004 /* SummaryTemplateLibraryView.swift */,
+				C40000000000000000000005 /* SummaryTemplateDraftState.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
@@ -212,6 +235,10 @@
 				B40000000000000000000007 /* LibraryMetadataTests.swift */,
 				B40000000000000000000008 /* UnifiedSearchTests.swift */,
 				B40000000000000000000009 /* UnifiedSearchIntegrationTests.swift */,
+				C40000000000000000000006 /* SummaryTemplateRepositoryTests.swift */,
+				C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */,
+				C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */,
+				C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */,
 			);
 			path = WhisperNoteTests;
 			sourceTree = "<group>";
@@ -346,6 +373,11 @@
 				B30000000000000000000004 /* LibraryMetadataControls.swift in Sources */,
 				B30000000000000000000005 /* LibrarySearchController.swift in Sources */,
 				B30000000000000000000006 /* UnifiedSearchView.swift in Sources */,
+				C30000000000000000000001 /* SummaryTemplate.swift in Sources */,
+				C30000000000000000000002 /* SummaryTemplateRepository.swift in Sources */,
+				C30000000000000000000003 /* SummaryTemplateController.swift in Sources */,
+				C30000000000000000000004 /* SummaryTemplateLibraryView.swift in Sources */,
+				C30000000000000000000005 /* SummaryTemplateDraftState.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
@@ -370,6 +402,10 @@
 				B30000000000000000000007 /* LibraryMetadataTests.swift in Sources */,
 				B30000000000000000000008 /* UnifiedSearchTests.swift in Sources */,
 				B30000000000000000000009 /* UnifiedSearchIntegrationTests.swift in Sources */,
+				C30000000000000000000006 /* SummaryTemplateRepositoryTests.swift in Sources */,
+				C30000000000000000000007 /* SummaryTemplateIntegrationTests.swift in Sources */,
+				C30000000000000000000008 /* SummaryTemplateStage3Tests.swift in Sources */,
+				C30000000000000000000009 /* SummaryTemplateDraftStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -526,7 +562,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.4;
+				MARKETING_VERSION = 1.4.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -559,7 +595,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.4;
+				MARKETING_VERSION = 1.4.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

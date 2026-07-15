@@ -11,13 +11,35 @@ protocol WorkflowTranscribing: AnyObject {
 protocol WorkflowSummarizing: AnyObject {
     func summary(id: UUID) -> Summary?
     func summarizeForWorkflow(_ transcript: Transcript, summaryID: UUID, prompt: String, model: String) async throws -> Summary
+    func summarizeForWorkflow(_ transcript: Transcript, summaryID: UUID, snapshot: SummaryGenerationSnapshot) async throws -> Summary
     func defaultWorkflowPrompt() -> String
+}
+
+extension WorkflowSummarizing {
+    func summarizeForWorkflow(
+        _ transcript: Transcript,
+        summaryID: UUID,
+        snapshot: SummaryGenerationSnapshot
+    ) async throws -> Summary {
+        try await summarizeForWorkflow(
+            transcript,
+            summaryID: summaryID,
+            prompt: snapshot.prompt,
+            model: snapshot.model
+        )
+    }
+}
+
+@MainActor
+protocol WorkflowTemplateProviding: AnyObject {
+    func defaultSelectionSnapshot(model: String) async -> SummaryGenerationSnapshot
 }
 
 extension TranscriptionManager: WorkflowTranscribing { }
 extension SummaryManager: WorkflowSummarizing {
     func defaultWorkflowPrompt() -> String { getDefaultPrompt() }
 }
+extension SummaryTemplateController: WorkflowTemplateProviding { }
 
 @MainActor
 final class PostRecordingWorkflowCoordinator: ObservableObject {
@@ -30,6 +52,7 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
     private let credentialDebounceNanoseconds: UInt64
     private var transcriptionManager: (any WorkflowTranscribing)?
     private var summaryManager: (any WorkflowSummarizing)?
+    private var templateProvider: (any WorkflowTemplateProviding)?
     private var recordings: () -> [Recording] = { [] }
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var transcriptionCredentialTask: Task<Void, Never>?
@@ -41,6 +64,12 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
     private var libraryGeneration = 0
     private(set) var isLibraryRebinding = false
     private var cancellationsPending: Set<UUID> = []
+    private struct RecordingHandoffReservation {
+        let token: UUID
+        let generation: Int
+        let task: Task<Void, Never>
+    }
+    private var recordingHandoffReservations: [UUID: RecordingHandoffReservation] = [:]
 
     init(
         store: ProcessingJobStore = ProcessingJobStore(),
@@ -79,13 +108,62 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
         }
     }
 
+    func attachTemplateProvider(_ templateProvider: any WorkflowTemplateProviding) {
+        self.templateProvider = templateProvider
+    }
+
     /// Called only for a live recording's successful, durable stop outcome.
     func recordingDidSave(_ recording: Recording) async {
         guard !isLibraryRebinding else { return }
         let generation = libraryGeneration
         let store = store
-        guard defaults.bool(forKey: "autoTranscribeAfterRecording"), let summaryManager else { return }
-        let snapshot = ProcessingJobSnapshot.defaults(defaults, prompt: summaryManager.defaultWorkflowPrompt())
+        guard defaults.bool(forKey: "autoTranscribeAfterRecording"), summaryManager != nil else { return }
+        if let existing = job(for: recording.id) {
+            start(existing.id)
+            return
+        }
+        if let reservation = recordingHandoffReservations[recording.id],
+           reservation.generation == generation {
+            await reservation.task.value
+            return
+        }
+        let token = UUID()
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.createJobForSavedRecording(recording, generation: generation, store: store)
+        }
+        recordingHandoffReservations[recording.id] = RecordingHandoffReservation(
+            token: token,
+            generation: generation,
+            task: task
+        )
+        await task.value
+        if recordingHandoffReservations[recording.id]?.token == token {
+            recordingHandoffReservations.removeValue(forKey: recording.id)
+        }
+    }
+
+    private func createJobForSavedRecording(
+        _ recording: Recording,
+        generation: Int,
+        store: ProcessingJobStore
+    ) async {
+        guard generation == libraryGeneration,
+              let summaryManager else { return }
+        let model = defaults.string(forKey: "autoSummaryModel") ?? defaultLLMModelId
+        let generationSnapshot: SummaryGenerationSnapshot
+        if let templateProvider {
+            generationSnapshot = await templateProvider.defaultSelectionSnapshot(model: model)
+        } else {
+            generationSnapshot = SummaryGenerationSnapshot(
+                templateID: ProcessingJobSnapshot.meetingMinutesTemplateID,
+                templateName: "Meeting Minutes",
+                prompt: summaryManager.defaultWorkflowPrompt(),
+                model: model
+            )
+        }
+        guard generation == libraryGeneration else { return }
+        let snapshot = ProcessingJobSnapshot.defaults(defaults, generation: generationSnapshot)
         let proposed = ProcessingJob(recordingID: recording.id, recordingName: recording.name, snapshot: snapshot)
         do {
             let job = try await store.createIfAbsent(
@@ -93,12 +171,12 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
                 lease: persistenceLease,
                 expectedGeneration: generation
             )
-            guard generation == libraryGeneration, !isLibraryRebinding else { return }
+            guard generation == libraryGeneration else { return }
             storeError = nil
             replaceLocally(job)
-            start(job.id)
+            if !isLibraryRebinding { start(job.id) }
         } catch {
-            guard generation == libraryGeneration, !isLibraryRebinding else { return }
+            guard generation == libraryGeneration else { return }
             storeError = error.localizedDescription
         }
     }
@@ -205,17 +283,22 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
     func beginLibraryRebind() -> Bool {
         guard !isLibraryRebinding else { return false }
         isLibraryRebinding = true
-        libraryGeneration = persistenceLease.invalidate()
         transcriptionCredentialGeneration += 1
         summaryCredentialGeneration += 1
         transcriptionCredentialTask?.cancel()
         summaryCredentialTask?.cancel()
-        tasks.values.forEach { $0.cancel() }
         return true
     }
 
     func suspendForLibraryRebind() async {
         if !isLibraryRebinding { _ = beginLibraryRebind() }
+        // Handoffs admitted before the gate closed own the old store and must
+        // durably create their job there before its persistence lease is revoked.
+        let admittedHandoffs = Array(recordingHandoffReservations.values.map(\.task))
+        for task in admittedHandoffs { await task.value }
+        recordingHandoffReservations.removeAll()
+
+        libraryGeneration = persistenceLease.invalidate()
         transcriptionCredentialTask?.cancel()
         summaryCredentialTask?.cancel()
         transcriptionCredentialTask = nil
@@ -324,8 +407,12 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
                     _ = try await summaryManager.summarizeForWorkflow(
                         transcript,
                         summaryID: job.summaryID,
-                        prompt: job.snapshot.prompt,
-                        model: job.snapshot.modelID
+                        snapshot: SummaryGenerationSnapshot(
+                            templateID: job.snapshot.templateID,
+                            templateName: job.snapshot.templateName,
+                            prompt: job.snapshot.prompt,
+                            model: job.snapshot.modelID
+                        )
                     )
                 } catch {
                     guard !Task.isCancelled else { return }

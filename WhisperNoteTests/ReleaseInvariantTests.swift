@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.4"
+    private let expectedVersion = "1.4.5"
 
     func testUnifiedSearchIsAProjectWiredFifthTab() throws {
         try skipSourceAssertionsWhenHosted()
@@ -38,6 +38,27 @@ final class ReleaseInvariantTests: XCTestCase {
         XCTAssertFalse(recordingView.contains("audioRecorder.resumeRecording("))
         XCTAssertFalse(recordingView.contains("audioRecorder.stopRecording("))
         XCTAssertFalse(recordingView.contains("workflowCoordinator.recordingDidSave("))
+    }
+
+    func testSummaryTemplatesAreWiredIntoXcodeTargets() throws {
+        try skipSourceAssertionsWhenHosted()
+        let project = try sourceContents(at: "WhisperNote.xcodeproj/project.pbxproj")
+        let productionSources = [
+            "SummaryTemplate.swift",
+            "SummaryTemplateRepository.swift",
+            "SummaryTemplateController.swift",
+            "SummaryTemplateLibraryView.swift",
+            "SummaryTemplateDraftState.swift",
+        ]
+        let testSources = [
+            "SummaryTemplateRepositoryTests.swift",
+            "SummaryTemplateIntegrationTests.swift",
+            "SummaryTemplateStage3Tests.swift",
+            "SummaryTemplateDraftStateTests.swift",
+        ]
+        for source in productionSources + testSources {
+            XCTAssertTrue(project.contains("/* \(source) in Sources */"), "Missing Xcode source membership for \(source)")
+        }
     }
 
     func testMenuBarAndShortcutUseAppRootServices() throws {

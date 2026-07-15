@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.5 — July 14, 2026
+
+- Added reusable local summary templates with five built-in presets: Meeting Minutes, Action Items, Client Follow-up, Interview Notes, and Learning Notes.
+- Added template creation, custom-template editing and deletion, duplication, reordering, and per-library default selection, including safe Meeting Minutes fallback behavior.
+- Added exact prompt, model, and template-provenance snapshots for interactive summaries and Record to Results so retries remain compatible and reproducible after later template changes.
+- Added template-backed prompt drafts with explicit save/update actions and stale-safe prompt enhancement, plus transactional regeneration that preserves the prior summary if replacement fails.
+- Made template stores participate in custom-library preflight, mutation draining, rollback, and atomic rebind so independent libraries cannot merge or receive cross-library writes.
+
 ## 1.4.4 — July 14, 2026
 
 - Added unified offline search across recordings, transcripts, summaries, processing states, and tags.
