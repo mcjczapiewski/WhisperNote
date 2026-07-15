@@ -30,15 +30,18 @@ final class RecordingCommandCoordinator: ObservableObject {
 
     private let recorder: any RecordingCommandHandling
     private let workflow: any SavedRecordingWorkflowHandling
+    private let healthSignals: any HealthSignalRecording
     private let quickName: () -> String
 
     init(
         recorder: any RecordingCommandHandling,
         workflow: any SavedRecordingWorkflowHandling,
+        healthSignals: (any HealthSignalRecording)? = nil,
         quickName: (() -> String)? = nil
     ) {
         self.recorder = recorder
         self.workflow = workflow
+        self.healthSignals = healthSignals ?? NoopHealthSignalRecorder()
         self.quickName = quickName ?? { RecordingCommandCoordinator.defaultQuickName() }
     }
 
@@ -94,6 +97,12 @@ final class RecordingCommandCoordinator: ObservableObject {
         defer { isBusy = false }
         let outcome = await recorder.stopRecording()
         if case .saved(let recording) = outcome {
+            await healthSignals.recordHealthSignal(
+                stage: .recordingFinalize,
+                outcome: .success,
+                startedAt: recording.date.addingTimeInterval(-max(0, recording.duration)),
+                failure: nil
+            )
             await workflow.recordingDidSave(recording)
         }
         return outcome

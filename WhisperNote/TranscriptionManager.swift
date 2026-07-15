@@ -10,10 +10,12 @@ class TranscriptionManager: ObservableObject {
     private var libraryGeneration = 0
     private(set) var isLibraryRebinding = false
     private let debugLogger = DebugLogger.shared
+    private let healthSignals: any HealthSignalRecording
     private var apiKey: String { UserDefaults.standard.string(forKey: "elevenlabsApiKey") ?? "" }
     var testTranscriptionOperation: ((Recording, String) async throws -> (content: String, formatted: String, jsonPath: URL?))?
 
-    init() {
+    init(healthSignals: (any HealthSignalRecording)? = nil) {
+        self.healthSignals = healthSignals ?? NoopHealthSignalRecorder()
         loadTranscripts()
         migrateLegacyJSONArchives()
     }
@@ -52,6 +54,7 @@ class TranscriptionManager: ObservableObject {
         try upsertAndPersist(artifact)
 
         let result: (content: String, formatted: String, jsonPath: URL?)
+        let startedAt = Date()
         do {
             result = try await performTranscription(
                 recording,
@@ -63,6 +66,7 @@ class TranscriptionManager: ObservableObject {
             guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
             artifact.status = .failed
             try upsertAndPersist(artifact)
+            await recordTerminalFailure(error, startedAt: startedAt)
             if let typed = error as? TranscriptionError { throw typed }
             throw TranscriptionError.unknown(error)
         }
@@ -75,6 +79,7 @@ class TranscriptionManager: ObservableObject {
         artifact.jsonFilePath = result.jsonPath
         artifact.status = .completed
         try upsertAndPersist(artifact)
+        await healthSignals.recordHealthSignal(stage: .transcription, outcome: .success, startedAt: startedAt, failure: nil)
         return artifact
     }
 
@@ -113,6 +118,7 @@ class TranscriptionManager: ObservableObject {
             saveTranscripts()
         }
 
+        let startedAt = Date()
         do {
             let result = try await performTranscription(
                 recording,
@@ -133,8 +139,9 @@ class TranscriptionManager: ObservableObject {
 
             if let index = transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
                 transcripts[index] = completedTranscript
-                saveTranscripts()
+                try upsertAndPersist(completedTranscript)
             }
+            await healthSignals.recordHealthSignal(stage: .transcription, outcome: .success, startedAt: startedAt, failure: nil)
             return completedTranscript
         } catch {
             guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
@@ -143,8 +150,10 @@ class TranscriptionManager: ObservableObject {
 
             if let index = transcripts.firstIndex(where: { $0.id == inProgressTranscript.id }) {
                 transcripts[index] = failedTranscript
-                saveTranscripts()
+                try upsertAndPersist(failedTranscript)
             }
+
+            await recordTerminalFailure(error, startedAt: startedAt)
 
             if let transcriptionError = error as? TranscriptionError {
                 throw transcriptionError
@@ -175,6 +184,7 @@ class TranscriptionManager: ObservableObject {
         transcripts.append(groupTranscript)
         saveTranscripts()
 
+        let startedAt = Date()
         do {
             // ponytail: sequential to respect ElevenLabs rate limits; switch to a TaskGroup if batch latency matters
             var plainSections: [String] = []
@@ -206,8 +216,9 @@ class TranscriptionManager: ObservableObject {
             let finished = groupTranscript
             if let index = transcripts.firstIndex(where: { $0.id == finished.id }) {
                 transcripts[index] = finished
-                saveTranscripts()
+                try upsertAndPersist(finished)
             }
+            await healthSignals.recordHealthSignal(stage: .transcription, outcome: .success, startedAt: startedAt, failure: nil)
             return finished
         } catch {
             guard generation == libraryGeneration else { throw TranscriptionError.staleLibrary }
@@ -215,8 +226,9 @@ class TranscriptionManager: ObservableObject {
             let failed = groupTranscript
             if let index = transcripts.firstIndex(where: { $0.id == failed.id }) {
                 transcripts[index] = failed
-                saveTranscripts()
+                try upsertAndPersist(failed)
             }
+            await recordTerminalFailure(error, startedAt: startedAt)
             if let transcriptionError = error as? TranscriptionError {
                 throw transcriptionError
             } else {
@@ -480,6 +492,15 @@ class TranscriptionManager: ObservableObject {
         } catch {
             throw ArtifactPersistenceError.transcript(error)
         }
+    }
+
+    private func recordTerminalFailure(_ error: Error, startedAt: Date) async {
+        let bucket = telemetryFailureBucket(for: error)
+        let outcome: TelemetryOutcome = bucket == .cancelled ? .cancelled : .failure
+        await healthSignals.recordHealthSignal(
+            stage: .transcription, outcome: outcome, startedAt: startedAt,
+            failure: outcome == .failure ? bucket : nil
+        )
     }
 
     // Delete a transcript by ID

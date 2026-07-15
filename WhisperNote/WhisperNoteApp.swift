@@ -24,6 +24,7 @@ enum WhisperNoteRuntime {
 @main
 struct WhisperNoteApp: App {
     @StateObject private var model = WhisperNoteAppModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Migrate stale defaultLLMModel stored value to a valid model id.
@@ -44,6 +45,10 @@ struct WhisperNoteApp: App {
                     .frame(minWidth: 800, minHeight: 600)
                     .whisperNoteEnvironment(model)
                     .task { await model.bootstrap() }
+                    .onChange(of: scenePhase) { phase in
+                        guard phase == .active else { return }
+                        Task { await model.telemetryController.applicationDidBecomeActive() }
+                    }
             }
         }
         .windowStyle(HiddenTitleBarWindowStyle())
@@ -77,5 +82,6 @@ private extension View {
             .environmentObject(model.commandCoordinator)
             .environmentObject(model.shortcutManager)
             .environmentObject(model.librarySearch)
+            .environmentObject(model.telemetryController)
     }
 }

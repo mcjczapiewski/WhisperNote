@@ -71,6 +71,41 @@ final class RecordingCommandCoordinatorTests: XCTestCase {
         XCTAssertEqual(workflow.saved.map(\.id), [recording.id])
     }
 
+    func testHealthSignalOnlyFollowsOneDurablySavedStop() async {
+        let recording = fixtureRecording()
+        let recorder = CommandRecorderFake(current: recording)
+        recorder.stopOutcomes = [.saved(recording), .alreadyStopped]
+        let signals = CommandHealthSignalSpy()
+        let coordinator = RecordingCommandCoordinator(
+            recorder: recorder, workflow: CommandWorkflowFake(), healthSignals: signals
+        )
+
+        _ = await coordinator.stop()
+        _ = await coordinator.stop()
+
+        XCTAssertEqual(signals.calls.count, 1)
+        XCTAssertEqual(signals.calls.first?.0, .recordingFinalize)
+        XCTAssertEqual(signals.calls.first?.1, .success)
+        XCTAssertNil(signals.calls.first?.2)
+    }
+
+    func testHealthSignalIsNotEmittedForNonSavedOrConcurrentStop() async {
+        let recorder = CommandRecorderFake(current: fixtureRecording())
+        recorder.stopDelayNanoseconds = 80_000_000
+        recorder.stopOutcomes = [.alreadyStopped]
+        let signals = CommandHealthSignalSpy()
+        let coordinator = RecordingCommandCoordinator(
+            recorder: recorder, workflow: CommandWorkflowFake(), healthSignals: signals
+        )
+
+        async let first: RecordingStopOutcome = coordinator.stop()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        async let second: RecordingStopOutcome = coordinator.stop()
+        _ = await (first, second)
+
+        XCTAssertTrue(signals.calls.isEmpty)
+    }
+
     func testConcurrentStartIsSerialized() async {
         let recorder = CommandRecorderFake()
         recorder.startDelayNanoseconds = 80_000_000
@@ -265,6 +300,20 @@ private final class CommandRecorderFake: RecordingCommandHandling {
 private final class CommandWorkflowFake: SavedRecordingWorkflowHandling {
     var saved: [Recording] = []
     func recordingDidSave(_ recording: Recording) async { saved.append(recording) }
+}
+
+@MainActor
+private final class CommandHealthSignalSpy: HealthSignalRecording {
+    private(set) var calls: [(TelemetryStage, TelemetryOutcome, TelemetryFailureBucket?)] = []
+
+    func recordHealthSignal(
+        stage: TelemetryStage,
+        outcome: TelemetryOutcome,
+        startedAt: Date,
+        failure: TelemetryFailureBucket?
+    ) async {
+        calls.append((stage, outcome, failure))
+    }
 }
 
 @MainActor

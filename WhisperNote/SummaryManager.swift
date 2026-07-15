@@ -12,13 +12,15 @@ class SummaryManager: ObservableObject {
     private var libraryGeneration = 0
     private(set) var isLibraryRebinding = false
     private let debugLogger = DebugLogger.shared
+    private let healthSignals: any HealthSignalRecording
     private var apiKey: String { apiKeyProvider() }
     var testSummaryOperation: ((String, String, Transcript) async throws -> String)?
     var testSummaryPersistenceOperation: (([Summary], URL) throws -> Void)?
 
     init(
         initialSummariesDirectory: URL? = nil,
-        apiKeyProvider: (() -> String)? = nil
+        apiKeyProvider: (() -> String)? = nil,
+        healthSignals: (any HealthSignalRecording)? = nil
     ) {
         let processInfo = ProcessInfo.processInfo
         let isRunningTests = processInfo.processName.contains("xctest")
@@ -35,6 +37,7 @@ class SummaryManager: ObservableObject {
         self.apiKeyProvider = apiKeyProvider ?? {
             UserDefaults.standard.string(forKey: "openrouterApiKey") ?? ""
         }
+        self.healthSignals = healthSignals ?? NoopHealthSignalRecorder()
         try? FileManager.default.createDirectory(
             at: boundSummariesDirectory,
             withIntermediateDirectories: true
@@ -94,12 +97,14 @@ class SummaryManager: ObservableObject {
         try upsertAndPersist(artifact)
 
         let content: String
+        let startedAt = Date()
         do {
             content = try await callOpenRouterAPI(prompt: frozen.prompt, model: frozen.model, transcript: transcript)
         } catch {
             guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
             artifact.status = .failed
             try upsertAndPersist(artifact)
+            await recordTerminalFailure(error, startedAt: startedAt)
             if let typed = error as? SummaryError { throw typed }
             throw SummaryError.unknown(error)
         }
@@ -107,6 +112,7 @@ class SummaryManager: ObservableObject {
         artifact.content = content
         artifact.status = .completed
         try upsertAndPersist(artifact)
+        await healthSignals.recordHealthSignal(stage: .summary, outcome: .success, startedAt: startedAt, failure: nil)
         return artifact
     }
 
@@ -153,6 +159,7 @@ class SummaryManager: ObservableObject {
         try upsertAndPersist(inProgressSummary)
 
         let summaryContent: String
+        let startedAt = Date()
         do {
             summaryContent = try await callOpenRouterAPI(
                 prompt: frozen.prompt,
@@ -165,6 +172,7 @@ class SummaryManager: ObservableObject {
             failedSummary.status = .failed
 
             try upsertAndPersist(failedSummary)
+            await recordTerminalFailure(error, startedAt: startedAt)
 
             if let summaryError = error as? SummaryError {
                 throw summaryError
@@ -178,6 +186,7 @@ class SummaryManager: ObservableObject {
         completedSummary.content = summaryContent
         completedSummary.status = .completed
         try upsertAndPersist(completedSummary)
+        await healthSignals.recordHealthSignal(stage: .summary, outcome: .success, startedAt: startedAt, failure: nil)
         return completedSummary
     }
 
@@ -213,6 +222,7 @@ class SummaryManager: ObservableObject {
         let frozen = snapshot
 
         let content: String
+        let startedAt = Date()
         do {
             content = try await callOpenRouterAPI(
                 prompt: frozen.prompt,
@@ -221,6 +231,7 @@ class SummaryManager: ObservableObject {
             )
         } catch {
             guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
+            await recordTerminalFailure(error, startedAt: startedAt)
             if let e = error as? SummaryError { throw e }
             throw SummaryError.unknown(error)
         }
@@ -234,6 +245,7 @@ class SummaryManager: ObservableObject {
         replacement.templateName = frozen.templateName
         replacement.status = .completed
         try upsertAndPersist(replacement)
+        await healthSignals.recordHealthSignal(stage: .summary, outcome: .success, startedAt: startedAt, failure: nil)
         return replacement
     }
 
@@ -394,6 +406,15 @@ class SummaryManager: ObservableObject {
         } catch {
             throw ArtifactPersistenceError.summary(error)
         }
+    }
+
+    private func recordTerminalFailure(_ error: Error, startedAt: Date) async {
+        let bucket = telemetryFailureBucket(for: error)
+        let outcome: TelemetryOutcome = bucket == .cancelled ? .cancelled : .failure
+        await healthSignals.recordHealthSignal(
+            stage: .summary, outcome: outcome, startedAt: startedAt,
+            failure: outcome == .failure ? bucket : nil
+        )
     }
 
     // Delete a summary by ID
