@@ -47,11 +47,12 @@ final class RecordingCommandCoordinatorTests: XCTestCase {
         let workflow = CommandWorkflowFake()
         let coordinator = RecordingCommandCoordinator(recorder: recorder, workflow: workflow)
 
-        _ = try await coordinator.start(name: "Per-recording", recordToResults: true)
+        _ = try await coordinator.start(name: "Per-recording", recordToResults: true, transcriptionLanguage: "pol")
         _ = await coordinator.stop()
 
         XCTAssertEqual(workflow.saved.map(\.id), [recording.id])
         XCTAssertEqual(workflow.recordToResults, [true])
+        XCTAssertEqual(workflow.transcriptionLanguages, ["pol"])
     }
 
     func testPausedQuickToggleStopsOnceAndHandsOffSavedResult() async {
@@ -314,10 +315,16 @@ private final class CommandRecorderFake: RecordingCommandHandling {
 private final class CommandWorkflowFake: SavedRecordingWorkflowHandling {
     var saved: [Recording] = []
     var recordToResults: [Bool?] = []
+    var transcriptionLanguages: [String?] = []
     func recordingDidSave(_ recording: Recording) async { saved.append(recording) }
     func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async {
         saved.append(recording)
         self.recordToResults.append(recordToResults)
+    }
+    func recordingDidSave(_ recording: Recording, recordToResults: Bool?, transcriptionLanguage: String?) async {
+        saved.append(recording)
+        self.recordToResults.append(recordToResults)
+        transcriptionLanguages.append(transcriptionLanguage)
     }
 }
 

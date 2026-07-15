@@ -11,11 +11,6 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ProcessingStatusView()
-                .environmentObject(workflowCoordinator)
-                .environmentObject(navigationRouter)
-                .padding(.horizontal)
-
             TabView(selection: $navigationRouter.selectedTab) {
                 RecordingView()
                     .environmentObject(audioRecorder)

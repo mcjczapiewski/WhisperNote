@@ -119,6 +119,14 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
 
     /// A start-recording choice overrides the app default for this saved recording only.
     func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async {
+        await recordingDidSave(recording, recordToResults: recordToResults, transcriptionLanguage: nil)
+    }
+
+    func recordingDidSave(
+        _ recording: Recording,
+        recordToResults: Bool?,
+        transcriptionLanguage: String?
+    ) async {
         guard !isLibraryRebinding else { return }
         let generation = libraryGeneration
         let store = store
@@ -135,7 +143,12 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
         let token = UUID()
         let task = Task<Void, Never> { [weak self] in
             guard let self else { return }
-            await self.createJobForSavedRecording(recording, generation: generation, store: store)
+            await self.createJobForSavedRecording(
+                recording,
+                transcriptionLanguage: transcriptionLanguage,
+                generation: generation,
+                store: store
+            )
         }
         recordingHandoffReservations[recording.id] = RecordingHandoffReservation(
             token: token,
@@ -150,6 +163,7 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
 
     private func createJobForSavedRecording(
         _ recording: Recording,
+        transcriptionLanguage: String?,
         generation: Int,
         store: ProcessingJobStore
     ) async {
@@ -168,7 +182,8 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
             )
         }
         guard generation == libraryGeneration else { return }
-        let snapshot = ProcessingJobSnapshot.defaults(defaults, generation: generationSnapshot)
+        var snapshot = ProcessingJobSnapshot.defaults(defaults, generation: generationSnapshot)
+        if let transcriptionLanguage { snapshot.language = transcriptionLanguage }
         let proposed = ProcessingJob(recordingID: recording.id, recordingName: recording.name, snapshot: snapshot)
         do {
             let job = try await store.createIfAbsent(

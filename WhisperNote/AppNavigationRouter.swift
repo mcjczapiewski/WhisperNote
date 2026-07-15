@@ -5,6 +5,12 @@ enum RecordingRouteRequest: Equatable {
     case group(UUID)
 }
 
+struct DocumentSearchRoute: Equatable {
+    let itemID: UUID
+    let text: String
+    let matchIndex: Int
+}
+
 enum RecordingRouteResolution: Equatable {
     case recording(id: UUID, groupID: UUID?)
     case group(id: UUID, highlightedRecordingID: UUID)
@@ -39,6 +45,8 @@ final class AppNavigationRouter: ObservableObject {
     @Published var summaryID: UUID?
     @Published var recordingID: UUID?
     @Published var recordingGroupID: UUID?
+    @Published private(set) var transcriptSearchRoute: DocumentSearchRoute?
+    @Published private(set) var summarySearchRoute: DocumentSearchRoute?
     @Published private(set) var recordingRouteRequestID = UUID()
 
     func openRecording(_ id: UUID) {
@@ -55,13 +63,15 @@ final class AppNavigationRouter: ObservableObject {
         selectedTab = 0
     }
 
-    func openTranscript(_ id: UUID) {
+    func openTranscript(_ id: UUID, searchText: String? = nil, matchIndex: Int = 0) {
         transcriptID = id
+        transcriptSearchRoute = searchText.map { DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex) }
         selectedTab = 1
     }
 
-    func openSummary(_ id: UUID) {
+    func openSummary(_ id: UUID, searchText: String? = nil, matchIndex: Int = 0) {
         summaryID = id
+        summarySearchRoute = searchText.map { DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex) }
         selectedTab = 2
     }
 
@@ -74,9 +84,21 @@ final class AppNavigationRouter: ObservableObject {
         transcriptID = nil
     }
 
+    func consumeTranscriptSearchRoute(for id: UUID) -> DocumentSearchRoute? {
+        guard transcriptSearchRoute?.itemID == id else { return nil }
+        defer { transcriptSearchRoute = nil }
+        return transcriptSearchRoute
+    }
+
     func consumeSummaryRoute(_ id: UUID) {
         guard summaryID == id else { return }
         summaryID = nil
+    }
+
+    func consumeSummarySearchRoute(for id: UUID) -> DocumentSearchRoute? {
+        guard summarySearchRoute?.itemID == id else { return nil }
+        defer { summarySearchRoute = nil }
+        return summarySearchRoute
     }
 
     func consumeRecordingRoute(_ id: UUID) {

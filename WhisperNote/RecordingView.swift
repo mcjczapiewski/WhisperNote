@@ -14,7 +14,8 @@ struct RecordingView: View {
     @EnvironmentObject var commandCoordinator: RecordingCommandCoordinator
     @State private var recordingName = ""
     @State private var showingNamePrompt = false
-    @State private var recordToResults = false
+    @State private var autoTranscribe = false
+    @State private var autoTranscriptionLanguage = "eng"
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingDeleteConfirmation = false
@@ -310,7 +311,8 @@ struct RecordingView: View {
 
                                     // Reset selected microphone to default (system preferred)
                                     selectedMicrophoneId = ""
-                                    recordToResults = UserDefaults.standard.bool(forKey: "autoTranscribeAfterRecording")
+                                    autoTranscribe = UserDefaults.standard.bool(forKey: "autoTranscribeAfterRecording")
+                                    autoTranscriptionLanguage = UserDefaults.standard.string(forKey: "autoTranscriptionLanguage") ?? "eng"
 
                                     // Refresh available microphones before showing the popup
                                     // This ensures we get the current system default microphone
@@ -494,8 +496,15 @@ struct RecordingView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding()
 
-                Toggle("Record to Results", isOn: $recordToResults)
-                    .help("Transcribe this recording after it is saved, and create a summary if enabled in Settings.")
+                Toggle("Auto Transcribe", isOn: $autoTranscribe)
+
+                if autoTranscribe {
+                    Picker("Transcription Language", selection: $autoTranscriptionLanguage) {
+                        ForEach(languages, id: \.0) { language in
+                            Text(language.1).tag(language.0)
+                        }
+                    }
+                }
 
                 // Microphone selection
                 VStack(alignment: .leading) {
@@ -544,7 +553,7 @@ struct RecordingView: View {
                 }
                 .padding()
             }
-            .frame(width: 400, height: 390)
+            .frame(width: 400, height: autoTranscribe ? 430 : 390)
             .padding()
         }
         .alert("Delete Recording", isPresented: $showingDeleteConfirmation) {
@@ -552,16 +561,13 @@ struct RecordingView: View {
                 recordingToDelete = nil
                 recordingIDsToDelete.removeAll()
             }
-            Button("Delete", role: .destructive) {
-                let ids = recordingIDsToDelete.isEmpty ? Set(recordingToDelete.map { [$0.id] } ?? []) : recordingIDsToDelete
-                if !ids.isEmpty {
-                    Task {
-                        for id in ids { await audioRecorder.deleteRecording(id: id) }
-                    }
+            Button("Delete Recording Only", role: .destructive) {
+                deletePendingRecordings(removeTranscripts: false)
+            }
+            if !relatedTranscriptIDsForPendingDeletion.isEmpty {
+                Button("Delete Recording & Transcript", role: .destructive) {
+                    deletePendingRecordings(removeTranscripts: true)
                 }
-                selectedRecordingIDs.subtract(ids)
-                recordingToDelete = nil
-                recordingIDsToDelete.removeAll()
             }
         } message: {
             if recordingIDsToDelete.count > 1 {
@@ -707,6 +713,19 @@ struct RecordingView: View {
                     groupToDelete = nil
                 }
             }
+            if let gid = groupToDelete,
+               transcriptionManager.transcripts.contains(where: { $0.recordingId == gid }) {
+                Button("Delete Group & Transcript", role: .destructive) {
+                    let transcriptIDs = transcriptionManager.transcripts
+                        .filter { $0.recordingId == gid }
+                        .map(\.id)
+                    Task {
+                        for id in transcriptIDs { transcriptionManager.deleteTranscript(id: id) }
+                        await audioRecorder.deleteGroup(groupId: gid)
+                    }
+                    groupToDelete = nil
+                }
+            }
         } message: {
             Text("Are you sure you want to delete this imported group and all its files? This action cannot be undone.")
         }
@@ -725,6 +744,9 @@ struct RecordingView: View {
 
     @ViewBuilder
     private func recordingRow(_ recording: Recording) -> some View {
+        let completedTranscript = transcriptionManager.transcripts.first {
+            $0.recordingId == recording.id && $0.status == .completed
+        }
         HStack {
             Image(systemName: "waveform")
                 .foregroundColor(.blue)
@@ -737,9 +759,6 @@ struct RecordingView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                ProcessingStatusView(recordingID: recording.id, compact: true)
-                    .environmentObject(workflowCoordinator)
-                    .environmentObject(navigationRouter)
             }
 
             Spacer()
@@ -757,42 +776,43 @@ struct RecordingView: View {
             .buttonStyle(PlainButtonStyle())
             .padding(.horizontal, 5)
 
-            Button(action: {
-                // Show language selector before starting transcription
-                groupToTranscribe = nil
-                recordingToTranscribe = recording
-                showingLanguageSelector = true
-            }) {
-                HStack {
-                    Text("Transcribe")
-                        .font(.caption)
+            if let completedTranscript {
+                Button("Open") { navigationRouter.openTranscript(completedTranscript.id) }
+                    .libraryActionButton()
+            } else {
+                Button(action: {
+                    // Show language selector before starting transcription
+                    groupToTranscribe = nil
+                    recordingToTranscribe = recording
+                    showingLanguageSelector = true
+                }) {
+                    HStack {
+                        Text("Transcribe")
+                            .font(.caption)
 
-                    // Show a small indicator if any transcription is in progress for this recording
-                    if transcriptionManager.transcripts.contains(where: {
-                        $0.recordingId == recording.id && $0.status == .inProgress
-                    }) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .frame(width: 10, height: 10)
+                        // Show a small indicator if any transcription is in progress for this recording
+                        if transcriptionManager.transcripts.contains(where: {
+                            $0.recordingId == recording.id && $0.status == .inProgress
+                        }) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .frame(width: 10, height: 10)
+                        }
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(5)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(5)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(
+                    // Disable while transcription is in progress.
+                    transcriptionManager.transcripts.contains(where: {
+                        $0.recordingId == recording.id && $0.status == .inProgress
+                    })
+                )
             }
-            .buttonStyle(PlainButtonStyle())
-            .disabled(
-                // Disable if there's a completed transcript for this recording
-                transcriptionManager.transcripts.contains(where: {
-                    $0.recordingId == recording.id && $0.status == .completed
-                }) ||
-                // Or if transcription is in progress
-                transcriptionManager.transcripts.contains(where: {
-                    $0.recordingId == recording.id && $0.status == .inProgress
-                })
-            )
         }
         .padding(.vertical, 5)
         .contentShape(Rectangle())
@@ -946,7 +966,8 @@ struct RecordingView: View {
                 let outcome = try await commandCoordinator.start(
                     name: name,
                     microphoneId: selectedMicrophoneId,
-                    recordToResults: recordToResults
+                    recordToResults: autoTranscribe,
+                    transcriptionLanguage: autoTranscribe ? autoTranscriptionLanguage : nil
                 )
                 switch outcome {
                 case .started:
@@ -960,6 +981,28 @@ struct RecordingView: View {
                 presentRecordingStartError(error)
                 showingNamePrompt = false
             }
+        }
+    }
+
+    private var pendingRecordingIDs: Set<UUID> {
+        recordingIDsToDelete.isEmpty ? Set(recordingToDelete.map { [$0.id] } ?? []) : recordingIDsToDelete
+    }
+
+    private var relatedTranscriptIDsForPendingDeletion: [UUID] {
+        transcriptionManager.transcripts
+            .filter { pendingRecordingIDs.contains($0.recordingId) }
+            .map(\.id)
+    }
+
+    private func deletePendingRecordings(removeTranscripts: Bool) {
+        let recordingIDs = pendingRecordingIDs
+        let transcriptIDs = removeTranscripts ? relatedTranscriptIDsForPendingDeletion : []
+        selectedRecordingIDs.subtract(recordingIDs)
+        recordingToDelete = nil
+        recordingIDsToDelete.removeAll()
+        Task {
+            for id in transcriptIDs { transcriptionManager.deleteTranscript(id: id) }
+            for id in recordingIDs { await audioRecorder.deleteRecording(id: id) }
         }
     }
 

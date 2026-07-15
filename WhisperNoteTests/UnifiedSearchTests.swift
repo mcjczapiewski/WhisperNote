@@ -64,7 +64,7 @@ final class UnifiedSearchTests: XCTestCase {
         XCTAssertTrue(index.search(.init(text: "cafe absent"), now: now).isEmpty)
     }
 
-    func testContentMatchesIncludeSeparateThreeSentencePreviewsForEveryOccurrence() {
+    func testContentMatchesIncludeOneSentencePreviewForEveryOccurrence() {
         let recordingID = id(34), transcriptID = id(35)
         let index = UnifiedSearchIndex(
             recordings: [recording(recordingID, "Meeting")],
@@ -79,12 +79,10 @@ final class UnifiedSearchTests: XCTestCase {
 
         let previews = index.search(.init(text: "alpha decision"), now: now).first?.previews
         XCTAssertEqual(previews?.count, 2)
-        XCTAssertEqual(previews?.first?.before, "First context.")
         XCTAssertEqual(previews?.first?.match, "Alpha decision recorded.")
-        XCTAssertEqual(previews?.first?.after, "Middle context.")
-        XCTAssertEqual(previews?.last?.before, "Middle context.")
+        XCTAssertEqual(previews?.first?.matchIndex, 1)
         XCTAssertEqual(previews?.last?.match, "Alpha decision confirmed.")
-        XCTAssertEqual(previews?.last?.after, "Final context.")
+        XCTAssertEqual(previews?.last?.matchIndex, 3)
     }
 
     func testFiltersFavoriteStatusesDatesCustomAndTags() {

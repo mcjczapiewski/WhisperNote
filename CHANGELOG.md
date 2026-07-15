@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.8 — July 15, 2026
+
+- Added next/previous controls for read-only document search and deep links from each one-sentence unified-search result directly to its highlighted match.
+- Made unified search responsive during typing, removed the global processing bar, and added Open actions for every recording with a completed transcript.
+- Added optional transcript removal when deleting recordings, plus per-recording Auto Transcribe language selection.
+
 ## 1.4.7 — July 15, 2026
 
 - Added a per-recording Record to Results choice at recording start, read-only search with highlighted matches in transcript and summary details, and aligned two-row detail toolbars.

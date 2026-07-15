@@ -126,19 +126,21 @@ final class ProcessingJobTests: XCTestCase {
     func testNavigationRoutesToArtifactsAndSettings() {
         let router = AppNavigationRouter()
         let transcriptID = UUID()
-        router.openTranscript(transcriptID)
+        router.openTranscript(transcriptID, searchText: "needle", matchIndex: 2)
         XCTAssertEqual(router.selectedTab, 1)
         XCTAssertEqual(router.transcriptID, transcriptID)
+        XCTAssertEqual(router.consumeTranscriptSearchRoute(for: transcriptID), .init(itemID: transcriptID, text: "needle", matchIndex: 2))
         router.consumeTranscriptRoute(transcriptID)
         XCTAssertNil(router.transcriptID)
         let summaryID = UUID()
-        router.openSummary(summaryID)
+        router.openSummary(summaryID, searchText: "answer", matchIndex: 1)
         XCTAssertEqual(router.selectedTab, 2)
         XCTAssertEqual(router.summaryID, summaryID)
+        XCTAssertEqual(router.consumeSummarySearchRoute(for: summaryID), .init(itemID: summaryID, text: "answer", matchIndex: 1))
         router.consumeSummaryRoute(summaryID)
         XCTAssertNil(router.summaryID)
         router.openSettings()
-        XCTAssertEqual(router.selectedTab, 3)
+        XCTAssertEqual(router.selectedTab, 4)
     }
 
     @MainActor
@@ -283,6 +285,21 @@ final class PostRecordingWorkflowCoordinatorTests: XCTestCase {
         await harness.coordinator.waitForCurrentTasks()
         XCTAssertEqual(harness.coordinator.jobs.count, 1)
         XCTAssertEqual(harness.log, ["transcript", "summary"])
+    }
+
+    func testPerRecordingLanguageOverridesTheAutomaticDefault() async throws {
+        let harness = await makeHarness(summarize: false, notify: false)
+        harness.defaults.set("eng", forKey: "autoTranscriptionLanguage")
+
+        await harness.coordinator.recordingDidSave(
+            harness.recording,
+            recordToResults: true,
+            transcriptionLanguage: "pol"
+        )
+        await harness.coordinator.waitForCurrentTasks()
+
+        XCTAssertEqual(harness.coordinator.jobs.first?.snapshot.language, "pol")
+        XCTAssertEqual(harness.transcriber.languages, ["pol"])
     }
 
     func testWorkflowCapturesDefaultTemplateOnceAndRetryIgnoresLaterTemplateChanges() async throws {
@@ -797,13 +814,14 @@ private final class WorkflowCallLog {
 private final class MockTranscriber: WorkflowTranscribing {
     var artifacts: [UUID: Transcript] = [:]
     var ids: [UUID] = []
+    var languages: [String] = []
     var failNext = false
     let log: WorkflowCallLog
     init(log: WorkflowCallLog) { self.log = log }
     var lastID: UUID? { ids.last }
     func transcript(id: UUID) -> Transcript? { artifacts[id] }
     func transcribeForWorkflow(_ recording: Recording, transcriptID: UUID, language: String) async throws -> Transcript {
-        ids.append(transcriptID); log.values.append("transcript")
+        ids.append(transcriptID); languages.append(language); log.values.append("transcript")
         if failNext { failNext = false; throw TestFailure.expected }
         let result = Transcript(id: transcriptID, name: recording.name, date: Date(), content: "text", recordingId: recording.id, status: .completed)
         artifacts[transcriptID] = result
