@@ -9,9 +9,14 @@ struct ContentView: View {
     @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @EnvironmentObject private var librarySearch: LibrarySearchController
 
+    // ponytail: local mirror so NSTabView's write-back on tab click doesn't mutate
+    // the router's @Published mid-view-update ("Publishing changes from within view
+    // updates"). Router stays the source of truth via the two onChange syncs below.
+    @State private var selectedTab = 0
+
     var body: some View {
         VStack(spacing: 8) {
-            TabView(selection: $navigationRouter.selectedTab) {
+            TabView(selection: $selectedTab) {
                 RecordingView()
                     .environmentObject(audioRecorder)
                     .environmentObject(transcriptionManager)
@@ -57,6 +62,11 @@ struct ContentView: View {
             .disabled(librarySearch.isRebinding)
         }
         .padding()
-        .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }
+        .onChange(of: selectedTab) { navigationRouter.selectedTab = $0 }
+        .onChange(of: navigationRouter.selectedTab) { selectedTab = $0 }
+        .onAppear {
+            selectedTab = navigationRouter.selectedTab
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
     }
 }
