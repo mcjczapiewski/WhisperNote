@@ -63,6 +63,19 @@
 		C30000000000000000000007 /* SummaryTemplateIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */; };
 		C30000000000000000000008 /* SummaryTemplateStage3Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */; };
 		C30000000000000000000009 /* SummaryTemplateDraftStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */; };
+		D60000000000000000000001 /* TelemetryEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000001 /* TelemetryEvent.swift */; };
+		D60000000000000000000002 /* TelemetryConsentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000002 /* TelemetryConsentStore.swift */; };
+		D60000000000000000000003 /* TelemetryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000003 /* TelemetryQueue.swift */; };
+		D60000000000000000000004 /* TelemetryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000004 /* TelemetryClient.swift */; };
+		D60000000000000000000005 /* TelemetryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000005 /* TelemetryController.swift */; };
+		D60000000000000000000006 /* TelemetryCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000006 /* TelemetryCredentialStore.swift */; };
+		D60000000000000000000007 /* ProductFeedbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000007 /* ProductFeedbackView.swift */; };
+		D60000000000000000000008 /* HealthSignalRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61000000000000000000008 /* HealthSignalRecording.swift */; };
+		D62000000000000000000001 /* TelemetryEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63000000000000000000001 /* TelemetryEventTests.swift */; };
+		D62000000000000000000002 /* TelemetryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63000000000000000000002 /* TelemetryQueueTests.swift */; };
+		D62000000000000000000003 /* TelemetryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63000000000000000000003 /* TelemetryClientTests.swift */; };
+		D62000000000000000000004 /* TelemetryControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63000000000000000000004 /* TelemetryControllerTests.swift */; };
+		D62000000000000000000005 /* HealthSignalInstrumentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D63000000000000000000005 /* HealthSignalInstrumentationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -134,6 +147,19 @@
 		C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateIntegrationTests.swift; sourceTree = "<group>"; };
 		C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateStage3Tests.swift; sourceTree = "<group>"; };
 		C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryTemplateDraftStateTests.swift; sourceTree = "<group>"; };
+		D61000000000000000000001 /* TelemetryEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryEvent.swift; sourceTree = "<group>"; };
+		D61000000000000000000002 /* TelemetryConsentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryConsentStore.swift; sourceTree = "<group>"; };
+		D61000000000000000000003 /* TelemetryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryQueue.swift; sourceTree = "<group>"; };
+		D61000000000000000000004 /* TelemetryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryClient.swift; sourceTree = "<group>"; };
+		D61000000000000000000005 /* TelemetryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryController.swift; sourceTree = "<group>"; };
+		D61000000000000000000006 /* TelemetryCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryCredentialStore.swift; sourceTree = "<group>"; };
+		D61000000000000000000007 /* ProductFeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductFeedbackView.swift; sourceTree = "<group>"; };
+		D61000000000000000000008 /* HealthSignalRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSignalRecording.swift; sourceTree = "<group>"; };
+		D63000000000000000000001 /* TelemetryEventTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryEventTests.swift; sourceTree = "<group>"; };
+		D63000000000000000000002 /* TelemetryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryQueueTests.swift; sourceTree = "<group>"; };
+		D63000000000000000000003 /* TelemetryClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryClientTests.swift; sourceTree = "<group>"; };
+		D63000000000000000000004 /* TelemetryControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelemetryControllerTests.swift; sourceTree = "<group>"; };
+		D63000000000000000000005 /* HealthSignalInstrumentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSignalInstrumentationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -210,6 +236,14 @@
 				C40000000000000000000003 /* SummaryTemplateController.swift */,
 				C40000000000000000000004 /* SummaryTemplateLibraryView.swift */,
 				C40000000000000000000005 /* SummaryTemplateDraftState.swift */,
+				D61000000000000000000001 /* TelemetryEvent.swift */,
+				D61000000000000000000002 /* TelemetryConsentStore.swift */,
+				D61000000000000000000003 /* TelemetryQueue.swift */,
+				D61000000000000000000004 /* TelemetryClient.swift */,
+				D61000000000000000000005 /* TelemetryController.swift */,
+				D61000000000000000000006 /* TelemetryCredentialStore.swift */,
+				D61000000000000000000007 /* ProductFeedbackView.swift */,
+				D61000000000000000000008 /* HealthSignalRecording.swift */,
 				4E4E4E4E4E4E4E4E4E4E4E4E /* SystemAudioCapture.swift */,
 				4F4F4F4F4F4F4F4F4F4F4F4F /* DirectoryManager.swift */,
 				A1B2C3D4E5F6012345678902 /* FinderHelper.swift */,
@@ -239,6 +273,11 @@
 				C40000000000000000000007 /* SummaryTemplateIntegrationTests.swift */,
 				C40000000000000000000008 /* SummaryTemplateStage3Tests.swift */,
 				C40000000000000000000009 /* SummaryTemplateDraftStateTests.swift */,
+				D63000000000000000000001 /* TelemetryEventTests.swift */,
+				D63000000000000000000002 /* TelemetryQueueTests.swift */,
+				D63000000000000000000003 /* TelemetryClientTests.swift */,
+				D63000000000000000000004 /* TelemetryControllerTests.swift */,
+				D63000000000000000000005 /* HealthSignalInstrumentationTests.swift */,
 			);
 			path = WhisperNoteTests;
 			sourceTree = "<group>";
@@ -378,6 +417,14 @@
 				C30000000000000000000003 /* SummaryTemplateController.swift in Sources */,
 				C30000000000000000000004 /* SummaryTemplateLibraryView.swift in Sources */,
 				C30000000000000000000005 /* SummaryTemplateDraftState.swift in Sources */,
+				D60000000000000000000001 /* TelemetryEvent.swift in Sources */,
+				D60000000000000000000002 /* TelemetryConsentStore.swift in Sources */,
+				D60000000000000000000003 /* TelemetryQueue.swift in Sources */,
+				D60000000000000000000004 /* TelemetryClient.swift in Sources */,
+				D60000000000000000000005 /* TelemetryController.swift in Sources */,
+				D60000000000000000000006 /* TelemetryCredentialStore.swift in Sources */,
+				D60000000000000000000007 /* ProductFeedbackView.swift in Sources */,
+				D60000000000000000000008 /* HealthSignalRecording.swift in Sources */,
 				3C3C3C3C3C3C3C3C3C3C3C3C /* TranscriptionManager.swift in Sources */,
 				3D3D3D3D3D3D3D3D3D3D3D3D /* SummaryManager.swift in Sources */,
 				3E3E3E3E3E3E3E3E3E3E3E3E /* SystemAudioCapture.swift in Sources */,
@@ -406,6 +453,11 @@
 				C30000000000000000000007 /* SummaryTemplateIntegrationTests.swift in Sources */,
 				C30000000000000000000008 /* SummaryTemplateStage3Tests.swift in Sources */,
 				C30000000000000000000009 /* SummaryTemplateDraftStateTests.swift in Sources */,
+				D62000000000000000000001 /* TelemetryEventTests.swift in Sources */,
+				D62000000000000000000002 /* TelemetryQueueTests.swift in Sources */,
+				D62000000000000000000003 /* TelemetryClientTests.swift in Sources */,
+				D62000000000000000000004 /* TelemetryControllerTests.swift in Sources */,
+				D62000000000000000000005 /* HealthSignalInstrumentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -562,7 +614,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.4.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -595,7 +647,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.4.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.czapiewski.whispernote;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

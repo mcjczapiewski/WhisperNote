@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.5"
+    private let expectedVersion = "1.4.6"
 
     func testUnifiedSearchIsAProjectWiredFifthTab() throws {
         try skipSourceAssertionsWhenHosted()
@@ -61,6 +61,31 @@ final class ReleaseInvariantTests: XCTestCase {
         }
     }
 
+    func testTelemetryAndFeedbackAreWiredIntoXcodeTargets() throws {
+        try skipSourceAssertionsWhenHosted()
+        let project = try sourceContents(at: "WhisperNote.xcodeproj/project.pbxproj")
+        let productionSources = [
+            "TelemetryEvent.swift",
+            "TelemetryConsentStore.swift",
+            "TelemetryQueue.swift",
+            "TelemetryClient.swift",
+            "TelemetryController.swift",
+            "TelemetryCredentialStore.swift",
+            "ProductFeedbackView.swift",
+            "HealthSignalRecording.swift",
+        ]
+        let testSources = [
+            "TelemetryEventTests.swift",
+            "TelemetryQueueTests.swift",
+            "TelemetryClientTests.swift",
+            "TelemetryControllerTests.swift",
+            "HealthSignalInstrumentationTests.swift",
+        ]
+        for source in productionSources + testSources {
+            XCTAssertTrue(project.contains("/* \(source) in Sources */"), "Missing Xcode source membership for \(source)")
+        }
+    }
+
     func testMenuBarAndShortcutUseAppRootServices() throws {
         try skipSourceAssertionsWhenHosted()
         let app = try sourceContents(at: "WhisperNote/WhisperNoteApp.swift")
@@ -102,7 +127,7 @@ final class ReleaseInvariantTests: XCTestCase {
         XCTAssertEqual(marketingVersions.count, 2, "Expected Debug and Release MARKETING_VERSION values")
         XCTAssertEqual(Set(marketingVersions), [expectedVersion])
         XCTAssertEqual(try settingsFallbackVersion(in: settings), expectedVersion)
-        XCTAssertEqual(try firstChangelogHeading(in: changelog), "## \(expectedVersion) — July 14, 2026")
+        XCTAssertEqual(try firstChangelogHeading(in: changelog), "## \(expectedVersion) — July 15, 2026")
     }
 
     func testHostedXcodeTestsUseIsolatedUserHome() throws {

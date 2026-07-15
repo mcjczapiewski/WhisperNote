@@ -11,6 +11,7 @@ final class WhisperNoteAppModel: ObservableObject {
     let commandCoordinator: RecordingCommandCoordinator
     let shortcutManager: GlobalShortcutManager
     let librarySearch: LibrarySearchController
+    let telemetryController: TelemetryController
 
     private var didBootstrap = false
 
@@ -21,11 +22,13 @@ final class WhisperNoteAppModel: ObservableObject {
         summaryTemplateController: SummaryTemplateController? = nil,
         workflowCoordinator: PostRecordingWorkflowCoordinator? = nil,
         navigationRouter: AppNavigationRouter? = nil,
-        shortcutManager: GlobalShortcutManager? = nil
+        shortcutManager: GlobalShortcutManager? = nil,
+        telemetryController: TelemetryController? = nil
     ) {
         let audioRecorder = audioRecorder ?? AudioRecorder()
-        let transcriptionManager = transcriptionManager ?? TranscriptionManager()
-        let summaryManager = summaryManager ?? SummaryManager()
+        let telemetryController = telemetryController ?? TelemetryController()
+        let transcriptionManager = transcriptionManager ?? TranscriptionManager(healthSignals: telemetryController)
+        let summaryManager = summaryManager ?? SummaryManager(healthSignals: telemetryController)
         let summaryTemplateController = summaryTemplateController ?? SummaryTemplateController()
         let workflowCoordinator = workflowCoordinator ?? PostRecordingWorkflowCoordinator()
         let navigationRouter = navigationRouter ?? AppNavigationRouter()
@@ -38,9 +41,11 @@ final class WhisperNoteAppModel: ObservableObject {
         self.navigationRouter = navigationRouter
         self.commandCoordinator = RecordingCommandCoordinator(
             recorder: audioRecorder,
-            workflow: workflowCoordinator
+            workflow: workflowCoordinator,
+            healthSignals: telemetryController
         )
         self.shortcutManager = shortcutManager
+        self.telemetryController = telemetryController
         self.librarySearch = LibrarySearchController(
             audioRecorder: audioRecorder,
             transcriptionManager: transcriptionManager,
@@ -56,6 +61,7 @@ final class WhisperNoteAppModel: ObservableObject {
     func bootstrap() async {
         guard !didBootstrap, !WhisperNoteRuntime.isUnitTestMode else { return }
         didBootstrap = true
+        await telemetryController.bootstrap()
         await summaryTemplateController.load()
         workflowCoordinator.attachTemplateProvider(summaryTemplateController)
         await workflowCoordinator.attach(

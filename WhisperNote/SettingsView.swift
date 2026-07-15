@@ -8,6 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject private var shortcutManager: GlobalShortcutManager
     @EnvironmentObject private var librarySearch: LibrarySearchController
     @EnvironmentObject private var summaryTemplateController: SummaryTemplateController
+    @EnvironmentObject private var telemetryController: TelemetryController
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
@@ -18,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("autoSummarizeAfterRecording") private var autoSummarizeAfterRecording = false
     @AppStorage("autoSummaryModel") private var autoSummaryModel = defaultLLMModelId
     @AppStorage("processingCompletionNotifications") private var processingCompletionNotifications = false
+    @AppStorage("telemetryWebhookEndpoint") private var telemetryWebhookEndpoint = ""
 
     @State private var isShowingDirectoryPicker = false
     @State private var selectedDirectoryDisplayName = "Default (Documents)"
@@ -25,6 +27,9 @@ struct SettingsView: View {
     @State private var alertMessage = ""
     @State private var isShowingChangelog = false
     @State private var isShowingTemplateLibrary = false
+    @State private var isShowingFeedback = false
+    @State private var isShowingTelemetryOptOutConfirmation = false
+    @State private var telemetryWebhookToken = ""
 
     private let audioQualities = ["low", "medium", "high"]
 
@@ -69,6 +74,113 @@ struct SettingsView: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                     }
                     .padding(.top, 10)
+                }
+                .padding()
+            }
+            .padding(.horizontal)
+
+            GroupBox(label: Text("Privacy & Feedback").font(.headline)) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Optional product telemetry is off by default. You can send product feedback whether or not telemetry is enabled.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Text("When enabled, WhisperNote may send only app version and build, macOS major/minor version, coarse feature outcomes and timing buckets, and a weekly-active signal. Optional feedback sends only its category, message, and the same runtime versions. It never sends audio, transcript or summary text, prompts, file names or paths, recordings, API keys, endpoint URLs, header tokens, device identifiers, or your install identifier in feedback.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Toggle(
+                        "Enable optional product telemetry",
+                        isOn: Binding(
+                            get: { telemetryController.consent.enabled },
+                            set: { enabled in
+                                if enabled {
+                                    Task { await telemetryController.enableTelemetry() }
+                                } else {
+                                    isShowingTelemetryOptOutConfirmation = true
+                                }
+                            }
+                        )
+                    )
+                    .accessibilityLabel("Enable optional product telemetry")
+
+                    if let version = telemetryController.consent.version,
+                       let changedAt = telemetryController.consent.changedAt {
+                        Text("Consent version \(version), last changed \(changedAt.rawValue)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("No telemetry consent has been recorded.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    Text("Local delivery configuration")
+                        .font(.subheadline.weight(.medium))
+                    Text("The endpoint stays on this Mac. The header token is stored in your macOS Keychain and is never included in telemetry payloads or status messages.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    TextField("HTTPS endpoint", text: $telemetryWebhookEndpoint)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .accessibilityLabel("Telemetry HTTPS endpoint")
+                    SecureField("Header token", text: $telemetryWebhookToken)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .accessibilityLabel("Telemetry header token")
+
+                    if telemetryController.hasStoredCredential {
+                        Text("A header token is already stored in Keychain. Leave this field blank to keep it, or enter a replacement.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Button("Save Delivery Configuration") {
+                            Task {
+                                _ = await telemetryController.saveConfiguration(
+                                    endpoint: telemetryWebhookEndpoint,
+                                    token: telemetryWebhookToken
+                                )
+                            }
+                        }
+                        .accessibilityLabel("Save telemetry delivery configuration")
+
+                        Button("Clear") {
+                            telemetryWebhookEndpoint = ""
+                            telemetryWebhookToken = ""
+                            Task { await telemetryController.clearConfiguration() }
+                        }
+                        .accessibilityLabel("Clear telemetry delivery configuration")
+                    }
+
+                    HStack {
+                        Text("Queue: \(telemetryController.queuedItemCount) item\(telemetryController.queuedItemCount == 1 ? "" : "s")")
+                        Spacer()
+                        Text(telemetryController.status.message)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Telemetry queue and delivery status")
+
+                    HStack {
+                        Button("Send Product Feedback…") {
+                            isShowingFeedback = true
+                        }
+                        .accessibilityLabel("Open product feedback form")
+
+                        Spacer()
+
+                        if telemetryController.consent.enabled {
+                            Button("Opt Out and Purge…", role: .destructive) {
+                                isShowingTelemetryOptOutConfirmation = true
+                            }
+                            .accessibilityLabel("Opt out and purge telemetry")
+                        }
+                    }
                 }
                 .padding()
             }
@@ -376,6 +488,22 @@ struct SettingsView: View {
         .sheet(isPresented: $isShowingTemplateLibrary) {
             SummaryTemplateLibraryView()
         }
+        .sheet(isPresented: $isShowingFeedback) {
+            ProductFeedbackView()
+                .environmentObject(telemetryController)
+        }
+        .confirmationDialog(
+            "Opt out and purge telemetry?",
+            isPresented: $isShowingTelemetryOptOutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Opt Out and Purge", role: .destructive) {
+                Task { await telemetryController.optOutAndPurge() }
+            }
+            Button("Keep Telemetry Enabled", role: .cancel) { }
+        } message: {
+            Text("This permanently removes the local telemetry queue, install identifier, endpoint, and Keychain token. Optional feedback remains available after you configure delivery again.")
+        }
         .onChange(of: autoTranscribeAfterRecording) { enabled in
             if !enabled { autoSummarizeAfterRecording = false }
         }
@@ -384,7 +512,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.5"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.6"
     }
 }
 

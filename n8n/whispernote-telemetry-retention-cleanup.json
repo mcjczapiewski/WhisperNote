@@ -1,0 +1,152 @@
+{
+  "name": "WhisperNote telemetry 90-day retention cleanup",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "1b9a3486-13a4-4070-9d3a-000000000101",
+      "name": "Hourly at :15 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cutoff=new Date(Date.now()-89*24*60*60*1000).toISOString();return [{json:{cutoff}}];"
+      },
+      "id": "1b9a3486-13a4-4070-9d3a-000000000102",
+      "name": "Calculate conservative 89-day cutoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "__REPLACE_WITH_HEALTH_DATA_TABLE_ID__",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "received_at",
+              "condition": "lt",
+              "keyValue": "={{ $json.cutoff }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1b9a3486-13a4-4070-9d3a-000000000103",
+      "name": "Delete expired health rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "__REPLACE_WITH_FEEDBACK_DATA_TABLE_ID__",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "received_at",
+              "condition": "lt",
+              "keyValue": "={{ $json.cutoff }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1b9a3486-13a4-4070-9d3a-000000000104",
+      "name": "Delete expired feedback rows",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Configure before activation\n\nReplace both Data Table ID placeholders with the same IDs used in the intake workflow. Keep the workflow timezone at UTC. Intake assigns conservative 89-day expiry; this cleanup independently deletes rows whose received_at is older than the 89-day UTC cutoff. It runs hourly at :15, keeping raw rows under 90 days.",
+        "height": 220,
+        "width": 480,
+        "color": 5
+      },
+      "id": "1b9a3486-13a4-4070-9d3a-000000000105",
+      "name": "Retention setup note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -160
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Hourly at :15 UTC": {
+      "main": [
+        [
+          {
+            "node": "Calculate conservative 89-day cutoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate conservative 89-day cutoff": {
+      "main": [
+        [
+          {
+            "node": "Delete expired health rows",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Delete expired feedback rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC"
+  },
+  "versionId": "1b9a3486-13a4-4070-9d3a-000000000199",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

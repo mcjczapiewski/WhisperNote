@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.6 — July 15, 2026
+
+- Added an explicit, off-by-default health-telemetry consent flow with a local 30-day queue, privacy-preserving install identifier, secure Keychain delivery token, and opt-out purge.
+- Added in-app product feedback that uses the same user-configured HTTPS endpoint without collecting contact details.
+- Added an importable n8n telemetry intake and retention-cleanup package, with documented 90-day server retention and Data Table setup.
+
 ## 1.4.5 — July 14, 2026
 
 - Added reusable local summary templates with five built-in presets: Meeting Minutes, Action Items, Client Follow-up, Interview Notes, and Learning Notes.
