@@ -48,8 +48,8 @@ struct UnifiedSearchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(results, id: \.key) { result in
-                    SearchResultRow(result: result) { destination, matchIndex in
-                        open(destination, searchText: appliedSearchText, matchIndex: matchIndex)
+                    SearchResultRow(result: result) { destination, matchIndex, location in
+                        open(destination, searchText: appliedSearchText, matchIndex: matchIndex, focusLocation: location)
                     }
                 }
                 .listStyle(.inset)
@@ -121,19 +121,24 @@ struct UnifiedSearchView: View {
         }
     }
 
-    private func open(_ destination: UnifiedSearchDestination, searchText: String? = nil, matchIndex: Int = 0) {
+    private func open(
+        _ destination: UnifiedSearchDestination,
+        searchText: String? = nil,
+        matchIndex: Int = 0,
+        focusLocation: Int? = nil
+    ) {
         switch destination {
         case .recording(let id): navigationRouter.openRecording(id)
         case .group(let id): navigationRouter.openRecordingGroup(id)
-        case .transcript(let id): navigationRouter.openTranscript(id, searchText: searchText, matchIndex: matchIndex)
-        case .summary(let id): navigationRouter.openSummary(id, searchText: searchText, matchIndex: matchIndex)
+        case .transcript(let id): navigationRouter.openTranscript(id, searchText: searchText, matchIndex: matchIndex, focusLocation: focusLocation)
+        case .summary(let id): navigationRouter.openSummary(id, searchText: searchText, matchIndex: matchIndex, focusLocation: focusLocation)
         }
     }
 }
 
 private struct SearchResultRow: View {
     let result: UnifiedSearchResult
-    let open: (UnifiedSearchDestination, Int) -> Void
+    let open: (UnifiedSearchDestination, Int, Int) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -160,7 +165,7 @@ private struct SearchResultRow: View {
                 .font(.caption).foregroundColor(.secondary)
 
                 ForEach(Array(result.previews.enumerated()), id: \.offset) { index, preview in
-                    Button { open(preview.destination, preview.matchIndex) } label: {
+                    Button { open(preview.destination, preview.matchIndex, preview.location) } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("\(previewLabel(preview.destination)) match \(index + 1)")
                             .font(.caption.weight(.semibold))

@@ -40,3 +40,4 @@ Implement the requested recording, library, search, and navigation improvements 
 ### Implementation log
 
 - 2026-07-15: implementation complete. Search now uses precomputed sentences and a 150 ms debounce; focused 50-test run passed (one release-only benchmark skipped). Version 1.4.8 is ready to commit and push on `phase2`.
+- 2026-07-15: follow-up fix complete. Each search preview now routes its sentence's UTF-16 location into the matching native text view, which selects and scrolls to the first query match in that sentence. Focused test run: 59 passed, 1 release-only performance benchmark skipped. Version 1.4.9 is ready to commit and push on `phase2`.

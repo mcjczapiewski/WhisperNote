@@ -75,6 +75,7 @@ struct UnifiedSearchPreview: Equatable, Sendable {
     let destination: UnifiedSearchDestination
     let match: String
     let matchIndex: Int
+    let location: Int
 }
 
 /// An immutable, pre-normalized projection of the library. Rebuild it whenever an
@@ -132,7 +133,7 @@ struct UnifiedSearchIndex: Sendable {
             builder.add(
                 artifact: .transcript(transcript.id),
                 title: transcript.name,
-                content: [transcript.content, transcript.formattedContent ?? ""].joined(separator: " "),
+                content: transcript.formattedContent ?? transcript.content,
                 date: transcript.date,
                 status: transcript.status
             )
@@ -305,6 +306,7 @@ private extension UnifiedSearchIndex {
     struct SearchSentence: Sendable {
         let text: String
         let normalized: String
+        let location: Int
     }
 
     struct Builder {
@@ -326,7 +328,7 @@ private extension UnifiedSearchIndex {
                 destination: artifact,
                 title: normalizedTitle,
                 content: UnifiedSearchIndex.normalize(content),
-                sentences: content.sentences.map { SearchSentence(text: $0, normalized: UnifiedSearchIndex.normalize($0)) },
+                sentences: UnifiedSearchIndex.sentences(in: content),
                 date: date,
                 status: status
             ))
@@ -450,7 +452,8 @@ private extension UnifiedSearchIndex {
                     return UnifiedSearchPreview(
                         destination: artifact.destination,
                         match: sentence.text,
-                        matchIndex: index
+                        matchIndex: index,
+                        location: sentence.location
                     )
                 }
             }
@@ -462,14 +465,18 @@ private extension UnifiedSearchIndex {
         let rank: Int
         let destination: UnifiedSearchDestination
     }
-}
-
-private extension String {
-    var sentences: [String] {
-        var result: [String] = []
-        enumerateSubstrings(in: startIndex..<endIndex, options: .bySentences) { substring, _, _, _ in
-            guard let sentence = substring?.trimmingCharacters(in: .whitespacesAndNewlines), !sentence.isEmpty else { return }
-            result.append(sentence)
+    static func sentences(in value: String) -> [SearchSentence] {
+        var result: [SearchSentence] = []
+        value.enumerateSubstrings(in: value.startIndex..<value.endIndex, options: .bySentences) { substring, range, _, _ in
+            guard let rawSentence = substring else { return }
+            let sentence = rawSentence.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sentence.isEmpty else { return }
+            let leadingOffset = (rawSentence as NSString).range(of: sentence).location
+            result.append(SearchSentence(
+                text: sentence,
+                normalized: normalize(sentence),
+                location: NSRange(range, in: value).location + leadingOffset
+            ))
         }
         return result
     }

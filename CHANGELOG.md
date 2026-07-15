@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.9 — July 15, 2026
+
+- Fixed unified-search result links so each one opens the exact highlighted sentence that was clicked.
+
 ## 1.4.8 — July 15, 2026
 
 - Added next/previous controls for read-only document search and deep links from each one-sentence unified-search result directly to its highlighted match.

@@ -26,6 +26,7 @@ struct SummaryView: View {
     @State private var replaceText = ""
     @State private var searchText = ""
     @State private var searchMatch = 0
+    @State private var searchFocusLocation: Int?
     // Define the export format separately to avoid complex expressions
     @State private var exportFormat: UTType = .plainText
 
@@ -56,6 +57,7 @@ struct SummaryView: View {
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     searchText: $searchText,
                     searchMatch: $searchMatch,
+                    searchFocusLocation: $searchFocusLocation,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog
                 )
@@ -73,8 +75,6 @@ struct SummaryView: View {
             editedSummaryContent = ""
             findText = ""
             replaceText = ""
-            searchText = ""
-            searchMatch = 0
         }
         .alert(isPresented: $showingError) {
             Alert(
@@ -148,6 +148,7 @@ struct SummaryView: View {
         if let route = navigationRouter.consumeSummarySearchRoute(for: id) {
             searchText = route.text
             searchMatch = route.matchIndex
+            searchFocusLocation = route.focusLocation
         }
         navigationRouter.consumeSummaryRoute(id)
     }
@@ -190,6 +191,7 @@ struct MainContentView: View {
     @Binding var showingFindReplaceDialog: Bool
     @Binding var searchText: String
     @Binding var searchMatch: Int
+    @Binding var searchFocusLocation: Int?
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
 
@@ -220,6 +222,7 @@ struct MainContentView: View {
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     searchText: $searchText,
                     searchMatch: $searchMatch,
+                    searchFocusLocation: $searchFocusLocation,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog,
                     selectedSummaryBinding: $selectedSummary
@@ -440,6 +443,7 @@ struct SummaryDetailView: View {
     @Binding var showingFindReplaceDialog: Bool
     @Binding var searchText: String
     @Binding var searchMatch: Int
+    @Binding var searchFocusLocation: Int?
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
     @Binding var selectedSummaryBinding: Summary?
@@ -462,6 +466,7 @@ struct SummaryDetailView: View {
                 ReadOnlyTextSearchField(
                     text: $searchText,
                     selectedMatch: $searchMatch,
+                    focusLocation: $searchFocusLocation,
                     content: MarkdownTextRenderer.plainText(from: selectedSummary.content)
                 )
                 }
@@ -586,7 +591,8 @@ Button(action: {
                         text: "",
                         attributedText: MarkdownTextRenderer.attributedText(from: selectedSummary.content),
                         searchText: searchText,
-                        selectedMatch: searchMatch
+                        selectedMatch: searchMatch,
+                        focusLocation: searchFocusLocation
                     )
                 }
             } else if selectedSummary.status == .failed {
