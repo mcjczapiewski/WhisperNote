@@ -55,7 +55,7 @@ struct MenuBarRecordingView: View {
 
             Divider()
             Button("Open WhisperNote") { show(tab: 0) }
-            Button("Open Settings") { show(tab: 3) }
+            Button("Open Settings") { show(tab: 4) }
             if let job = workflowCoordinator.jobs.last(where: { $0.state == .completed }) {
                 Button("Open Latest Results") {
                     if job.snapshot.shouldSummarize { navigationRouter.openSummary(job.summaryID) }

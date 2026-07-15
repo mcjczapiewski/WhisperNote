@@ -131,9 +131,9 @@ private struct SearchResultRow: View {
     let result: UnifiedSearchResult
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: resultIcon).font(.title2).foregroundColor(.accentColor)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Text(result.title).font(.headline)
                     Text(artifactLabel)
@@ -153,6 +153,21 @@ private struct SearchResultRow: View {
                     if result.isOrphan { Label("Missing parent", systemImage: "link.badge.plus") }
                 }
                 .font(.caption).foregroundColor(.secondary)
+
+                ForEach(Array(result.previews.enumerated()), id: \.offset) { index, preview in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(previewLabel(preview.destination)) match \(index + 1)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        if let before = preview.before { Text(before).foregroundColor(.secondary) }
+                        Text(preview.match).fontWeight(.semibold)
+                        if let after = preview.after { Text(after).foregroundColor(.secondary) }
+                    }
+                    .font(.caption)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                }
             }
             Spacer()
             Image(systemName: "chevron.right").foregroundColor(.secondary)
@@ -170,7 +185,11 @@ private struct SearchResultRow: View {
     }
 
     private var artifactLabel: String {
-        switch result.destination {
+        previewLabel(result.destination)
+    }
+
+    private func previewLabel(_ destination: UnifiedSearchDestination) -> String {
+        switch destination {
         case .recording: return "Recording"
         case .group: return "Group"
         case .transcript: return "Transcript"

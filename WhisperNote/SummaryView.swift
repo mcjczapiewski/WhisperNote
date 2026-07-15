@@ -6,12 +6,14 @@ struct SummaryView: View {
     @EnvironmentObject var summaryManager: SummaryManager
     @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @State private var selectedSummary: Summary?
+    @State private var selectedSummaryIDs: Set<UUID> = []
     @State private var isGenerating = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var customPrompt = ""
     @State private var showingDeleteConfirmation = false
     @State private var summaryToDelete: Summary?
+    @State private var summaryIDsToDelete: Set<UUID> = []
     @State private var isShowingExportDialog = false
     @State private var isShowingExportOptions = false
     @State private var showingSummaryParamsDialog = false
@@ -22,6 +24,7 @@ struct SummaryView: View {
     @State private var showingFindReplaceDialog = false
     @State private var findText = ""
     @State private var replaceText = ""
+    @State private var searchText = ""
     // Define the export format separately to avoid complex expressions
     @State private var exportFormat: UTType = .plainText
 
@@ -41,13 +44,16 @@ struct SummaryView: View {
                 MainContentView(
                     summaryManager: summaryManager,
                     selectedSummary: $selectedSummary,
+                    selectedSummaryIDs: $selectedSummaryIDs,
                     summaryToDelete: $summaryToDelete,
+                    summaryIDsToDelete: $summaryIDsToDelete,
                     showingDeleteConfirmation: $showingDeleteConfirmation,
                     isShowingExportOptions: $isShowingExportOptions,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
                     isEditingSummary: $isEditingSummary,
                     editedSummaryContent: $editedSummaryContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
+                    searchText: $searchText,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog
                 )
@@ -65,6 +71,7 @@ struct SummaryView: View {
             editedSummaryContent = ""
             findText = ""
             replaceText = ""
+            searchText = ""
         }
         .alert(isPresented: $showingError) {
             Alert(
@@ -76,21 +83,20 @@ struct SummaryView: View {
         .alert("Delete Summary", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 summaryToDelete = nil
+                summaryIDsToDelete.removeAll()
             }
             Button("Delete", role: .destructive) {
-                if let summary = summaryToDelete {
-                    // If the summary being deleted is the selected one, deselect it
-                    if selectedSummary?.id == summary.id {
-                        selectedSummary = nil
-                    }
-
-                    // Delete the summary
-                    summaryManager.deleteSummary(id: summary.id)
-                    summaryToDelete = nil
-                }
+                let ids = summaryIDsToDelete.isEmpty ? Set(summaryToDelete.map { [$0.id] } ?? []) : summaryIDsToDelete
+                if ids.contains(selectedSummary?.id ?? UUID()) { selectedSummary = nil }
+                selectedSummaryIDs.subtract(ids)
+                for id in ids { summaryManager.deleteSummary(id: id) }
+                summaryToDelete = nil
+                summaryIDsToDelete.removeAll()
             }
         } message: {
-            if let summary = summaryToDelete {
+            if summaryIDsToDelete.count > 1 {
+                Text("Are you sure you want to delete \(summaryIDsToDelete.count) summaries? This action cannot be undone.")
+            } else if let summary = summaryToDelete {
                 Text("Are you sure you want to delete the summary \"\(summary.name)\"? This action cannot be undone.")
             } else {
                 Text("Are you sure you want to delete this summary? This action cannot be undone.")
@@ -135,6 +141,7 @@ struct SummaryView: View {
         guard let id = navigationRouter.summaryID,
               let summary = summaryManager.summaries.first(where: { $0.id == id }) else { return }
         selectedSummary = summary
+        selectedSummaryIDs = [id]
         navigationRouter.consumeSummaryRoute(id)
     }
 }
@@ -165,13 +172,16 @@ struct EmptySummaryView: View {
 struct MainContentView: View {
     @ObservedObject var summaryManager: SummaryManager
     @Binding var selectedSummary: Summary?
+    @Binding var selectedSummaryIDs: Set<UUID>
     @Binding var summaryToDelete: Summary?
+    @Binding var summaryIDsToDelete: Set<UUID>
     @Binding var showingDeleteConfirmation: Bool
     @Binding var isShowingExportOptions: Bool
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var isEditingSummary: Bool
     @Binding var editedSummaryContent: String
     @Binding var showingFindReplaceDialog: Bool
+    @Binding var searchText: String
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
 
@@ -181,7 +191,9 @@ struct MainContentView: View {
             SummarySidebarView(
                 summaryManager: summaryManager,
                 selectedSummary: $selectedSummary,
+                selectedSummaryIDs: $selectedSummaryIDs,
                 summaryToDelete: $summaryToDelete,
+                summaryIDsToDelete: $summaryIDsToDelete,
                 showingDeleteConfirmation: $showingDeleteConfirmation
             )
 
@@ -198,6 +210,7 @@ struct MainContentView: View {
                     isEditingSummary: $isEditingSummary,
                     editedSummaryContent: $editedSummaryContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
+                    searchText: $searchText,
                     exportFormat: $exportFormat,
                     isShowingExportDialog: $isShowingExportDialog,
                     selectedSummaryBinding: $selectedSummary
@@ -216,11 +229,13 @@ struct MainContentView: View {
 struct SummarySidebarView: View {
     @ObservedObject var summaryManager: SummaryManager
     @Binding var selectedSummary: Summary?
+    @Binding var selectedSummaryIDs: Set<UUID>
     @Binding var summaryToDelete: Summary?
+    @Binding var summaryIDsToDelete: Set<UUID>
     @Binding var showingDeleteConfirmation: Bool
 
     var body: some View {
-        List {
+        List(selection: $selectedSummaryIDs) {
             ForEach(summaryManager.summaries) { summary in
                 HStack {
                     VStack(alignment: .leading) {
@@ -236,6 +251,7 @@ struct SummarySidebarView: View {
 
                     Button(action: {
                         summaryToDelete = summary
+                        summaryIDsToDelete = selectedSummaryIDs.contains(summary.id) ? selectedSummaryIDs : [summary.id]
                         showingDeleteConfirmation = true
                     }) {
                         Image(systemName: "trash")
@@ -257,9 +273,6 @@ struct SummarySidebarView: View {
                 }
                 .padding(.vertical, 5)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedSummary = summary
-                }
                 .contextMenu {
                     Button(action: {
                         FinderHelper.showInFinder(summaryFinderURL())
@@ -269,6 +282,7 @@ struct SummarySidebarView: View {
 
                     Button(action: {
                         summaryToDelete = summary
+                        summaryIDsToDelete = selectedSummaryIDs.contains(summary.id) ? selectedSummaryIDs : [summary.id]
                         showingDeleteConfirmation = true
                     }) {
                         Label("Delete", systemImage: "trash")
@@ -276,14 +290,18 @@ struct SummarySidebarView: View {
                 }
                 .listRowBackground(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selectedSummary?.id == summary.id ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
+                        .fill(selectedSummaryIDs.contains(summary.id) ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
                         .padding(.vertical, 2)
                 )
+                .tag(summary.id)
             }
         }
         .frame(width: 250)
         .listStyle(SidebarListStyle())
         .scrollContentBackground(.hidden)
+        .onChange(of: selectedSummaryIDs) { ids in
+            selectedSummary = summaryManager.summaries.first(where: { ids.contains($0.id) })
+        }
     }
 
     private func summaryFinderURL() -> URL {
@@ -411,6 +429,7 @@ struct SummaryDetailView: View {
     @Binding var isEditingSummary: Bool
     @Binding var editedSummaryContent: String
     @Binding var showingFindReplaceDialog: Bool
+    @Binding var searchText: String
     @Binding var exportFormat: UTType
     @Binding var isShowingExportDialog: Bool
     @Binding var selectedSummaryBinding: Summary?
@@ -422,15 +441,20 @@ struct SummaryDetailView: View {
 
     var body: some View {
         VStack {
-            // Toolbar
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
                 Text(selectedSummary.name)
                     .font(.headline)
 
                 LibraryMetadataControls(itemKey: LibraryItemKey(kind: .summary, id: selectedSummary.id))
 
                 Spacer()
+                }
 
+                HStack(spacing: 8) {
+                ReadOnlyTextSearchField(text: $searchText, content: MarkdownTextRenderer.plainText(from: selectedSummary.content))
+
+                Spacer()
                 Button(action: {
                     if selectedSummary.status == .completed {
                         isShowingExportOptions = true
@@ -438,6 +462,7 @@ struct SummaryDetailView: View {
                 }) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
+                .libraryActionButton()
                 .disabled(selectedSummary.status != .completed)
                 .confirmationDialog("Export Format", isPresented: $isShowingExportOptions) {
                     Button("Markdown (.md)") {
@@ -461,12 +486,14 @@ struct SummaryDetailView: View {
                 }) {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                 }
+                .libraryActionButton()
 
                 Button(action: {
                     showingPrintOptions = true
                 }) {
                     Label("Print / PDF", systemImage: "printer")
                 }
+                .libraryActionButton()
                 .disabled(selectedSummary.status != .completed)
 
                 Button(action: {
@@ -481,6 +508,7 @@ struct SummaryDetailView: View {
                 }) {
                     Label(isEditingSummary ? "Save" : "Edit", systemImage: isEditingSummary ? "checkmark" : "pencil")
                 }
+                .libraryActionButton()
                 .disabled(selectedSummary.status != .completed)
 
 Button(action: {
@@ -503,7 +531,9 @@ Button(action: {
 }) {
     Label("Refresh", systemImage: "arrow.triangle.2.circlepath")
 }
+.libraryActionButton()
 .help("Refresh summary content")
+                }
             }
             .padding()
 
@@ -539,16 +569,11 @@ Button(action: {
                             .border(Color.gray.opacity(0.2))
                     }
                 } else {
-                    ScrollView {
-                        // Wrap the Markdown view in a VStack with a fixed width to avoid layout issues
-                        VStack {
-                            Markdown(selectedSummary.content)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                    }
+                    ReadOnlyTranscriptTextView(
+                        text: "",
+                        attributedText: MarkdownTextRenderer.attributedText(from: selectedSummary.content),
+                        searchText: searchText
+                    )
                 }
             } else if selectedSummary.status == .failed {
                 VStack {

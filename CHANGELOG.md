@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7 — July 15, 2026
+
+- Added a per-recording Record to Results choice at recording start, read-only search with highlighted matches in transcript and summary details, and aligned two-row detail toolbars.
+- Added context previews for every matching sentence in unified search, Command-click bulk deletion in library lists, and moved Settings to the final tab.
+
 ## 1.4.6 — July 15, 2026
 
 - Added an explicit, off-by-default health-telemetry consent flow with a local 30-day queue, privacy-preserving install identifier, secure Keychain delivery token, and opt-out purge.

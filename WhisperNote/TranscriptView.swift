@@ -6,11 +6,13 @@ struct TranscriptView: View {
     @EnvironmentObject var summaryManager: SummaryManager
     @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @State private var selectedTranscript: Transcript?
+    @State private var selectedTranscriptIDs: Set<UUID> = []
     @State private var isTranscribing = false
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var showingDeleteConfirmation = false
     @State private var transcriptToDelete: Transcript?
+    @State private var transcriptIDsToDelete: Set<UUID> = []
     @State private var isShowingExportDialog = false
     @State private var exportDocument = TextDocument(initialText: "")
     @State private var exportFilename = "transcript.txt"
@@ -19,6 +21,7 @@ struct TranscriptView: View {
     @State private var showingFindReplaceDialog = false
     @State private var findText: String = ""
     @State private var replaceText: String = ""
+    @State private var searchText = ""
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
@@ -40,11 +43,14 @@ struct TranscriptView: View {
                     transcriptionManager: transcriptionManager,
                     summaryManager: summaryManager,
                     selectedTranscript: $selectedTranscript,
+                    selectedTranscriptIDs: $selectedTranscriptIDs,
                     transcriptToDelete: $transcriptToDelete,
+                    transcriptIDsToDelete: $transcriptIDsToDelete,
                     showingDeleteConfirmation: $showingDeleteConfirmation,
                     isEditingTranscript: $isEditingTranscript,
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
+                    searchText: $searchText,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
                     isTranscribing: $isTranscribing,
                     errorMessage: $errorMessage,
@@ -64,21 +70,20 @@ struct TranscriptView: View {
         .alert("Delete Transcript", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 transcriptToDelete = nil
+                transcriptIDsToDelete.removeAll()
             }
             Button("Delete", role: .destructive) {
-                if let transcript = transcriptToDelete {
-                    // If the transcript being deleted is the selected one, deselect it
-                    if selectedTranscript?.id == transcript.id {
-                        selectedTranscript = nil
-                    }
-
-                    // Delete the transcript
-                    transcriptionManager.deleteTranscript(id: transcript.id)
-                    transcriptToDelete = nil
-                }
+                let ids = transcriptIDsToDelete.isEmpty ? Set(transcriptToDelete.map { [$0.id] } ?? []) : transcriptIDsToDelete
+                if ids.contains(selectedTranscript?.id ?? UUID()) { selectedTranscript = nil }
+                selectedTranscriptIDs.subtract(ids)
+                for id in ids { transcriptionManager.deleteTranscript(id: id) }
+                transcriptToDelete = nil
+                transcriptIDsToDelete.removeAll()
             }
         } message: {
-            if let transcript = transcriptToDelete {
+            if transcriptIDsToDelete.count > 1 {
+                Text("Are you sure you want to delete \(transcriptIDsToDelete.count) transcripts? This action cannot be undone.")
+            } else if let transcript = transcriptToDelete {
                 Text("Are you sure you want to delete the transcript \"\(transcript.name)\"? This action cannot be undone.")
             } else {
                 Text("Are you sure you want to delete this transcript? This action cannot be undone.")
@@ -128,6 +133,7 @@ struct TranscriptView: View {
         guard let id = navigationRouter.transcriptID,
               let transcript = transcriptionManager.transcripts.first(where: { $0.id == id }) else { return }
         selectedTranscript = transcript
+        selectedTranscriptIDs = [id]
         navigationRouter.consumeTranscriptRoute(id)
     }
 
@@ -214,11 +220,14 @@ struct TranscriptContentView: View {
     @ObservedObject var transcriptionManager: TranscriptionManager
     @ObservedObject var summaryManager: SummaryManager
     @Binding var selectedTranscript: Transcript?
+    @Binding var selectedTranscriptIDs: Set<UUID>
     @Binding var transcriptToDelete: Transcript?
+    @Binding var transcriptIDsToDelete: Set<UUID>
     @Binding var showingDeleteConfirmation: Bool
     @Binding var isEditingTranscript: Bool
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
+    @Binding var searchText: String
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var isTranscribing: Bool
     @Binding var errorMessage: String
@@ -231,7 +240,9 @@ struct TranscriptContentView: View {
             TranscriptSidebarView(
                 transcriptionManager: transcriptionManager,
                 selectedTranscript: $selectedTranscript,
+                selectedTranscriptIDs: $selectedTranscriptIDs,
                 transcriptToDelete: $transcriptToDelete,
+                transcriptIDsToDelete: $transcriptIDsToDelete,
                 showingDeleteConfirmation: $showingDeleteConfirmation
             )
 
@@ -247,6 +258,7 @@ struct TranscriptContentView: View {
                     isEditingTranscript: $isEditingTranscript,
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
+                    searchText: $searchText,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
                     selectedTranscriptBinding: $selectedTranscript,
                     isTranscribing: $isTranscribing,
@@ -268,11 +280,13 @@ struct TranscriptContentView: View {
 struct TranscriptSidebarView: View {
     @ObservedObject var transcriptionManager: TranscriptionManager
     @Binding var selectedTranscript: Transcript?
+    @Binding var selectedTranscriptIDs: Set<UUID>
     @Binding var transcriptToDelete: Transcript?
+    @Binding var transcriptIDsToDelete: Set<UUID>
     @Binding var showingDeleteConfirmation: Bool
 
     var body: some View {
-        List {
+        List(selection: $selectedTranscriptIDs) {
             ForEach(transcriptionManager.transcripts) { transcript in
                 HStack {
                     VStack(alignment: .leading) {
@@ -288,6 +302,7 @@ struct TranscriptSidebarView: View {
 
                     Button(action: {
                         transcriptToDelete = transcript
+                        transcriptIDsToDelete = selectedTranscriptIDs.contains(transcript.id) ? selectedTranscriptIDs : [transcript.id]
                         showingDeleteConfirmation = true
                     }) {
                         Image(systemName: "trash")
@@ -309,9 +324,6 @@ struct TranscriptSidebarView: View {
                 }
                 .padding(.vertical, 5)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedTranscript = transcript
-                }
                 .contextMenu {
                     Button(action: {
                         FinderHelper.showInFinder(transcriptFinderURL(transcript))
@@ -321,6 +333,7 @@ struct TranscriptSidebarView: View {
 
                     Button(action: {
                         transcriptToDelete = transcript
+                        transcriptIDsToDelete = selectedTranscriptIDs.contains(transcript.id) ? selectedTranscriptIDs : [transcript.id]
                         showingDeleteConfirmation = true
                     }) {
                         Label("Delete", systemImage: "trash")
@@ -328,14 +341,16 @@ struct TranscriptSidebarView: View {
                 }
                 .listRowBackground(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selectedTranscript?.id == transcript.id ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
+                        .fill(selectedTranscriptIDs.contains(transcript.id) ? Color.blue.opacity(0.18) : Color.black.opacity(0.10))
                         .padding(.vertical, 2)
                 )
+                .tag(transcript.id)
             }
             .onDelete { indexSet in
-                let transcriptsToDelete = indexSet.map { transcriptionManager.transcripts[$0] }
-                if let firstTranscript = transcriptsToDelete.first {
+                let ids = Set(indexSet.map { transcriptionManager.transcripts[$0].id })
+                if let firstTranscript = transcriptionManager.transcripts.first(where: { ids.contains($0.id) }) {
                     transcriptToDelete = firstTranscript
+                    transcriptIDsToDelete = ids
                     showingDeleteConfirmation = true
                 }
             }
@@ -343,6 +358,9 @@ struct TranscriptSidebarView: View {
         .frame(width: 250)
         .listStyle(SidebarListStyle())
         .scrollContentBackground(.hidden)
+        .onChange(of: selectedTranscriptIDs) { ids in
+            selectedTranscript = transcriptionManager.transcripts.first(where: { ids.contains($0.id) })
+        }
     }
 
     private func transcriptFinderURL(_ transcript: Transcript) -> URL {
@@ -358,6 +376,7 @@ struct TranscriptDetailView: View {
     @Binding var isEditingTranscript: Bool
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
+    @Binding var searchText: String
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var selectedTranscriptBinding: Transcript?
     @Binding var isTranscribing: Bool
@@ -367,15 +386,20 @@ struct TranscriptDetailView: View {
 
     var body: some View {
         VStack {
-            // Toolbar
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
                 Text(selectedTranscript.name)
                     .font(.headline)
 
                 LibraryMetadataControls(itemKey: LibraryItemKey(kind: .transcript, id: selectedTranscript.id))
 
                 Spacer()
+                }
 
+                HStack(spacing: 8) {
+                ReadOnlyTextSearchField(text: $searchText, content: selectedTranscript.formattedContent ?? selectedTranscript.content)
+
+                Spacer()
                 Button(action: {
                     if selectedTranscript.status == .completed {
                         prepareExport(selectedTranscript)
@@ -383,6 +407,7 @@ struct TranscriptDetailView: View {
                 }) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
+                .libraryActionButton()
                 .disabled(selectedTranscript.status != .completed)
 
                 Button(action: {
@@ -391,6 +416,7 @@ struct TranscriptDetailView: View {
                 }) {
                     Label("Generate Summary", systemImage: "list.bullet.clipboard")
                 }
+                .libraryActionButton()
                 .disabled(selectedTranscript.status != .completed ||
                           summaryManager.summaries.contains(where: { $0.transcriptId == selectedTranscript.id }))
 
@@ -407,6 +433,7 @@ struct TranscriptDetailView: View {
                 }) {
                     Label(isEditingTranscript ? "Save" : "Edit", systemImage: isEditingTranscript ? "checkmark" : "pencil")
                 }
+                .libraryActionButton()
                 .disabled(selectedTranscript.status != .completed)
 
 Button(action: {
@@ -429,7 +456,9 @@ Button(action: {
 }) {
     Label("Refresh", systemImage: "arrow.clockwise")
 }
+.libraryActionButton()
 .help("Refresh transcript content")
+                }
             }
             .padding()
 
@@ -464,7 +493,10 @@ Button(action: {
                             .padding()
                             .border(Color.gray.opacity(0.2))
                     } else {
-                        ReadOnlyTranscriptTextView(text: selectedTranscript.formattedContent ?? selectedTranscript.content)
+                        ReadOnlyTranscriptTextView(
+                            text: selectedTranscript.formattedContent ?? selectedTranscript.content,
+                            searchText: searchText
+                        )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }

@@ -114,10 +114,15 @@ final class PostRecordingWorkflowCoordinator: ObservableObject {
 
     /// Called only for a live recording's successful, durable stop outcome.
     func recordingDidSave(_ recording: Recording) async {
+        await recordingDidSave(recording, recordToResults: nil)
+    }
+
+    /// A start-recording choice overrides the app default for this saved recording only.
+    func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async {
         guard !isLibraryRebinding else { return }
         let generation = libraryGeneration
         let store = store
-        guard defaults.bool(forKey: "autoTranscribeAfterRecording"), summaryManager != nil else { return }
+        guard recordToResults ?? defaults.bool(forKey: "autoTranscribeAfterRecording"), summaryManager != nil else { return }
         if let existing = job(for: recording.id) {
             start(existing.id)
             return

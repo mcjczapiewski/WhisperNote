@@ -66,7 +66,7 @@ final class AppNavigationRouter: ObservableObject {
     }
 
     func openSettings() {
-        selectedTab = 3
+        selectedTab = 4
     }
 
     func consumeTranscriptRoute(_ id: UUID) {

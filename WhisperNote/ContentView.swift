@@ -44,18 +44,18 @@ struct ContentView: View {
                 }
                 .tag(2)
 
+            UnifiedSearchView()
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(3)
+
             SettingsView()
                 .environmentObject(transcriptionManager)
                 .environmentObject(summaryManager)
                 .environmentObject(workflowCoordinator)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
-                }
-                .tag(3)
-
-            UnifiedSearchView()
-                .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
                 }
                 .tag(4)
             }
