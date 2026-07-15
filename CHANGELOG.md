@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.11 — July 15, 2026
+
+- Fixed Settings-tab initialization to derive the recording-directory label without writing SwiftUI state while the tab view is updating.
+
 ## 1.4.10 — July 15, 2026
 
 - Deferred tab-route state changes until after SwiftUI updates, removed duplicate microphone discovery on the Recording tab, and initialized Summary export format without an appearance-time state change.

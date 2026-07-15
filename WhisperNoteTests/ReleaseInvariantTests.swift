@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.10"
+    private let expectedVersion = "1.4.11"
 
     func testUnifiedSearchIsAProjectWiredFifthTab() throws {
         try skipSourceAssertionsWhenHosted()
@@ -52,6 +52,15 @@ final class ReleaseInvariantTests: XCTestCase {
         XCTAssertTrue(transcript.contains(".task(id: navigationRouter.transcriptID)"))
         XCTAssertTrue(summary.contains(".task(id: navigationRouter.summaryID)"))
         XCTAssertTrue(summary.contains("@State private var exportFormat: UTType = TextDocument.markdownUTType"))
+    }
+
+    func testSettingsDerivesDirectoryDisplayNameWithoutInitTimeStateMutation() throws {
+        try skipSourceAssertionsWhenHosted()
+        let settings = try sourceContents(at: "WhisperNote/SettingsView.swift")
+
+        XCTAssertTrue(settings.contains("private var selectedDirectoryDisplayName: String"))
+        XCTAssertFalse(settings.contains("@State private var selectedDirectoryDisplayName"))
+        XCTAssertFalse(settings.contains("    init() {\n        // Load the saved directory path"))
     }
 
     func testSummaryTemplatesAreWiredIntoXcodeTargets() throws {
