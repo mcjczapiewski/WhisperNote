@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.8"
+    private let expectedVersion = "1.4.9"
 
     func testUnifiedSearchIsAProjectWiredFifthTab() throws {
         try skipSourceAssertionsWhenHosted()

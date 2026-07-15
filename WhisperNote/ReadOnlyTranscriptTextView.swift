@@ -6,6 +6,7 @@ struct ReadOnlyTranscriptTextView: NSViewRepresentable {
     var attributedText: NSAttributedString? = nil
     var searchText = ""
     var selectedMatch = 0
+    var focusLocation: Int? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -55,7 +56,7 @@ struct ReadOnlyTranscriptTextView: NSViewRepresentable {
             .foregroundColor: NSColor.labelColor
         ])
         let content = base.string
-        guard coordinator.content != content || coordinator.query != searchText || coordinator.selectedMatch != selectedMatch else { return }
+        guard coordinator.content != content || coordinator.query != searchText || coordinator.selectedMatch != selectedMatch || coordinator.focusLocation != focusLocation else { return }
 
         let rendered = NSMutableAttributedString(attributedString: base)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,25 +74,31 @@ struct ReadOnlyTranscriptTextView: NSViewRepresentable {
         }
         textView.textStorage?.setAttributedString(rendered)
         if !matches.isEmpty {
-            let match = matches[selectedMatch.clamped(to: 0...(matches.count - 1))]
+            let selectedIndex = focusLocation.flatMap { focus in
+                matches.firstIndex(where: { $0.location >= focus })
+            } ?? selectedMatch.clamped(to: 0...(matches.count - 1))
+            let match = matches[selectedIndex]
             textView.setSelectedRange(match)
             textView.scrollRangeToVisible(match)
         }
         coordinator.content = content
         coordinator.query = searchText
         coordinator.selectedMatch = selectedMatch
+        coordinator.focusLocation = focusLocation
     }
 
     final class Coordinator {
         var content = ""
         var query = ""
         var selectedMatch = 0
+        var focusLocation: Int?
     }
 }
 
 struct ReadOnlyTextSearchField: View {
     @Binding var text: String
     @Binding var selectedMatch: Int
+    @Binding var focusLocation: Int?
     let content: String
 
     var body: some View {
@@ -99,7 +106,7 @@ struct ReadOnlyTextSearchField: View {
             Image(systemName: "magnifyingglass").foregroundColor(.secondary)
             TextField("Search text", text: Binding(
                 get: { text },
-                set: { text = $0; selectedMatch = 0 }
+                set: { text = $0; selectedMatch = 0; focusLocation = nil }
             ))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
@@ -107,11 +114,11 @@ struct ReadOnlyTextSearchField: View {
                 Text(matchCount == 0 ? "No matches" : "\(selectedMatch.clamped(to: 0...(matchCount - 1)) + 1) of \(matchCount)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Button { selectedMatch = (selectedMatch - 1 + matchCount) % matchCount } label: {
+                Button { focusLocation = nil; selectedMatch = (selectedMatch - 1 + matchCount) % matchCount } label: {
                     Image(systemName: "chevron.up")
                 }
                 .disabled(matchCount == 0)
-                Button { selectedMatch = (selectedMatch + 1) % matchCount } label: {
+                Button { focusLocation = nil; selectedMatch = (selectedMatch + 1) % matchCount } label: {
                     Image(systemName: "chevron.down")
                 }
                 .disabled(matchCount == 0)

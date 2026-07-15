@@ -9,6 +9,14 @@ struct DocumentSearchRoute: Equatable {
     let itemID: UUID
     let text: String
     let matchIndex: Int
+    let focusLocation: Int?
+
+    init(itemID: UUID, text: String, matchIndex: Int, focusLocation: Int? = nil) {
+        self.itemID = itemID
+        self.text = text
+        self.matchIndex = matchIndex
+        self.focusLocation = focusLocation
+    }
 }
 
 enum RecordingRouteResolution: Equatable {
@@ -63,15 +71,29 @@ final class AppNavigationRouter: ObservableObject {
         selectedTab = 0
     }
 
-    func openTranscript(_ id: UUID, searchText: String? = nil, matchIndex: Int = 0) {
+    func openTranscript(
+        _ id: UUID,
+        searchText: String? = nil,
+        matchIndex: Int = 0,
+        focusLocation: Int? = nil
+    ) {
         transcriptID = id
-        transcriptSearchRoute = searchText.map { DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex) }
+        transcriptSearchRoute = searchText.map {
+            DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex, focusLocation: focusLocation)
+        }
         selectedTab = 1
     }
 
-    func openSummary(_ id: UUID, searchText: String? = nil, matchIndex: Int = 0) {
+    func openSummary(
+        _ id: UUID,
+        searchText: String? = nil,
+        matchIndex: Int = 0,
+        focusLocation: Int? = nil
+    ) {
         summaryID = id
-        summarySearchRoute = searchText.map { DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex) }
+        summarySearchRoute = searchText.map {
+            DocumentSearchRoute(itemID: id, text: $0, matchIndex: matchIndex, focusLocation: focusLocation)
+        }
         selectedTab = 2
     }
 

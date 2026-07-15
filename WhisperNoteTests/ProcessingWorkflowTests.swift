@@ -126,10 +126,10 @@ final class ProcessingJobTests: XCTestCase {
     func testNavigationRoutesToArtifactsAndSettings() {
         let router = AppNavigationRouter()
         let transcriptID = UUID()
-        router.openTranscript(transcriptID, searchText: "needle", matchIndex: 2)
+        router.openTranscript(transcriptID, searchText: "needle", matchIndex: 2, focusLocation: 42)
         XCTAssertEqual(router.selectedTab, 1)
         XCTAssertEqual(router.transcriptID, transcriptID)
-        XCTAssertEqual(router.consumeTranscriptSearchRoute(for: transcriptID), .init(itemID: transcriptID, text: "needle", matchIndex: 2))
+        XCTAssertEqual(router.consumeTranscriptSearchRoute(for: transcriptID), .init(itemID: transcriptID, text: "needle", matchIndex: 2, focusLocation: 42))
         router.consumeTranscriptRoute(transcriptID)
         XCTAssertNil(router.transcriptID)
         let summaryID = UUID()
