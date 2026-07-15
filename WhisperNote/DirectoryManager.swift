@@ -10,6 +10,7 @@ class DirectoryManager {
     private let recordingsDirectoryName = "Recordings"
     private let transcriptsDirectoryName = "Transcripts"
     private let summariesDirectoryName = "Summaries"
+    private let libraryMetadataFilename = "library-metadata.json"
 
     private init() {
         // Create base directories on initialization
@@ -69,6 +70,22 @@ class DirectoryManager {
         let summariesDir = baseDir.appendingPathComponent(summariesDirectoryName, isDirectory: true)
         ensureDirectoryExists(at: summariesDir)
         return summariesDir
+    }
+
+    /// Canonical sidecar for user-managed library metadata such as tags and favorites.
+    func getLibraryMetadataURL() -> URL {
+        getBaseDirectory().appendingPathComponent(libraryMetadataFilename, isDirectory: false)
+    }
+
+    /// Pure candidate resolution for a library switch. It neither consults nor mutates
+    /// UserDefaults and deliberately creates no directories during preflight.
+    func candidateBaseDirectory(selectedRootPath: String?) -> URL {
+        if let selectedRootPath, !selectedRootPath.isEmpty {
+            return URL(fileURLWithPath: selectedRootPath, isDirectory: true)
+                .appendingPathComponent(baseDirectoryName, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(baseDirectoryName, isDirectory: true)
     }
 
     /// Ensure that a directory exists, creating it if necessary

@@ -186,6 +186,89 @@ final class ProcessingJobTests: XCTestCase {
 
 @MainActor
 final class PostRecordingWorkflowCoordinatorTests: XCTestCase {
+    func testDelayedCancelInvalidatedByRebindRollbackKeepsDurableStateAndResumes() async throws {
+        let defaultsName = "CoordinatorCancelRollback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        let recording = Recording(name: "Resume after rollback", date: Date(), duration: 1, filePath: URL(fileURLWithPath: "/tmp/resume-after-rollback.m4a"))
+        let snapshot = ProcessingJobSnapshot(language: "eng", shouldSummarize: false, modelID: "m", templateID: "t", prompt: "p", shouldNotify: false)
+        var waiting = ProcessingJob(recordingID: recording.id, recordingName: recording.name, snapshot: snapshot)
+        waiting.transition(to: .waitingForTranscriptionKey)
+        let storeURL = FileManager.default.temporaryDirectory.appendingPathComponent("CancelRollback-\(UUID().uuidString)/jobs.json")
+        try await ProcessingJobStore(fileURL: storeURL).save(waiting)
+        let durableBytes = try Data(contentsOf: storeURL)
+        let log = WorkflowCallLog()
+        let coordinator = PostRecordingWorkflowCoordinator(
+            store: ProcessingJobStore(fileURL: storeURL, saveDelayNanoseconds: 120_000_000),
+            notifier: MockNotifier(), defaults: defaults, credentialDebounceNanoseconds: 0
+        )
+        await coordinator.attach(
+            transcriptionManager: MockTranscriber(log: log),
+            summaryManager: MockSummarizer(log: log),
+            recordings: { [recording] }
+        )
+        defaults.set("key", forKey: "elevenlabsApiKey")
+
+        let cancelTask = Task { await coordinator.cancel(waiting.id) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(coordinator.beginLibraryRebind())
+        await coordinator.suspendForLibraryRebind()
+        XCTAssertEqual(try Data(contentsOf: storeURL), durableBytes)
+        XCTAssertEqual(coordinator.jobs.first?.state, .waitingForTranscriptionKey)
+        XCTAssertEqual(coordinator.jobs.first?.attempt, waiting.attempt)
+
+        coordinator.resumeAfterLibraryRebindCancellation()
+        await cancelTask.value
+        await coordinator.waitForCurrentTasks()
+        XCTAssertEqual(coordinator.jobs.first?.state, .completed)
+        XCTAssertEqual(log.values, ["transcript"])
+    }
+
+    func testClosedRebindGateRejectsCallbacksAndInvalidatesDelayedStoreContinuation() async throws {
+        let defaultsName = "CoordinatorRebindGate.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsName)!
+        defaults.set(true, forKey: "autoTranscribeAfterRecording")
+        defaults.set("key", forKey: "elevenlabsApiKey")
+        defaults.set("key", forKey: "openrouterApiKey")
+        let recording = Recording(name: "Existing", date: Date(), duration: 1, filePath: URL(fileURLWithPath: "/tmp/existing.m4a"))
+        let newRecording = Recording(name: "Rejected", date: Date(), duration: 1, filePath: URL(fileURLWithPath: "/tmp/rejected.m4a"))
+        let snapshot = ProcessingJobSnapshot(language: "eng", shouldSummarize: false, modelID: "m", templateID: "t", prompt: "p", shouldNotify: false)
+        var failed = ProcessingJob(recordingID: recording.id, recordingName: recording.name, snapshot: snapshot)
+        failed.transition(to: .transcribing)
+        failed.transition(to: .transcriptionFailed, failure: "failed")
+        let storeURL = FileManager.default.temporaryDirectory.appendingPathComponent("RebindGate-\(UUID().uuidString)/jobs.json")
+        try await ProcessingJobStore(fileURL: storeURL).save(failed)
+        let bytesBefore = try Data(contentsOf: storeURL)
+        let log = WorkflowCallLog()
+        let coordinator = PostRecordingWorkflowCoordinator(
+            store: ProcessingJobStore(fileURL: storeURL, saveDelayNanoseconds: 120_000_000),
+            notifier: MockNotifier(),
+            defaults: defaults,
+            credentialDebounceNanoseconds: 0
+        )
+        await coordinator.attach(
+            transcriptionManager: MockTranscriber(log: log),
+            summaryManager: MockSummarizer(log: log),
+            recordings: { [recording, newRecording] }
+        )
+
+        coordinator.retry(failed.id)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(coordinator.beginLibraryRebind())
+        await coordinator.recordingDidSave(newRecording)
+        coordinator.retry(failed.id)
+        await coordinator.cancel(failed.id)
+        coordinator.transcriptionCredentialDidChange()
+        coordinator.summaryCredentialDidChange()
+        await coordinator.suspendForLibraryRebind()
+
+        XCTAssertEqual(try Data(contentsOf: storeURL), bytesBefore)
+        XCTAssertEqual(coordinator.jobs.count, 1)
+        XCTAssertEqual(coordinator.jobs.first?.state, .transcriptionFailed)
+        XCTAssertEqual(coordinator.jobs.first?.attempt, failed.attempt)
+        XCTAssertTrue(log.values.isEmpty)
+        coordinator.finishLibraryRebind()
+    }
+
     func testHappyPathOrdersTranscriptBeforeSummaryAndDeduplicatesStop() async throws {
         let harness = await makeHarness(summarize: true, notify: false)
         await harness.coordinator.recordingDidSave(harness.recording)

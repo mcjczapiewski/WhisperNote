@@ -2,7 +2,33 @@ import Foundation
 import XCTest
 
 final class ReleaseInvariantTests: XCTestCase {
-    private let expectedVersion = "1.4.3"
+    private let expectedVersion = "1.4.4"
+
+    func testUnifiedSearchIsAProjectWiredFifthTab() throws {
+        try skipSourceAssertionsWhenHosted()
+        let content = try sourceContents(at: "WhisperNote/ContentView.swift")
+        let project = try sourceContents(at: "WhisperNote.xcodeproj/project.pbxproj")
+
+        XCTAssertTrue(content.contains("UnifiedSearchView()"))
+        XCTAssertTrue(content.contains("Label(\"Search\", systemImage: \"magnifyingglass\")"))
+
+        let productionSources = [
+            "LibraryMetadata.swift",
+            "LibraryMetadataRepository.swift",
+            "UnifiedSearchIndex.swift",
+            "LibraryMetadataControls.swift",
+            "LibrarySearchController.swift",
+            "UnifiedSearchView.swift",
+        ]
+        let testSources = [
+            "LibraryMetadataTests.swift",
+            "UnifiedSearchTests.swift",
+            "UnifiedSearchIntegrationTests.swift",
+        ]
+        for source in productionSources + testSources {
+            XCTAssertTrue(project.contains("/* \(source) in Sources */"), "Missing Xcode source membership for \(source)")
+        }
+    }
 
     func testRecordingViewRoutesLifecycleThroughCommandCoordinator() throws {
         try skipSourceAssertionsWhenHosted()

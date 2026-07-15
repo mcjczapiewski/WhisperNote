@@ -3,8 +3,10 @@ import UniformTypeIdentifiers
 import MarkdownUI
 
 struct SettingsView: View {
+    @EnvironmentObject private var audioRecorder: AudioRecorder
     @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
     @EnvironmentObject private var shortcutManager: GlobalShortcutManager
+    @EnvironmentObject private var librarySearch: LibrarySearchController
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
@@ -221,18 +223,22 @@ struct SettingsView: View {
                                 isShowingDirectoryPicker = true
                             }
                             .buttonStyle(.bordered)
+                            .disabled(audioRecorder.currentRecording != nil || librarySearch.isRebinding)
                         }
                         .padding(.vertical, 5)
 
                         if !recordingsDirectory.isEmpty {
                             Button("Reset to Default") {
-                                // Clear the custom directory settings
-                                UserDefaults.standard.removeObject(forKey: "recordingsDirectoryBookmark")
-                                recordingsDirectory = ""
-                                selectedDirectoryDisplayName = "Default (Documents)"
+                                Task {
+                                    if await librarySearch.selectLibrary(path: nil, bookmark: nil) {
+                                        recordingsDirectory = ""
+                                        selectedDirectoryDisplayName = "Default (Documents)"
+                                    }
+                                }
                             }
                             .font(.caption)
                             .padding(.top, 5)
+                            .disabled(audioRecorder.currentRecording != nil || librarySearch.isRebinding)
                         }
                     }
                 }
@@ -247,6 +253,13 @@ struct SettingsView: View {
                 do {
                     guard let selectedURL = try? result.get().first else {
                         print("No directory selected or selection was cancelled")
+                        return
+                    }
+                    guard audioRecorder.currentRecording == nil,
+                          !audioRecorder.isStartingRecording,
+                          !audioRecorder.isStoppingRecording else {
+                        alertMessage = "Stop the current recording before changing the library location."
+                        showAlert = true
                         return
                     }
 
@@ -280,15 +293,6 @@ struct SettingsView: View {
                         relativeTo: nil
                     )
 
-                    // Save the bookmark data to UserDefaults
-                    UserDefaults.standard.set(bookmarkData, forKey: "recordingsDirectoryBookmark")
-
-                    // Save the path string for easier reference
-                    recordingsDirectory = selectedURL.path
-
-                    // Update the display name
-                    selectedDirectoryDisplayName = selectedURL.lastPathComponent
-
                     // Create a test file to verify write access
                     let testFilePath = selectedURL.appendingPathComponent(".write_test")
                     do {
@@ -301,10 +305,13 @@ struct SettingsView: View {
                         print("Warning: Cannot write to selected directory: \(error.localizedDescription)")
 
                         // Revert the changes since we can't use this directory
-                        UserDefaults.standard.removeObject(forKey: "recordingsDirectoryBookmark")
-                        recordingsDirectory = ""
-                        selectedDirectoryDisplayName = "Default (Documents)"
                         return
+                    }
+                    Task {
+                        if await librarySearch.selectLibrary(path: selectedURL.path, bookmark: bookmarkData) {
+                            recordingsDirectory = selectedURL.path
+                            selectedDirectoryDisplayName = selectedURL.lastPathComponent
+                        }
                     }
                 } catch {
                     alertMessage = "Error selecting directory: \(error.localizedDescription)"
@@ -361,7 +368,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.3"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.4"
     }
 }
 

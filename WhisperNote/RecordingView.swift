@@ -3,6 +3,10 @@ import AVFoundation
 import UniformTypeIdentifiers
 
 struct RecordingView: View {
+    private struct RoutedScrollRequest: Equatable {
+        let id: UUID
+        let target: String
+    }
     @EnvironmentObject var audioRecorder: AudioRecorder
     @EnvironmentObject var transcriptionManager: TranscriptionManager
     @EnvironmentObject var workflowCoordinator: PostRecordingWorkflowCoordinator
@@ -27,6 +31,10 @@ struct RecordingView: View {
     @State private var showingImportNamePrompt = false
     @State private var pendingImportURL: URL?
     @State private var importRecordingName = ""
+    @State private var expandedGroups: Set<UUID> = []
+    @State private var routedRecordingID: UUID?
+    @State private var routedScrollRequest: RoutedScrollRequest?
+    @State private var routedRequestID: UUID?
 
     enum TranscriptionLanguageCatalog {
         static let all: [(String, String)] = [
@@ -353,6 +361,7 @@ struct RecordingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading)
 
+                ScrollViewReader { proxy in
                 List {
                     let ungrouped = audioRecorder.recordings.filter { $0.groupId == nil }
                     let grouped = Dictionary(grouping: audioRecorder.recordings.filter { $0.groupId != nil },
@@ -360,9 +369,16 @@ struct RecordingView: View {
 
                     ForEach(Array(grouped.keys), id: \.self) { gid in
                         let members = grouped[gid] ?? []
-                        DisclosureGroup {
+                        DisclosureGroup(isExpanded: Binding(
+                            get: { expandedGroups.contains(gid) },
+                            set: { isExpanded in
+                                if isExpanded { expandedGroups.insert(gid) }
+                                else { expandedGroups.remove(gid) }
+                            }
+                        )) {
                             ForEach(members) { recording in
                                 recordingRow(recording)
+                                    .id(routeID(forRecording: recording.id))
                             }
                         } label: {
                             HStack {
@@ -378,6 +394,8 @@ struct RecordingView: View {
                                 }
 
                                 Spacer()
+
+                                LibraryMetadataControls(itemKey: LibraryItemKey(kind: .group, id: gid))
 
                                 Button(action: {
                                     groupToDelete = gid
@@ -421,15 +439,24 @@ struct RecordingView: View {
                             }
                         }
                         .listRowBackground(recordingListRowBackground)
+                        .id(routeID(forGroup: gid))
                     }
 
                     ForEach(ungrouped) { recording in
                         recordingRow(recording)
                             .listRowBackground(recordingListRowBackground)
+                            .id(routeID(forRecording: recording.id))
                     }
                 }
                 .frame(height: 200)
                 .scrollContentBackground(.hidden)
+                .onChange(of: routedScrollRequest) { request in
+                    guard let request else { return }
+                    DispatchQueue.main.async {
+                        withAnimation { proxy.scrollTo(request.target, anchor: .center) }
+                    }
+                }
+                }
             }
         }
         .padding()
@@ -675,6 +702,9 @@ struct RecordingView: View {
                 audioRecorder.lastError = nil
             }
         }
+        .onAppear { consumeRecordingRouteIfAvailable() }
+        .onChange(of: navigationRouter.recordingRouteRequestID) { _ in consumeRecordingRouteIfAvailable() }
+        .onChange(of: audioRecorder.recordings.map(\.id)) { _ in consumeRecordingRouteIfAvailable() }
 
     }
 
@@ -698,6 +728,8 @@ struct RecordingView: View {
             }
 
             Spacer()
+
+            LibraryMetadataControls(itemKey: LibraryItemKey(kind: .recording, id: recording.id))
 
             Button(action: {
                 recordingToDelete = recording
@@ -762,7 +794,56 @@ struct RecordingView: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(routedRecordingID == recording.id ? Color.accentColor.opacity(0.18) : Color.clear)
+        )
     }
+
+    private func consumeRecordingRouteIfAvailable() {
+        let requestID = navigationRouter.recordingRouteRequestID
+        if let id = navigationRouter.recordingID {
+            switch RecordingRouteResolver.resolve(.recording(id), recordings: audioRecorder.recordings) {
+            case .recording(_, let groupID):
+                routedRecordingID = id
+                routedRequestID = requestID
+                if let groupID { expandedGroups.insert(groupID) }
+                routedScrollRequest = .init(id: requestID, target: routeID(forRecording: id))
+                scheduleHighlightClear(for: requestID)
+            case .missingRecording:
+                alertMessage = "The selected recording is no longer available in this library."
+                showingAlert = true
+            default: break
+            }
+            navigationRouter.consumeRecordingRoute(id)
+        }
+        if let groupID = navigationRouter.recordingGroupID {
+            switch RecordingRouteResolver.resolve(.group(groupID), recordings: audioRecorder.recordings) {
+            case .group(_, let highlightedRecordingID):
+                expandedGroups.insert(groupID)
+                routedRecordingID = highlightedRecordingID
+                routedRequestID = requestID
+                routedScrollRequest = .init(id: requestID, target: routeID(forGroup: groupID))
+                scheduleHighlightClear(for: requestID)
+            case .missingGroup:
+                alertMessage = "The selected recording group is no longer available in this library."
+                showingAlert = true
+            default: break
+            }
+            navigationRouter.consumeRecordingGroupRoute(groupID)
+        }
+    }
+
+    private func scheduleHighlightClear(for requestID: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            guard routedRequestID == requestID else { return }
+            routedRecordingID = nil
+            routedRequestID = nil
+        }
+    }
+
+    private func routeID(forRecording id: UUID) -> String { "recording-\(id.uuidString)" }
+    private func routeID(forGroup id: UUID) -> String { "group-\(id.uuidString)" }
 
     private var recoveryPanel: some View {
         GroupBox("Interrupted Recordings") {

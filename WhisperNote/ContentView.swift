@@ -7,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject private var summaryManager: SummaryManager
     @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
     @EnvironmentObject private var navigationRouter: AppNavigationRouter
+    @EnvironmentObject private var librarySearch: LibrarySearchController
 
     var body: some View {
         VStack(spacing: 8) {
@@ -51,7 +52,14 @@ struct ContentView: View {
                     Label("Settings", systemImage: "gear")
                 }
                 .tag(3)
+
+            UnifiedSearchView()
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(4)
             }
+            .disabled(librarySearch.isRebinding)
         }
         .padding()
         .onAppear { NSApp.keyWindow?.makeFirstResponder(nil) }

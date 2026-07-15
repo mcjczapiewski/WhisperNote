@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4 — July 14, 2026
+
+- Added unified offline search across recordings, transcripts, summaries, processing states, and tags.
+- Added favorites and reusable tags with status, date, favorite, and tag filters plus deep links to matching library items.
+- Added an atomic metadata sidecar and an in-memory search index for durable organization and responsive library queries.
+
 ## 1.4.3 — July 14, 2026
 
 - Added an always-available menu bar controller for quick recording, pause/resume, stop, duration, permissions, processing status, results, and window navigation.

@@ -120,9 +120,40 @@ struct ProcessingJob: Identifiable, Codable, Equatable, Sendable {
 
 enum ProcessingJobStoreError: LocalizedError {
     case corruptStore
+    case staleGeneration
 
     var errorDescription: String? {
-        "Processing history could not be read. The existing file was left untouched."
+        switch self {
+        case .corruptStore:
+            return "Processing history could not be read. The existing file was left untouched."
+        case .staleGeneration:
+            return "Processing history changed libraries before the write completed."
+        }
+    }
+}
+
+final class ProcessingJobPersistenceLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation = 0
+
+    func invalidate() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        generation += 1
+        return generation
+    }
+
+    func currentGeneration() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation
+    }
+
+    func withValidGeneration<T>(_ expectedGeneration: Int, _ operation: () throws -> T) throws -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == expectedGeneration else { throw ProcessingJobStoreError.staleGeneration }
+        return try operation()
     }
 }
 
@@ -159,17 +190,29 @@ actor ProcessingJobStore {
     }
 
     @discardableResult
-    func createIfAbsent(_ job: ProcessingJob) throws -> ProcessingJob {
+    func createIfAbsent(
+        _ job: ProcessingJob,
+        lease: ProcessingJobPersistenceLease? = nil,
+        expectedGeneration: Int? = nil
+    ) throws -> ProcessingJob {
         var jobs = try load()
         if let existing = jobs.first(where: { $0.recordingID == job.recordingID }) {
             return existing
         }
         jobs.append(job)
-        try persist(jobs)
+        if let lease, let expectedGeneration {
+            try lease.withValidGeneration(expectedGeneration) { try persist(jobs) }
+        } else {
+            try persist(jobs)
+        }
         return job
     }
 
-    func save(_ job: ProcessingJob) async throws {
+    func save(
+        _ job: ProcessingJob,
+        lease: ProcessingJobPersistenceLease? = nil,
+        expectedGeneration: Int? = nil
+    ) async throws {
         var jobs = try load()
         if let index = jobs.firstIndex(where: { $0.id == job.id }) {
             jobs[index] = job
@@ -179,7 +222,11 @@ actor ProcessingJobStore {
         if saveDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: saveDelayNanoseconds)
         }
-        try persist(jobs)
+        if let lease, let expectedGeneration {
+            try lease.withValidGeneration(expectedGeneration) { try persist(jobs) }
+        } else {
+            try persist(jobs)
+        }
     }
 
     private func persist(_ jobs: [ProcessingJob]) throws {

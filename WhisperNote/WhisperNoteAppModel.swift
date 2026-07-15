@@ -9,6 +9,7 @@ final class WhisperNoteAppModel: ObservableObject {
     let navigationRouter: AppNavigationRouter
     let commandCoordinator: RecordingCommandCoordinator
     let shortcutManager: GlobalShortcutManager
+    let librarySearch: LibrarySearchController
 
     private var didBootstrap = false
 
@@ -36,6 +37,12 @@ final class WhisperNoteAppModel: ObservableObject {
             workflow: workflowCoordinator
         )
         self.shortcutManager = shortcutManager
+        self.librarySearch = LibrarySearchController(
+            audioRecorder: audioRecorder,
+            transcriptionManager: transcriptionManager,
+            summaryManager: summaryManager,
+            workflowCoordinator: workflowCoordinator
+        )
         shortcutManager.setAction { [weak commandCoordinator] in
             Task { await commandCoordinator?.quickToggle() }
         }
