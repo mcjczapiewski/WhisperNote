@@ -22,3 +22,21 @@ Implement the requested recording, library, search, and navigation improvements 
 
 - 2026-07-15: plan created; repository already contained unrelated uncommitted scheme, image, and profiling-artifact changes. Do not stage or alter them.
 - 2026-07-15: implemented the feature set and added focused coordinator/search-index tests; `swift build` and the relevant 30-test selection passed (one release-only benchmark skipped). Committed and pushed on `phase2`.
+
+## Follow-up quick wins
+
+### Restart checklist
+
+- [x] Capture the follow-up request and preserve unrelated working-tree changes.
+- [x] Trace in-document search state, search-result deep links, index query cost, and the transcript/summary headers.
+- [x] Add previous/next match navigation to both read-only document views; move their search fields to the right side of the title/favourite/tags row.
+- [x] Make search-result previews one matching sentence only, remove the processing status bar, and avoid rebuilding/allocating search-result context while the user types.
+- [x] Route a clicked search sentence to its transcript or summary and select/scroll to that exact occurrence.
+- [x] Show **Open** beside every recording with a completed transcript, not just workflow-created results.
+- [x] Add a deletion confirmation choice to remove the selected recording(s) with their related transcript(s).
+- [x] Rename the recording-start option to **Auto Transcribe** and show its ElevenLabs language picker only when enabled; persist that per-recording language through the existing workflow handoff.
+- [x] Add focused tests, build, bump the patch version and changelog, commit, and push `phase2`.
+
+### Implementation log
+
+- 2026-07-15: implementation complete. Search now uses precomputed sentences and a 150 ms debounce; focused 50-test run passed (one release-only benchmark skipped). Version 1.4.8 is ready to commit and push on `phase2`.

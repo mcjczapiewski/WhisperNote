@@ -17,11 +17,16 @@ extension AudioRecorder: RecordingCommandHandling { }
 protocol SavedRecordingWorkflowHandling: AnyObject {
     func recordingDidSave(_ recording: Recording) async
     func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async
+    func recordingDidSave(_ recording: Recording, recordToResults: Bool?, transcriptionLanguage: String?) async
 }
 
 extension SavedRecordingWorkflowHandling {
     func recordingDidSave(_ recording: Recording, recordToResults: Bool?) async {
         await recordingDidSave(recording)
+    }
+
+    func recordingDidSave(_ recording: Recording, recordToResults: Bool?, transcriptionLanguage: String?) async {
+        await recordingDidSave(recording, recordToResults: recordToResults)
     }
 }
 
@@ -40,6 +45,7 @@ final class RecordingCommandCoordinator: ObservableObject {
     private let healthSignals: any HealthSignalRecording
     private let quickName: () -> String
     private var recordToResultsForActiveRecording: Bool?
+    private var transcriptionLanguageForActiveRecording: String?
 
     init(
         recorder: any RecordingCommandHandling,
@@ -54,14 +60,22 @@ final class RecordingCommandCoordinator: ObservableObject {
     }
 
     @discardableResult
-    func start(name: String, microphoneId: String = "", recordToResults: Bool? = nil) async throws -> RecordingStartOutcome {
+    func start(
+        name: String,
+        microphoneId: String = "",
+        recordToResults: Bool? = nil,
+        transcriptionLanguage: String? = nil
+    ) async throws -> RecordingStartOutcome {
         guard !isBusy else { return .alreadyActive(recorder.currentRecording) }
         isBusy = true
         lastError = nil
         defer { isBusy = false }
         do {
             let outcome = try await recorder.startRecording(name: name, microphoneId: microphoneId)
-            if case .started = outcome { recordToResultsForActiveRecording = recordToResults }
+            if case .started = outcome {
+                recordToResultsForActiveRecording = recordToResults
+                transcriptionLanguageForActiveRecording = transcriptionLanguage
+            }
             return outcome
         } catch {
             lastError = error.localizedDescription
@@ -106,7 +120,11 @@ final class RecordingCommandCoordinator: ObservableObject {
         lastError = nil
         defer { isBusy = false }
         let recordToResults = recordToResultsForActiveRecording
-        defer { recordToResultsForActiveRecording = nil }
+        let transcriptionLanguage = transcriptionLanguageForActiveRecording
+        defer {
+            recordToResultsForActiveRecording = nil
+            transcriptionLanguageForActiveRecording = nil
+        }
         let outcome = await recorder.stopRecording()
         if case .saved(let recording) = outcome {
             await healthSignals.recordHealthSignal(
@@ -115,7 +133,11 @@ final class RecordingCommandCoordinator: ObservableObject {
                 startedAt: recording.date.addingTimeInterval(-max(0, recording.duration)),
                 failure: nil
             )
-            await workflow.recordingDidSave(recording, recordToResults: recordToResults)
+            await workflow.recordingDidSave(
+                recording,
+                recordToResults: recordToResults,
+                transcriptionLanguage: transcriptionLanguage
+            )
         }
         return outcome
     }

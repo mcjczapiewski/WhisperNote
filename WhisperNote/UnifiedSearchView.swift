@@ -4,6 +4,7 @@ struct UnifiedSearchView: View {
     @EnvironmentObject private var librarySearch: LibrarySearchController
     @EnvironmentObject private var navigationRouter: AppNavigationRouter
     @State private var searchText = ""
+    @State private var appliedSearchText = ""
     @State private var favoritesOnly = false
     @State private var status = "all"
     @State private var date = "any"
@@ -11,7 +12,7 @@ struct UnifiedSearchView: View {
 
     private var query: UnifiedSearchQuery {
         UnifiedSearchQuery(
-            text: searchText,
+            text: appliedSearchText,
             favoritesOnly: favoritesOnly,
             status: statusFilter,
             date: dateFilter,
@@ -19,9 +20,8 @@ struct UnifiedSearchView: View {
         )
     }
 
-    private var results: [UnifiedSearchResult] { librarySearch.results(for: query) }
-
     var body: some View {
+        let results = librarySearch.results(for: query)
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Search").font(.largeTitle).fontWeight(.bold)
@@ -48,15 +48,19 @@ struct UnifiedSearchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(results, id: \.key) { result in
-                    Button { open(result.destination) } label: {
-                        SearchResultRow(result: result)
+                    SearchResultRow(result: result) { destination, matchIndex in
+                        open(destination, searchText: appliedSearchText, matchIndex: matchIndex)
                     }
-                    .buttonStyle(.plain)
                 }
                 .listStyle(.inset)
             }
         }
         .padding()
+        .task(id: searchText) {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            appliedSearchText = searchText
+        }
     }
 
     private var filters: some View {
@@ -117,18 +121,19 @@ struct UnifiedSearchView: View {
         }
     }
 
-    private func open(_ destination: UnifiedSearchDestination) {
+    private func open(_ destination: UnifiedSearchDestination, searchText: String? = nil, matchIndex: Int = 0) {
         switch destination {
         case .recording(let id): navigationRouter.openRecording(id)
         case .group(let id): navigationRouter.openRecordingGroup(id)
-        case .transcript(let id): navigationRouter.openTranscript(id)
-        case .summary(let id): navigationRouter.openSummary(id)
+        case .transcript(let id): navigationRouter.openTranscript(id, searchText: searchText, matchIndex: matchIndex)
+        case .summary(let id): navigationRouter.openSummary(id, searchText: searchText, matchIndex: matchIndex)
         }
     }
 }
 
 private struct SearchResultRow: View {
     let result: UnifiedSearchResult
+    let open: (UnifiedSearchDestination, Int) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -155,18 +160,19 @@ private struct SearchResultRow: View {
                 .font(.caption).foregroundColor(.secondary)
 
                 ForEach(Array(result.previews.enumerated()), id: \.offset) { index, preview in
+                    Button { open(preview.destination, preview.matchIndex) } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("\(previewLabel(preview.destination)) match \(index + 1)")
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.secondary)
-                        if let before = preview.before { Text(before).foregroundColor(.secondary) }
                         Text(preview.match).fontWeight(.semibold)
-                        if let after = preview.after { Text(after).foregroundColor(.secondary) }
                     }
                     .font(.caption)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             Spacer()

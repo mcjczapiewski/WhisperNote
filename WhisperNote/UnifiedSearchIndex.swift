@@ -72,11 +72,9 @@ struct UnifiedSearchResult: Equatable, Sendable {
 }
 
 struct UnifiedSearchPreview: Equatable, Sendable {
-    let sourceTitle: String
     let destination: UnifiedSearchDestination
-    let before: String?
     let match: String
-    let after: String?
+    let matchIndex: Int
 }
 
 /// An immutable, pre-normalized projection of the library. Rebuild it whenever an
@@ -156,7 +154,7 @@ struct UnifiedSearchIndex: Sendable {
             builder.add(
                 artifact: .summary(summary.id),
                 title: summary.name,
-                content: summary.content,
+                content: MarkdownTextRenderer.plainText(from: summary.content),
                 date: summary.date,
                 status: summary.status
             )
@@ -295,13 +293,18 @@ private extension UnifiedSearchIndex {
         let destination: UnifiedSearchDestination
         let title: String
         let content: String
-        let sourceContent: String
+        let sentences: [SearchSentence]
         let date: Date
         let status: ProcessingStatus?
 
         func matchCount(_ terms: [String]) -> Int {
             terms.reduce(into: 0) { if title.contains($1) || content.contains($1) { $0 += 1 } }
         }
+    }
+
+    struct SearchSentence: Sendable {
+        let text: String
+        let normalized: String
     }
 
     struct Builder {
@@ -323,7 +326,7 @@ private extension UnifiedSearchIndex {
                 destination: artifact,
                 title: normalizedTitle,
                 content: UnifiedSearchIndex.normalize(content),
-                sourceContent: content,
+                sentences: content.sentences.map { SearchSentence(text: $0, normalized: UnifiedSearchIndex.normalize($0)) },
                 date: date,
                 status: status
             ))
@@ -442,15 +445,12 @@ private extension UnifiedSearchIndex {
         func previews(matching terms: [String]) -> [UnifiedSearchPreview] {
             guard !terms.isEmpty else { return [] }
             return artifacts.flatMap { artifact in
-                let sentences = artifact.sourceContent.sentences
-                return sentences.enumerated().compactMap { index, sentence -> UnifiedSearchPreview? in
-                    guard terms.allSatisfy({ UnifiedSearchIndex.normalize(sentence).contains($0) }) else { return nil }
+                artifact.sentences.enumerated().compactMap { index, sentence -> UnifiedSearchPreview? in
+                    guard terms.allSatisfy({ sentence.normalized.contains($0) }) else { return nil }
                     return UnifiedSearchPreview(
-                        sourceTitle: artifact.title,
                         destination: artifact.destination,
-                        before: index > 0 ? sentences[index - 1] : nil,
-                        match: sentence,
-                        after: index + 1 < sentences.count ? sentences[index + 1] : nil
+                        match: sentence.text,
+                        matchIndex: index
                     )
                 }
             }

@@ -22,6 +22,7 @@ struct TranscriptView: View {
     @State private var findText: String = ""
     @State private var replaceText: String = ""
     @State private var searchText = ""
+    @State private var searchMatch = 0
     @State private var showingSummaryParamsDialog = false
     @State private var meetingType: String = ""
     @State private var audience: String = ""
@@ -51,6 +52,7 @@ struct TranscriptView: View {
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     searchText: $searchText,
+                    searchMatch: $searchMatch,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
                     isTranscribing: $isTranscribing,
                     errorMessage: $errorMessage,
@@ -134,6 +136,10 @@ struct TranscriptView: View {
               let transcript = transcriptionManager.transcripts.first(where: { $0.id == id }) else { return }
         selectedTranscript = transcript
         selectedTranscriptIDs = [id]
+        if let route = navigationRouter.consumeTranscriptSearchRoute(for: id) {
+            searchText = route.text
+            searchMatch = route.matchIndex
+        }
         navigationRouter.consumeTranscriptRoute(id)
     }
 
@@ -228,6 +234,7 @@ struct TranscriptContentView: View {
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
     @Binding var searchText: String
+    @Binding var searchMatch: Int
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var isTranscribing: Bool
     @Binding var errorMessage: String
@@ -259,6 +266,7 @@ struct TranscriptContentView: View {
                     editedContent: $editedContent,
                     showingFindReplaceDialog: $showingFindReplaceDialog,
                     searchText: $searchText,
+                    searchMatch: $searchMatch,
                     showingSummaryParamsDialog: $showingSummaryParamsDialog,
                     selectedTranscriptBinding: $selectedTranscript,
                     isTranscribing: $isTranscribing,
@@ -377,6 +385,7 @@ struct TranscriptDetailView: View {
     @Binding var editedContent: String
     @Binding var showingFindReplaceDialog: Bool
     @Binding var searchText: String
+    @Binding var searchMatch: Int
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var selectedTranscriptBinding: Transcript?
     @Binding var isTranscribing: Bool
@@ -394,11 +403,14 @@ struct TranscriptDetailView: View {
                 LibraryMetadataControls(itemKey: LibraryItemKey(kind: .transcript, id: selectedTranscript.id))
 
                 Spacer()
+                ReadOnlyTextSearchField(
+                    text: $searchText,
+                    selectedMatch: $searchMatch,
+                    content: selectedTranscript.formattedContent ?? selectedTranscript.content
+                )
                 }
 
                 HStack(spacing: 8) {
-                ReadOnlyTextSearchField(text: $searchText, content: selectedTranscript.formattedContent ?? selectedTranscript.content)
-
                 Spacer()
                 Button(action: {
                     if selectedTranscript.status == .completed {
@@ -495,7 +507,8 @@ Button(action: {
                     } else {
                         ReadOnlyTranscriptTextView(
                             text: selectedTranscript.formattedContent ?? selectedTranscript.content,
-                            searchText: searchText
+                            searchText: searchText,
+                            selectedMatch: searchMatch
                         )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
