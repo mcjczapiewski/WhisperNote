@@ -112,43 +112,47 @@ struct SettingsView: View {
 
                     Divider()
 
-                    Text("Local delivery configuration")
-                        .font(.subheadline.weight(.medium))
-                    Text("The endpoint stays on this Mac. The header token is stored in your macOS Keychain and is never included in telemetry payloads or status messages.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    DisclosureGroup("Advanced: override delivery endpoint") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Delivery is preconfigured — you don't need to set anything here. Advanced users can point telemetry at a different HTTPS endpoint (e.g. staging). The endpoint stays on this Mac; the header token is stored in your macOS Keychain and is never included in telemetry payloads or status messages.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
 
-                    TextField("HTTPS endpoint", text: $telemetryWebhookEndpoint)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .accessibilityLabel("Telemetry HTTPS endpoint")
-                    SecureField("Header token", text: $telemetryWebhookToken)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .accessibilityLabel("Telemetry header token")
+                            TextField("HTTPS endpoint (default in use)", text: $telemetryWebhookEndpoint)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .accessibilityLabel("Telemetry HTTPS endpoint")
+                            SecureField("Header token (default in use)", text: $telemetryWebhookToken)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .accessibilityLabel("Telemetry header token")
 
-                    if telemetryController.hasStoredCredential {
-                        Text("A header token is already stored in Keychain. Leave this field blank to keep it, or enter a replacement.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                            if telemetryController.hasStoredCredential {
+                                Text("A header token override is stored in Keychain. Leave this field blank to keep it, or enter a replacement.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
 
-                    HStack {
-                        Button("Save Delivery Configuration") {
-                            Task {
-                                _ = await telemetryController.saveConfiguration(
-                                    endpoint: telemetryWebhookEndpoint,
-                                    token: telemetryWebhookToken
-                                )
+                            HStack {
+                                Button("Save Override") {
+                                    Task {
+                                        _ = await telemetryController.saveConfiguration(
+                                            endpoint: telemetryWebhookEndpoint,
+                                            token: telemetryWebhookToken
+                                        )
+                                    }
+                                }
+                                .accessibilityLabel("Save telemetry delivery configuration")
+
+                                Button("Reset to Default") {
+                                    telemetryWebhookEndpoint = ""
+                                    telemetryWebhookToken = ""
+                                    Task { await telemetryController.clearConfiguration() }
+                                }
+                                .accessibilityLabel("Reset telemetry delivery configuration to default")
                             }
                         }
-                        .accessibilityLabel("Save telemetry delivery configuration")
-
-                        Button("Clear") {
-                            telemetryWebhookEndpoint = ""
-                            telemetryWebhookToken = ""
-                            Task { await telemetryController.clearConfiguration() }
-                        }
-                        .accessibilityLabel("Clear telemetry delivery configuration")
+                        .padding(.top, 6)
                     }
+                    .accessibilityLabel("Advanced telemetry delivery override")
 
                     HStack {
                         Text("Queue: \(telemetryController.queuedItemCount) item\(telemetryController.queuedItemCount == 1 ? "" : "s")")
@@ -505,7 +509,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.12"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.13"
     }
 }
 
