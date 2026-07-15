@@ -285,6 +285,204 @@ final class PostRecordingWorkflowCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.log, ["transcript", "summary"])
     }
 
+    func testWorkflowCapturesDefaultTemplateOnceAndRetryIgnoresLaterTemplateChanges() async throws {
+        let harness = await makeHarness(summarize: true, notify: false)
+        let original = SummaryGenerationSnapshot(
+            templateID: "custom-template-id",
+            templateName: "Original template",
+            prompt: "original frozen prompt",
+            model: "original frozen model"
+        )
+        let provider = MockTemplateProvider(snapshot: original)
+        harness.coordinator.attachTemplateProvider(provider)
+        harness.summarizer.failNext = true
+
+        await harness.coordinator.recordingDidSave(harness.recording)
+        await harness.coordinator.waitForCurrentTasks()
+        let failed = try XCTUnwrap(harness.coordinator.jobs.first)
+        XCTAssertEqual(failed.state, .summaryFailed)
+        XCTAssertEqual(failed.snapshot.templateID, original.templateID)
+        XCTAssertEqual(failed.snapshot.templateName, original.templateName)
+        XCTAssertEqual(failed.snapshot.prompt, original.prompt)
+        XCTAssertEqual(failed.snapshot.modelID, original.model)
+        XCTAssertEqual(provider.callCount, 1)
+
+        provider.snapshot = SummaryGenerationSnapshot(
+            templateID: SummaryTemplatePresetCatalog.meetingMinutesID,
+            templateName: "Meeting Minutes",
+            prompt: "replacement after edit or delete",
+            model: "replacement-model"
+        )
+        harness.coordinator.retry(failed.id)
+        await harness.coordinator.waitForCurrentTasks()
+
+        XCTAssertEqual(provider.callCount, 1)
+        XCTAssertEqual(harness.summarizer.snapshots.last, original)
+        XCTAssertEqual(harness.coordinator.jobs.first?.state, .completed)
+
+        await harness.coordinator.recordingDidSave(harness.recording)
+        await harness.coordinator.waitForCurrentTasks()
+        XCTAssertEqual(provider.callCount, 1)
+    }
+
+    func testOverlappingSavedCallbacksCoalesceSuspendedDefaultResolutionAndCreateOneJob() async throws {
+        let harness = await makeHarness(summarize: true, notify: false)
+        let expected = SummaryGenerationSnapshot(
+            templateID: "coalesced-template",
+            templateName: "Coalesced",
+            prompt: "one deterministic prompt",
+            model: "one deterministic model"
+        )
+        let provider = SuspendingTemplateProvider()
+        harness.coordinator.attachTemplateProvider(provider)
+
+        let first = Task { await harness.coordinator.recordingDidSave(harness.recording) }
+        await provider.waitUntilCalled()
+        let second = Task { await harness.coordinator.recordingDidSave(harness.recording) }
+        await Task.yield()
+        XCTAssertEqual(provider.callCount, 1)
+        provider.resume(with: expected)
+        await first.value
+        await second.value
+        await harness.coordinator.waitForCurrentTasks()
+
+        XCTAssertEqual(provider.callCount, 1)
+        XCTAssertEqual(harness.coordinator.jobs.count, 1)
+        let job = try XCTUnwrap(harness.coordinator.jobs.first)
+        XCTAssertEqual(job.snapshot.templateID, expected.templateID)
+        XCTAssertEqual(job.snapshot.templateName, expected.templateName)
+        XCTAssertEqual(job.snapshot.prompt, expected.prompt)
+        XCTAssertEqual(job.snapshot.modelID, expected.model)
+    }
+
+    func testRebindDrainsAdmittedSuspendedHandoffIntoOldStoreBeforeSuccessfulSwitch() async throws {
+        let harness = await makeHarness(summarize: false, notify: false)
+        let provider = SuspendingTemplateProvider()
+        harness.coordinator.attachTemplateProvider(provider)
+        let callback = Task { await harness.coordinator.recordingDidSave(harness.recording) }
+        await provider.waitUntilCalled()
+
+        XCTAssertTrue(harness.coordinator.beginLibraryRebind())
+        let rejectedRecording = Recording(
+            name: "After close",
+            date: Date(),
+            duration: 1,
+            filePath: URL(fileURLWithPath: "/tmp/after-close.m4a")
+        )
+        await harness.coordinator.recordingDidSave(rejectedRecording)
+        var suspendFinished = false
+        let suspension = Task {
+            await harness.coordinator.suspendForLibraryRebind()
+            suspendFinished = true
+        }
+        await Task.yield()
+        XCTAssertFalse(suspendFinished)
+
+        let frozen = SummaryGenerationSnapshot(
+            templateID: "old-library-template",
+            templateName: "Old library",
+            prompt: "old library prompt",
+            model: "old library model"
+        )
+        provider.resume(with: frozen)
+        await callback.value
+        await suspension.value
+
+        let oldJobs = try await ProcessingJobStore(fileURL: harness.storeURL).load()
+        XCTAssertEqual(provider.callCount, 1)
+        XCTAssertEqual(oldJobs.count, 1)
+        XCTAssertEqual(oldJobs.first?.recordingID, harness.recording.id)
+        XCTAssertEqual(oldJobs.first?.snapshot.prompt, frozen.prompt)
+        XCTAssertEqual(oldJobs.first?.state, .queued)
+
+        let newStoreURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CoordinatorRebindTarget-\(UUID().uuidString)/jobs.json")
+        harness.coordinator.acceptLibrary(storeURL: newStoreURL, jobs: [])
+        harness.coordinator.finishLibraryRebind()
+        XCTAssertTrue(harness.coordinator.jobs.isEmpty)
+        let oldJobsAfterSwitch = try await ProcessingJobStore(fileURL: harness.storeURL).load()
+        XCTAssertEqual(oldJobsAfterSwitch.count, 1)
+    }
+
+    func testRebindRollbackKeepsAndResumesAdmittedSuspendedHandoffInOldStore() async throws {
+        let harness = await makeHarness(summarize: false, notify: false)
+        let provider = SuspendingTemplateProvider()
+        harness.coordinator.attachTemplateProvider(provider)
+        let callback = Task { await harness.coordinator.recordingDidSave(harness.recording) }
+        await provider.waitUntilCalled()
+        XCTAssertTrue(harness.coordinator.beginLibraryRebind())
+        let suspension = Task { await harness.coordinator.suspendForLibraryRebind() }
+        await Task.yield()
+
+        let frozen = SummaryGenerationSnapshot(
+            templateID: "rollback-template",
+            templateName: "Rollback",
+            prompt: "rollback prompt",
+            model: "rollback model"
+        )
+        provider.resume(with: frozen)
+        await callback.value
+        await suspension.value
+        let oldJobsBeforeRollback = try await ProcessingJobStore(fileURL: harness.storeURL).load()
+        XCTAssertEqual(oldJobsBeforeRollback.count, 1)
+
+        harness.coordinator.resumeAfterLibraryRebindCancellation()
+        await harness.coordinator.waitForCurrentTasks()
+
+        XCTAssertEqual(provider.callCount, 1)
+        XCTAssertEqual(harness.coordinator.jobs.count, 1)
+        XCTAssertEqual(harness.coordinator.jobs.first?.state, .completed)
+        let durable = try await ProcessingJobStore(fileURL: harness.storeURL).load()
+        XCTAssertEqual(durable.count, 1)
+        XCTAssertEqual(durable.first?.state, .completed)
+        XCTAssertEqual(durable.first?.snapshot.prompt, frozen.prompt)
+    }
+
+    func testRelaunchedRetryUsesDurableTemplateSnapshotWithoutResolvingCurrentDefault() async throws {
+        let harness = await makeHarness(summarize: true, notify: false)
+        let original = SummaryGenerationSnapshot(
+            templateID: "deleted-custom-id",
+            templateName: "Deleted custom",
+            prompt: "durable prompt",
+            model: "durable model"
+        )
+        let initialProvider = MockTemplateProvider(snapshot: original)
+        harness.coordinator.attachTemplateProvider(initialProvider)
+        harness.summarizer.failNext = true
+        await harness.coordinator.recordingDidSave(harness.recording)
+        await harness.coordinator.waitForCurrentTasks()
+        let failed = try XCTUnwrap(harness.coordinator.jobs.first)
+        XCTAssertEqual(failed.state, .summaryFailed)
+
+        let log = WorkflowCallLog()
+        let transcriber = MockTranscriber(log: log)
+        let summarizer = MockSummarizer(log: log)
+        let currentProvider = MockTemplateProvider(snapshot: SummaryGenerationSnapshot(
+            templateID: SummaryTemplatePresetCatalog.meetingMinutesID,
+            templateName: "Meeting Minutes",
+            prompt: "current prompt",
+            model: "current model"
+        ))
+        let relaunched = PostRecordingWorkflowCoordinator(
+            store: ProcessingJobStore(fileURL: harness.storeURL),
+            notifier: MockNotifier(),
+            defaults: harness.defaults,
+            credentialDebounceNanoseconds: 0
+        )
+        relaunched.attachTemplateProvider(currentProvider)
+        await relaunched.attach(
+            transcriptionManager: transcriber,
+            summaryManager: summarizer,
+            recordings: { [harness.recording] }
+        )
+        relaunched.retry(failed.id)
+        await relaunched.waitForCurrentTasks()
+
+        XCTAssertEqual(currentProvider.callCount, 0)
+        XCTAssertEqual(summarizer.snapshots.last, original)
+        XCTAssertEqual(relaunched.jobs.first?.state, .completed)
+    }
+
     func testMissingKeysWaitThenRetryWithSameArtifactID() async throws {
         let harness = await makeHarness(summarize: false, notify: false, keys: false)
         await harness.coordinator.recordingDidSave(harness.recording)
@@ -586,7 +784,7 @@ final class PostRecordingWorkflowCoordinatorTests: XCTestCase {
             credentialDebounceNanoseconds: 0
         )
         await coordinator.attach(transcriptionManager: transcriber, summaryManager: summarizer, recordings: { [recording] })
-        return Harness(coordinator: coordinator, transcriber: transcriber, summarizer: summarizer, notifier: notifier, defaults: defaults, recording: recording, logObject: log)
+        return Harness(coordinator: coordinator, transcriber: transcriber, summarizer: summarizer, notifier: notifier, defaults: defaults, recording: recording, storeURL: storeURL, logObject: log)
     }
 }
 
@@ -618,6 +816,7 @@ private final class MockSummarizer: WorkflowSummarizing {
     var artifacts: [UUID: Summary] = [:]
     var ids: [UUID] = []
     var failNext = false
+    var snapshots: [SummaryGenerationSnapshot] = []
     let log: WorkflowCallLog
     init(log: WorkflowCallLog) { self.log = log }
     var lastID: UUID? { ids.last }
@@ -629,6 +828,46 @@ private final class MockSummarizer: WorkflowSummarizing {
         let result = Summary(id: summaryID, name: transcript.name, date: Date(), content: "summary", transcriptId: transcript.id, model: model, prompt: prompt, status: .completed)
         artifacts[summaryID] = result
         return result
+    }
+    func summarizeForWorkflow(_ transcript: Transcript, summaryID: UUID, snapshot: SummaryGenerationSnapshot) async throws -> Summary {
+        snapshots.append(snapshot)
+        return try await summarizeForWorkflow(
+            transcript,
+            summaryID: summaryID,
+            prompt: snapshot.prompt,
+            model: snapshot.model
+        )
+    }
+}
+
+@MainActor
+private final class MockTemplateProvider: WorkflowTemplateProviding {
+    var snapshot: SummaryGenerationSnapshot
+    var callCount = 0
+    init(snapshot: SummaryGenerationSnapshot) { self.snapshot = snapshot }
+    func defaultSelectionSnapshot(model: String) async -> SummaryGenerationSnapshot {
+        callCount += 1
+        return snapshot
+    }
+}
+
+@MainActor
+private final class SuspendingTemplateProvider: WorkflowTemplateProviding {
+    private var continuation: CheckedContinuation<SummaryGenerationSnapshot, Never>?
+    private(set) var callCount = 0
+
+    func defaultSelectionSnapshot(model: String) async -> SummaryGenerationSnapshot {
+        callCount += 1
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilCalled() async {
+        while continuation == nil { await Task.yield() }
+    }
+
+    func resume(with snapshot: SummaryGenerationSnapshot) {
+        continuation?.resume(returning: snapshot)
+        continuation = nil
     }
 }
 
@@ -651,6 +890,7 @@ private struct Harness {
     let notifier: MockNotifier
     let defaults: UserDefaults
     let recording: Recording
+    let storeURL: URL
     let logObject: WorkflowCallLog
     var log: [String] { logObject.values }
 }

@@ -60,6 +60,8 @@ final class ModelsTests: XCTestCase {
             transcriptId: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
             model: defaultLLMModelId,
             prompt: "Summarize this transcript.",
+            templateID: "action-items-v1",
+            templateName: "Action Items",
             status: .inProgress
         )
 
@@ -72,7 +74,50 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(decoded.transcriptId, summary.transcriptId)
         XCTAssertEqual(decoded.model, summary.model)
         XCTAssertEqual(decoded.prompt, summary.prompt)
+        XCTAssertEqual(decoded.templateID, summary.templateID)
+        XCTAssertEqual(decoded.templateName, summary.templateName)
         XCTAssertEqual(decoded.status, summary.status)
+    }
+
+    func testSummaryDecodesLegacyPayloadWithoutTemplateProvenance() throws {
+        let payload = LegacySummary(
+            id: UUID(),
+            name: "Legacy summary",
+            date: Date(timeIntervalSinceReferenceDate: 42),
+            content: "Stored content",
+            transcriptId: UUID(),
+            model: "legacy-model",
+            prompt: "legacy-prompt",
+            status: .completed
+        )
+
+        let decoded = try JSONDecoder().decode(Summary.self, from: JSONEncoder().encode(payload))
+
+        XCTAssertNil(decoded.templateID)
+        XCTAssertNil(decoded.templateName)
+        XCTAssertEqual(decoded.prompt, "legacy-prompt")
+        XCTAssertEqual(decoded.model, "legacy-model")
+    }
+
+    func testProcessingJobSnapshotDecodesLegacyMeetingMinutesIdentity() throws {
+        let payload = LegacyProcessingJobSnapshot(
+            language: "eng",
+            shouldSummarize: true,
+            modelID: "legacy-model",
+            templateID: "meeting-minutes-v1",
+            prompt: "frozen-prompt",
+            shouldNotify: false
+        )
+
+        let decoded = try JSONDecoder().decode(
+            ProcessingJobSnapshot.self,
+            from: JSONEncoder().encode(payload)
+        )
+
+        XCTAssertEqual(decoded.templateID, ProcessingJobSnapshot.meetingMinutesTemplateID)
+        XCTAssertNil(decoded.templateName)
+        XCTAssertEqual(decoded.prompt, "frozen-prompt")
+        XCTAssertEqual(decoded.modelID, "legacy-model")
     }
 
     func testRecordingDecodesLegacyPayloadWithoutGroupingFields() throws {
@@ -155,4 +200,24 @@ private struct LegacyTranscript: Encodable {
     let content: String
     let recordingId: UUID
     let status: ProcessingStatus
+}
+
+private struct LegacySummary: Encodable {
+    let id: UUID
+    let name: String
+    let date: Date
+    let content: String
+    let transcriptId: UUID
+    let model: String
+    let prompt: String
+    let status: ProcessingStatus
+}
+
+private struct LegacyProcessingJobSnapshot: Encodable {
+    let language: String
+    let shouldSummarize: Bool
+    let modelID: String
+    let templateID: String
+    let prompt: String
+    let shouldNotify: Bool
 }

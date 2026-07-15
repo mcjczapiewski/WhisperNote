@@ -49,10 +49,36 @@ struct Summary: Identifiable, Codable, Hashable, Sendable {
     var transcriptId: UUID
     var model: String
     var prompt: String
+    var templateID: String?
+    var templateName: String?
     var status: ProcessingStatus
 
     enum CodingKeys: String, CodingKey {
-        case id, name, date, content, transcriptId, model, prompt, status
+        case id, name, date, content, transcriptId, model, prompt, templateID, templateName, status
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        date: Date,
+        content: String,
+        transcriptId: UUID,
+        model: String,
+        prompt: String,
+        templateID: String? = nil,
+        templateName: String? = nil,
+        status: ProcessingStatus
+    ) {
+        self.id = id
+        self.name = name
+        self.date = date
+        self.content = content
+        self.transcriptId = transcriptId
+        self.model = model
+        self.prompt = prompt
+        self.templateID = templateID
+        self.templateName = templateName
+        self.status = status
     }
 
     static func == (lhs: Summary, rhs: Summary) -> Bool {
@@ -61,6 +87,27 @@ struct Summary: Identifiable, Codable, Hashable, Sendable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+    }
+}
+
+/// Immutable generation input. Callers resolve a template only once, then pass
+/// this value through generation, persistence, and retry without consulting live settings.
+struct SummaryGenerationSnapshot: Codable, Equatable, Sendable {
+    var templateID: String?
+    var templateName: String?
+    var prompt: String
+    var model: String
+
+    init(
+        templateID: String? = nil,
+        templateName: String? = nil,
+        prompt: String,
+        model: String
+    ) {
+        self.templateID = templateID
+        self.templateName = templateName
+        self.prompt = prompt
+        self.model = model
     }
 }
 

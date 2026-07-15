@@ -6,15 +6,39 @@ class SummaryManager: ObservableObject {
     @Published var summaries: [Summary] = []
     @AppStorage("defaultLLMModel") var defaultModel = defaultLLMModelId
 
-    private let directoryManager = DirectoryManager.shared
-    private var boundSummariesDirectory = DirectoryManager.shared.getSummariesDirectory()
+    private var boundSummariesDirectory: URL
+    private let allowsLegacyMigration: Bool
+    private let apiKeyProvider: () -> String
     private var libraryGeneration = 0
     private(set) var isLibraryRebinding = false
     private let debugLogger = DebugLogger.shared
-    private var apiKey: String { UserDefaults.standard.string(forKey: "openrouterApiKey") ?? "" }
+    private var apiKey: String { apiKeyProvider() }
     var testSummaryOperation: ((String, String, Transcript) async throws -> String)?
+    var testSummaryPersistenceOperation: (([Summary], URL) throws -> Void)?
 
-    init() {
+    init(
+        initialSummariesDirectory: URL? = nil,
+        apiKeyProvider: (() -> String)? = nil
+    ) {
+        let processInfo = ProcessInfo.processInfo
+        let isRunningTests = processInfo.processName.contains("xctest")
+            || processInfo.environment["XCTestConfigurationFilePath"] != nil
+        if let initialSummariesDirectory {
+            boundSummariesDirectory = initialSummariesDirectory
+        } else if isRunningTests {
+            boundSummariesDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("WhisperNote-SummaryManagerTests-\(UUID().uuidString)")
+        } else {
+            boundSummariesDirectory = DirectoryManager.shared.getSummariesDirectory()
+        }
+        allowsLegacyMigration = initialSummariesDirectory == nil && !isRunningTests
+        self.apiKeyProvider = apiKeyProvider ?? {
+            UserDefaults.standard.string(forKey: "openrouterApiKey") ?? ""
+        }
+        try? FileManager.default.createDirectory(
+            at: boundSummariesDirectory,
+            withIntermediateDirectories: true
+        )
         loadSummaries()
         cleanupLegacySummaryFiles()
         saveSummaries()
@@ -30,12 +54,25 @@ class SummaryManager: ObservableObject {
         prompt: String,
         model: String
     ) async throws -> Summary {
+        try await summarizeForWorkflow(
+            transcript,
+            summaryID: summaryID,
+            snapshot: SummaryGenerationSnapshot(prompt: prompt, model: model)
+        )
+    }
+
+    func summarizeForWorkflow(
+        _ transcript: Transcript,
+        summaryID: UUID,
+        snapshot: SummaryGenerationSnapshot
+    ) async throws -> Summary {
         guard !isLibraryRebinding else { throw SummaryError.staleLibrary }
         let generation = libraryGeneration
         if let existing = summary(id: summaryID), existing.status == .completed {
             return existing
         }
         guard !apiKey.isEmpty else { throw SummaryError.missingApiKey }
+        let frozen = snapshot
 
         var artifact = summary(id: summaryID) ?? Summary(
             id: summaryID,
@@ -43,18 +80,22 @@ class SummaryManager: ObservableObject {
             date: Date(),
             content: "",
             transcriptId: transcript.id,
-            model: model,
-            prompt: prompt,
+            model: frozen.model,
+            prompt: frozen.prompt,
+            templateID: frozen.templateID,
+            templateName: frozen.templateName,
             status: .pending
         )
-        artifact.model = model
-        artifact.prompt = prompt
+        artifact.model = frozen.model
+        artifact.prompt = frozen.prompt
+        artifact.templateID = frozen.templateID
+        artifact.templateName = frozen.templateName
         artifact.status = .inProgress
         try upsertAndPersist(artifact)
 
         let content: String
         do {
-            content = try await callOpenRouterAPI(prompt: prompt, model: model, transcript: transcript)
+            content = try await callOpenRouterAPI(prompt: frozen.prompt, model: frozen.model, transcript: transcript)
         } catch {
             guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
             artifact.status = .failed
@@ -70,14 +111,24 @@ class SummaryManager: ObservableObject {
     }
 
     func generateSummary(for transcript: Transcript, with customPrompt: String? = nil, model: String? = nil) async throws -> Summary {
+        let snapshot = SummaryGenerationSnapshot(
+            prompt: customPrompt ?? getDefaultPrompt(),
+            model: model ?? defaultModel
+        )
+        return try await generateSummary(for: transcript, snapshot: snapshot)
+    }
+
+    func generateSummary(
+        for transcript: Transcript,
+        snapshot: SummaryGenerationSnapshot
+    ) async throws -> Summary {
         guard !isLibraryRebinding else { throw SummaryError.staleLibrary }
         let generation = libraryGeneration
         guard !apiKey.isEmpty else {
             throw SummaryError.missingApiKey
         }
 
-        let prompt = customPrompt ?? getDefaultPrompt()
-        let modelToUse = model ?? defaultModel
+        let frozen = snapshot
 
         // Create a pending summary
         let pendingSummary = Summary(
@@ -85,47 +136,35 @@ class SummaryManager: ObservableObject {
             date: Date(),
             content: "",
             transcriptId: transcript.id,
-            model: modelToUse,
-            prompt: prompt,
+            model: frozen.model,
+            prompt: frozen.prompt,
+            templateID: frozen.templateID,
+            templateName: frozen.templateName,
             status: .pending
         )
 
-        // Add to summaries and save
-        summaries.append(pendingSummary)
-        saveSummaries()
+        // Every visible state is durably committed before it is published.
+        try upsertAndPersist(pendingSummary)
 
         // Update status to in progress
         var inProgressSummary = pendingSummary
         inProgressSummary.status = .inProgress
 
-        if let index = summaries.firstIndex(where: { $0.id == pendingSummary.id }) {
-            summaries[index] = inProgressSummary
-            saveSummaries()
-        }
+        try upsertAndPersist(inProgressSummary)
 
+        let summaryContent: String
         do {
-            let summaryContent = try await callOpenRouterAPI(prompt: prompt, model: modelToUse, transcript: transcript)
-            guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
-
-            var completedSummary = inProgressSummary
-            completedSummary.content = summaryContent
-            completedSummary.status = .completed
-
-            if let index = summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
-                summaries[index] = completedSummary
-                saveSummaries()
-            }
-
-            return completedSummary
+            summaryContent = try await callOpenRouterAPI(
+                prompt: frozen.prompt,
+                model: frozen.model,
+                transcript: transcript
+            )
         } catch {
             guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
             var failedSummary = inProgressSummary
             failedSummary.status = .failed
 
-            if let index = summaries.firstIndex(where: { $0.id == inProgressSummary.id }) {
-                summaries[index] = failedSummary
-                saveSummaries()
-            }
+            try upsertAndPersist(failedSummary)
 
             if let summaryError = error as? SummaryError {
                 throw summaryError
@@ -133,37 +172,69 @@ class SummaryManager: ObservableObject {
                 throw SummaryError.unknown(error)
             }
         }
+        guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
+
+        var completedSummary = inProgressSummary
+        completedSummary.content = summaryContent
+        completedSummary.status = .completed
+        try upsertAndPersist(completedSummary)
+        return completedSummary
     }
 
     func retryGenerateSummary(id: UUID, transcript: Transcript) async throws -> Summary {
-        guard !isLibraryRebinding else { throw SummaryError.staleLibrary }
-        let generation = libraryGeneration
-        guard let idx = summaries.firstIndex(where: { $0.id == id }) else {
+        guard let summary = summaries.first(where: { $0.id == id }) else {
             throw SummaryError.invalidResponse
         }
-        let prompt = summaries[idx].prompt
-        let model  = summaries[idx].model
-        summaries[idx].status = .inProgress
-        saveSummaries()
-        do {
-            let content = try await callOpenRouterAPI(prompt: prompt, model: model, transcript: transcript)
-            guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
-            if let i = summaries.firstIndex(where: { $0.id == id }) {
-                summaries[i].content = content
-                summaries[i].status = .completed
-                saveSummaries()
-                return summaries[i]
-            }
+        return try await regenerateSummary(
+            id: id,
+            transcript: transcript,
+            snapshot: SummaryGenerationSnapshot(
+                templateID: summary.templateID,
+                templateName: summary.templateName,
+                prompt: summary.prompt,
+                model: summary.model
+            )
+        )
+    }
+
+    /// Replaces an existing summary only after both generation and durable save
+    /// succeed. A failed API call or write leaves the old content and metadata intact.
+    func regenerateSummary(
+        id: UUID,
+        transcript: Transcript,
+        snapshot: SummaryGenerationSnapshot
+    ) async throws -> Summary {
+        guard !isLibraryRebinding else { throw SummaryError.staleLibrary }
+        let generation = libraryGeneration
+        guard let original = summaries.first(where: { $0.id == id }) else {
             throw SummaryError.invalidResponse
+        }
+        guard !apiKey.isEmpty else { throw SummaryError.missingApiKey }
+        let frozen = snapshot
+
+        let content: String
+        do {
+            content = try await callOpenRouterAPI(
+                prompt: frozen.prompt,
+                model: frozen.model,
+                transcript: transcript
+            )
         } catch {
             guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
-            if let i = summaries.firstIndex(where: { $0.id == id }) {
-                summaries[i].status = .failed
-                saveSummaries()
-            }
             if let e = error as? SummaryError { throw e }
             throw SummaryError.unknown(error)
         }
+        guard generation == libraryGeneration else { throw SummaryError.staleLibrary }
+
+        var replacement = original
+        replacement.content = content
+        replacement.model = frozen.model
+        replacement.prompt = frozen.prompt
+        replacement.templateID = frozen.templateID
+        replacement.templateName = frozen.templateName
+        replacement.status = .completed
+        try upsertAndPersist(replacement)
+        return replacement
     }
 
     func enhancePrompt(_ prompt: String, model: String? = nil) async throws -> String {
@@ -310,9 +381,13 @@ class SummaryManager: ObservableObject {
                 current: summaries,
                 artifact: summary,
                 persist: { candidate in
-                    let data = try JSONEncoder().encode(candidate)
                     let url = self.boundSummariesDirectory.appendingPathComponent("summaries.json")
-                    try data.write(to: url, options: .atomic)
+                    if let testSummaryPersistenceOperation = self.testSummaryPersistenceOperation {
+                        try testSummaryPersistenceOperation(candidate, url)
+                    } else {
+                        let data = try JSONEncoder().encode(candidate)
+                        try data.write(to: url, options: .atomic)
+                    }
                 },
                 publish: { self.summaries = $0 }
             )
@@ -388,6 +463,7 @@ class SummaryManager: ObservableObject {
         }
 
         // Fall back to old directory if needed (for backward compatibility)
+        guard allowsLegacyMigration else { return }
         let defaultDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let defaultUrl = defaultDirectory.appendingPathComponent("summaries.json")
         if FileManager.default.fileExists(atPath: defaultUrl.path) {

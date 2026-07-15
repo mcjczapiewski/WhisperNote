@@ -10,7 +10,6 @@ struct SummaryView: View {
     @State private var showingError = false
     @State private var errorMessage = ""
     @State private var customPrompt = ""
-    @State private var showingPromptEditor = false
     @State private var showingDeleteConfirmation = false
     @State private var summaryToDelete: Summary?
     @State private var isShowingExportDialog = false
@@ -72,17 +71,6 @@ struct SummaryView: View {
                 title: Text("Summary Generation Error"),
                 message: Text(errorMessage),
                 dismissButton: .default(Text("OK"))
-            )
-        }
-        .sheet(isPresented: $showingPromptEditor) {
-            CustomPromptEditorView(
-                customPrompt: $customPrompt,
-                showingPromptEditor: $showingPromptEditor,
-                selectedSummary: $selectedSummary,
-                isGenerating: $isGenerating,
-                errorMessage: $errorMessage,
-                showingError: $showingError,
-                summaryManager: summaryManager
             )
         }
         .alert("Delete Summary", isPresented: $showingDeleteConfirmation) {
@@ -639,75 +627,10 @@ Button(action: {
     }
 }
 
-// MARK: - Custom Prompt Editor View
-struct CustomPromptEditorView: View {
-    @Binding var customPrompt: String
-    @Binding var showingPromptEditor: Bool
-    @Binding var selectedSummary: Summary?
-    @Binding var isGenerating: Bool
-    @Binding var errorMessage: String
-    @Binding var showingError: Bool
-    @ObservedObject var summaryManager: SummaryManager
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Customize Summary Prompt")
-                .font(.headline)
-
-            TextEditor(text: $customPrompt)
-                .frame(minHeight: 200)
-                .border(Color.gray.opacity(0.2))
-                .padding()
-
-            HStack {
-                Button("Cancel") {
-                    showingPromptEditor = false
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Generate Summary") {
-                    if !customPrompt.isEmpty && selectedSummary != nil {
-                        // Find the transcript for this summary
-                        Task {
-                            do {
-                                isGenerating = true
-                                showingPromptEditor = false
-
-                                // Delete the existing summary
-                                if let selectedSummary = selectedSummary {
-                                    summaryManager.deleteSummary(id: selectedSummary.id)
-
-                                    // Find the transcript for this summary
-                                    let transcriptionManager = TranscriptionManager()
-                                    if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                        // Generate a new summary with the custom prompt
-                                        _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt)
-                                    } else {
-                                        throw NSError(domain: "SummaryView", code: 1,
-                                                     userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
-                                    }
-                                }
-                                isGenerating = false
-                            } catch {
-                                isGenerating = false
-                                errorMessage = error.localizedDescription
-                                showingError = true
-                            }
-                        }
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(customPrompt.isEmpty)
-            }
-            .padding()
-        }
-        .frame(width: 500, height: 400)
-        .padding()
-    }
-}
-
 // MARK: - Regenerate Summary View
 struct RegenerateSummaryView: View {
+    @EnvironmentObject private var summaryTemplateController: SummaryTemplateController
+    @EnvironmentObject private var transcriptionManager: TranscriptionManager
     @Binding var customPrompt: String
     @Binding var showingSummaryParamsDialog: Bool
     @Binding var selectedSummary: Summary?
@@ -717,12 +640,30 @@ struct RegenerateSummaryView: View {
     @ObservedObject var summaryManager: SummaryManager
     @State private var selectedModel: String = defaultLLMModelId
     @State private var isEnhancingPrompt = false
+    @State private var draftState = SummaryTemplateDraftState()
 
     // Initialize the selected model when the view appears
     var body: some View {
         VStack(spacing: 20) {
             Text("Regenerate Summary")
                 .font(.headline)
+
+            HStack {
+                Text("Template:")
+                Spacer()
+                SummaryTemplatePicker(
+                    controller: summaryTemplateController,
+                    selectedTemplateID: draftState.sourceTemplateID,
+                    allowsCustom: true,
+                    onSelect: selectTemplate
+                )
+            }
+            .padding(.horizontal)
+            Text("Source: \(draftState.displayName)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
 
             // LLM Model Selection
             VStack(alignment: .leading) {
@@ -736,6 +677,7 @@ struct RegenerateSummaryView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity)
+                .onChange(of: selectedModel) { draftState.setModel($0) }
             }
             .padding(.horizontal)
 
@@ -743,7 +685,13 @@ struct RegenerateSummaryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
 
-            TextEditor(text: $customPrompt)
+            TextEditor(text: Binding(
+                get: { draftState.prompt },
+                set: {
+                    customPrompt = $0
+                    draftState.editPrompt($0)
+                }
+            ))
                 .frame(minHeight: 200)
                 .border(Color.gray.opacity(0.2))
                 .padding(.horizontal)
@@ -762,7 +710,7 @@ struct RegenerateSummaryView: View {
                         Text("Enhance Prompt")
                     }
                 }
-                .disabled(isEnhancingPrompt || customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isEnhancingPrompt || draftState.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Spacer()
             }
@@ -783,14 +731,15 @@ struct RegenerateSummaryView: View {
                             do {
                                 isGenerating = true
 
-                                // Delete the existing summary
-                                summaryManager.deleteSummary(id: selectedSummary.id)
-
-                                // Find the transcript for this summary
-                                let transcriptionManager = TranscriptionManager()
                                 if let transcript = transcriptionManager.transcripts.first(where: { $0.id == selectedSummary.transcriptId }) {
-                                    // Generate a new summary with the custom prompt and selected model
-                                    _ = try await summaryManager.generateSummary(for: transcript, with: customPrompt, model: selectedModel)
+                                    draftState.setModel(selectedModel)
+                                    let snapshot = draftState.snapshot()
+                                    let updated = try await summaryManager.regenerateSummary(
+                                        id: selectedSummary.id,
+                                        transcript: transcript,
+                                        snapshot: snapshot
+                                    )
+                                    self.selectedSummary = updated
                                 } else {
                                     throw NSError(domain: "SummaryView", code: 1,
                                                  userInfo: [NSLocalizedDescriptionKey: "Original transcript not found"])
@@ -805,7 +754,7 @@ struct RegenerateSummaryView: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(isEnhancingPrompt || customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isEnhancingPrompt || draftState.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }
@@ -821,27 +770,35 @@ struct RegenerateSummaryView: View {
                     // Fallback to default model if summary model is empty
                     selectedModel = summaryManager.defaultModel
                 }
-                customPrompt = summary.prompt
+                draftState.initializeHistorical(summary, fallbackModel: summaryManager.defaultModel)
+                customPrompt = draftState.prompt
             } else {
                 // Make sure we have a valid model selection
                 selectedModel = summaryManager.defaultModel
                 customPrompt = summaryManager.getDefaultPrompt()
+                draftState.chooseGuided(prompt: customPrompt, model: selectedModel)
             }
 
             if selectedModel.isEmpty {
                 selectedModel = defaultLLMModelId
             }
         }
+        .onDisappear { draftState.invalidateRequests() }
     }
 
     private func enhancePrompt() {
-        let promptToEnhance = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isEnhancingPrompt else { return }
+        let promptToEnhance = draftState.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !promptToEnhance.isEmpty else { return }
 
+        let context = draftState.requestContext()
         isEnhancingPrompt = true
         Task {
             do {
-                customPrompt = try await summaryManager.enhancePrompt(promptToEnhance, model: selectedModel)
+                let enhanced = try await summaryManager.enhancePrompt(promptToEnhance, model: context.model)
+                if draftState.applyEnhancedPrompt(enhanced, ifUnchanged: context) {
+                    customPrompt = enhanced
+                }
             } catch {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -849,6 +806,15 @@ struct RegenerateSummaryView: View {
 
             isEnhancingPrompt = false
         }
+    }
+
+    private func selectTemplate(_ selectionID: String?) {
+        guard let template = summaryTemplateController.template(matching: selectionID) else {
+            draftState.chooseGuided(prompt: customPrompt, model: selectedModel)
+            return
+        }
+        draftState.selectTemplate(template, model: selectedModel)
+        customPrompt = draftState.prompt
     }
 }
 

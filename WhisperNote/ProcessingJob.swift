@@ -35,17 +35,52 @@ struct ProcessingJobSnapshot: Codable, Equatable, Sendable {
     var shouldSummarize: Bool
     var modelID: String
     var templateID: String
+    var templateName: String?
     var prompt: String
     var shouldNotify: Bool
 
+    init(
+        language: String,
+        shouldSummarize: Bool,
+        modelID: String,
+        templateID: String,
+        templateName: String? = nil,
+        prompt: String,
+        shouldNotify: Bool
+    ) {
+        self.language = language
+        self.shouldSummarize = shouldSummarize
+        self.modelID = modelID
+        self.templateID = templateID
+        self.templateName = templateName
+        self.prompt = prompt
+        self.shouldNotify = shouldNotify
+    }
+
     static func defaults(_ defaults: UserDefaults = .standard, prompt: String) -> Self {
+        Self.defaults(
+            defaults,
+            generation: SummaryGenerationSnapshot(
+                templateID: meetingMinutesTemplateID,
+                templateName: "Meeting Minutes",
+                prompt: prompt,
+                model: defaults.string(forKey: "autoSummaryModel") ?? defaultLLMModelId
+            )
+        )
+    }
+
+    static func defaults(
+        _ defaults: UserDefaults = .standard,
+        generation: SummaryGenerationSnapshot
+    ) -> Self {
         let autoTranscribe = defaults.bool(forKey: "autoTranscribeAfterRecording")
         return Self(
             language: defaults.string(forKey: "autoTranscriptionLanguage") ?? "eng",
             shouldSummarize: autoTranscribe && defaults.bool(forKey: "autoSummarizeAfterRecording"),
-            modelID: defaults.string(forKey: "autoSummaryModel") ?? defaultLLMModelId,
-            templateID: meetingMinutesTemplateID,
-            prompt: prompt,
+            modelID: generation.model,
+            templateID: generation.templateID ?? meetingMinutesTemplateID,
+            templateName: generation.templateName,
+            prompt: generation.prompt,
             shouldNotify: defaults.bool(forKey: "processingCompletionNotifications")
         )
     }

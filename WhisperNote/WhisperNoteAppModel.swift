@@ -5,6 +5,7 @@ final class WhisperNoteAppModel: ObservableObject {
     let audioRecorder: AudioRecorder
     let transcriptionManager: TranscriptionManager
     let summaryManager: SummaryManager
+    let summaryTemplateController: SummaryTemplateController
     let workflowCoordinator: PostRecordingWorkflowCoordinator
     let navigationRouter: AppNavigationRouter
     let commandCoordinator: RecordingCommandCoordinator
@@ -17,6 +18,7 @@ final class WhisperNoteAppModel: ObservableObject {
         audioRecorder: AudioRecorder? = nil,
         transcriptionManager: TranscriptionManager? = nil,
         summaryManager: SummaryManager? = nil,
+        summaryTemplateController: SummaryTemplateController? = nil,
         workflowCoordinator: PostRecordingWorkflowCoordinator? = nil,
         navigationRouter: AppNavigationRouter? = nil,
         shortcutManager: GlobalShortcutManager? = nil
@@ -24,12 +26,14 @@ final class WhisperNoteAppModel: ObservableObject {
         let audioRecorder = audioRecorder ?? AudioRecorder()
         let transcriptionManager = transcriptionManager ?? TranscriptionManager()
         let summaryManager = summaryManager ?? SummaryManager()
+        let summaryTemplateController = summaryTemplateController ?? SummaryTemplateController()
         let workflowCoordinator = workflowCoordinator ?? PostRecordingWorkflowCoordinator()
         let navigationRouter = navigationRouter ?? AppNavigationRouter()
         let shortcutManager = shortcutManager ?? GlobalShortcutManager()
         self.audioRecorder = audioRecorder
         self.transcriptionManager = transcriptionManager
         self.summaryManager = summaryManager
+        self.summaryTemplateController = summaryTemplateController
         self.workflowCoordinator = workflowCoordinator
         self.navigationRouter = navigationRouter
         self.commandCoordinator = RecordingCommandCoordinator(
@@ -41,7 +45,8 @@ final class WhisperNoteAppModel: ObservableObject {
             audioRecorder: audioRecorder,
             transcriptionManager: transcriptionManager,
             summaryManager: summaryManager,
-            workflowCoordinator: workflowCoordinator
+            workflowCoordinator: workflowCoordinator,
+            summaryTemplateController: summaryTemplateController
         )
         shortcutManager.setAction { [weak commandCoordinator] in
             Task { await commandCoordinator?.quickToggle() }
@@ -51,6 +56,8 @@ final class WhisperNoteAppModel: ObservableObject {
     func bootstrap() async {
         guard !didBootstrap, !WhisperNoteRuntime.isUnitTestMode else { return }
         didBootstrap = true
+        await summaryTemplateController.load()
+        workflowCoordinator.attachTemplateProvider(summaryTemplateController)
         await workflowCoordinator.attach(
             transcriptionManager: transcriptionManager,
             summaryManager: summaryManager,

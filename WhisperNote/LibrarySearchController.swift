@@ -15,10 +15,12 @@ private struct LibraryCandidateSnapshot: Sendable {
     let summariesURL: URL
     let jobsURL: URL
     let metadataURL: URL
+    let templatesURL: URL
     let recordings: [Recording]
     let transcripts: [Transcript]
     let summaries: [Summary]
     let jobs: [ProcessingJob]
+    var templateCandidate: SummaryTemplateLibraryCandidate?
 }
 
 enum LibraryRebindError: LocalizedError {
@@ -50,6 +52,7 @@ final class LibrarySearchController: ObservableObject {
     private let transcriptionManager: TranscriptionManager
     private let summaryManager: SummaryManager
     private let workflowCoordinator: PostRecordingWorkflowCoordinator
+    private let summaryTemplateController: SummaryTemplateController?
     private var cancellables: Set<AnyCancellable> = []
     private var rebuildTask: Task<Void, Never>?
     private var generation = 0
@@ -65,12 +68,14 @@ final class LibrarySearchController: ObservableObject {
         transcriptionManager: TranscriptionManager,
         summaryManager: SummaryManager,
         workflowCoordinator: PostRecordingWorkflowCoordinator,
+        summaryTemplateController: SummaryTemplateController? = nil,
         repository: LibraryMetadataRepository? = nil
     ) {
         self.audioRecorder = audioRecorder
         self.transcriptionManager = transcriptionManager
         self.summaryManager = summaryManager
         self.workflowCoordinator = workflowCoordinator
+        self.summaryTemplateController = summaryTemplateController
         self.repository = repository ?? LibraryMetadataRepository()
         subscribe()
         scheduleRebuild(delayNanoseconds: 0)
@@ -134,11 +139,14 @@ final class LibrarySearchController: ObservableObject {
             return false
         }
         do {
-            let candidate = try Self.preflight(
+            var candidate = try Self.preflight(
                 baseURL: DirectoryManager.shared.candidateBaseDirectory(
                     selectedRootPath: UserDefaults.standard.string(forKey: "recordingsDirectory")
                 )
             )
+            if let summaryTemplateController {
+                candidate.templateCandidate = try await summaryTemplateController.preflight(fileURL: candidate.templatesURL)
+            }
             guard await closeLibraryMutationGates() else {
                 throw LibraryRebindError.recordingInProgress
             }
@@ -149,7 +157,13 @@ final class LibrarySearchController: ObservableObject {
                 reopenPreviousLibraryAfterRollback()
                 throw error
             }
-            await acceptPreflighted(candidate)
+            do {
+                try await acceptTemplates(candidate)
+                await acceptPreflighted(candidate)
+            } catch {
+                reopenPreviousLibraryAfterRollback()
+                throw error
+            }
             return true
         } catch {
             errorMessage = LibraryRebindError.unreadableArtifacts(error).localizedDescription
@@ -170,9 +184,12 @@ final class LibrarySearchController: ObservableObject {
         }
         let defaults = UserDefaults.standard
         let candidateBase = DirectoryManager.shared.candidateBaseDirectory(selectedRootPath: path)
-        let candidate: LibraryCandidateSnapshot
+        var candidate: LibraryCandidateSnapshot
         do {
             candidate = try Self.preflight(baseURL: candidateBase)
+            if let summaryTemplateController {
+                candidate.templateCandidate = try await summaryTemplateController.preflight(fileURL: candidate.templatesURL)
+            }
         } catch {
             errorMessage = "The selected library could not be loaded; the previous library remains active."
             return false
@@ -189,6 +206,13 @@ final class LibrarySearchController: ObservableObject {
             errorMessage = "The selected library is not writable; the previous library remains active."
             return false
         }
+        do {
+            try await acceptTemplates(candidate)
+        } catch {
+            reopenPreviousLibraryAfterRollback()
+            errorMessage = "The selected template library could not be prepared; the previous library remains active."
+            return false
+        }
         if let path, !path.isEmpty {
             defaults.set(path, forKey: "recordingsDirectory")
             if let bookmark { defaults.set(bookmark, forKey: "recordingsDirectoryBookmark") }
@@ -199,6 +223,12 @@ final class LibrarySearchController: ObservableObject {
         }
         await acceptPreflighted(candidate)
         return true
+    }
+
+    private func acceptTemplates(_ candidate: LibraryCandidateSnapshot) async throws {
+        if let templateCandidate = candidate.templateCandidate {
+            try await summaryTemplateController?.accept(templateCandidate)
+        }
     }
 
     private func acceptPreflighted(_ candidate: LibraryCandidateSnapshot) async {
@@ -221,25 +251,36 @@ final class LibrarySearchController: ObservableObject {
         summaryManager.finishLibraryRebind()
         audioRecorder.finishLibraryRebind()
         workflowCoordinator.finishLibraryRebind()
+        summaryTemplateController?.finishLibraryRebind()
         isRebinding = false
         scheduleRebuild(delayNanoseconds: 0)
     }
 
     private func closeLibraryMutationGates() async -> Bool {
-        guard audioRecorder.beginLibraryRebind() else { return false }
+        if let summaryTemplateController,
+           !(await summaryTemplateController.beginLibraryRebind()) {
+            return false
+        }
+        guard audioRecorder.beginLibraryRebind() else {
+            summaryTemplateController?.resumeAfterLibraryRebindCancellation()
+            return false
+        }
         guard transcriptionManager.beginLibraryRebind() else {
             audioRecorder.finishLibraryRebind()
+            summaryTemplateController?.resumeAfterLibraryRebindCancellation()
             return false
         }
         guard summaryManager.beginLibraryRebind() else {
             transcriptionManager.finishLibraryRebind()
             audioRecorder.finishLibraryRebind()
+            summaryTemplateController?.resumeAfterLibraryRebindCancellation()
             return false
         }
         guard workflowCoordinator.beginLibraryRebind() else {
             summaryManager.finishLibraryRebind()
             transcriptionManager.finishLibraryRebind()
             audioRecorder.finishLibraryRebind()
+            summaryTemplateController?.resumeAfterLibraryRebindCancellation()
             return false
         }
         isRebinding = true
@@ -257,6 +298,7 @@ final class LibrarySearchController: ObservableObject {
         transcriptionManager.finishLibraryRebind()
         summaryManager.finishLibraryRebind()
         audioRecorder.finishLibraryRebind()
+        summaryTemplateController?.resumeAfterLibraryRebindCancellation()
         isRebinding = false
         workflowCoordinator.resumeAfterLibraryRebindCancellation()
         scheduleRebuild(delayNanoseconds: 0)
@@ -276,6 +318,7 @@ final class LibrarySearchController: ObservableObject {
         let summariesURL = baseURL.appendingPathComponent("Summaries/summaries.json")
         let jobsURL = baseURL.appendingPathComponent("Processing/processing-jobs.json")
         let metadataURL = baseURL.appendingPathComponent("library-metadata.json")
+        let templatesURL = DirectoryManager.summaryTemplatesURL(baseDirectory: baseURL)
         let decoder = JSONDecoder()
         func decode<T: Decodable>(_ type: [T].Type, at url: URL) throws -> [T] {
             guard FileManager.default.fileExists(atPath: url.path) else { return [] }
@@ -301,10 +344,12 @@ final class LibrarySearchController: ObservableObject {
             summariesURL: summariesURL,
             jobsURL: jobsURL,
             metadataURL: metadataURL,
+            templatesURL: templatesURL,
             recordings: recordings,
             transcripts: transcripts,
             summaries: summaries,
-            jobs: jobs
+            jobs: jobs,
+            templateCandidate: nil
         )
     }
 
@@ -330,6 +375,7 @@ final class LibrarySearchController: ObservableObject {
             candidate.transcriptsURL.deletingLastPathComponent(),
             candidate.summariesURL.deletingLastPathComponent(),
             candidate.jobsURL.deletingLastPathComponent(),
+            candidate.templatesURL.deletingLastPathComponent(),
         ] {
             try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         }

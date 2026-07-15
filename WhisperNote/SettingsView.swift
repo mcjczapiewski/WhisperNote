@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject private var workflowCoordinator: PostRecordingWorkflowCoordinator
     @EnvironmentObject private var shortcutManager: GlobalShortcutManager
     @EnvironmentObject private var librarySearch: LibrarySearchController
+    @EnvironmentObject private var summaryTemplateController: SummaryTemplateController
     @AppStorage("defaultLLMModel") private var defaultLLMModel = defaultLLMModelId
     @AppStorage("audioQuality") private var audioQuality = "high"
     @AppStorage("recordingsDirectory") private var recordingsDirectory = ""
@@ -23,6 +24,7 @@ struct SettingsView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var isShowingChangelog = false
+    @State private var isShowingTemplateLibrary = false
 
     private let audioQualities = ["low", "medium", "high"]
 
@@ -132,14 +134,25 @@ struct SettingsView: View {
                     }
                     .disabled(!autoTranscribeAfterRecording || !autoSummarizeAfterRecording)
 
-                    HStack {
+                    HStack(alignment: .center) {
                         Text("Template")
                         Spacer()
-                        Text("Meeting Minutes")
-                            .foregroundColor(.secondary)
+                        SummaryTemplatePicker(
+                            controller: summaryTemplateController,
+                            selectedTemplateID: summaryTemplateController.defaultTemplateValue.stableSelectionID,
+                            onSelect: { selectionID in
+                                guard let template = summaryTemplateController.template(matching: selectionID) else { return }
+                                Task { await summaryTemplateController.setDefault(id: template.id) }
+                            }
+                        )
                     }
                     .font(.subheadline)
                     .disabled(!autoTranscribeAfterRecording || !autoSummarizeAfterRecording)
+
+                    Button("Manage Summary Templates…") {
+                        isShowingTemplateLibrary = true
+                    }
+                    .disabled(librarySearch.isRebinding || summaryTemplateController.isLibraryRebinding)
 
                     Toggle("Notify when results are ready", isOn: $processingCompletionNotifications)
                         .disabled(!autoTranscribeAfterRecording)
@@ -360,6 +373,9 @@ struct SettingsView: View {
         .sheet(isPresented: $isShowingChangelog) {
             ChangelogView()
         }
+        .sheet(isPresented: $isShowingTemplateLibrary) {
+            SummaryTemplateLibraryView()
+        }
         .onChange(of: autoTranscribeAfterRecording) { enabled in
             if !enabled { autoSummarizeAfterRecording = false }
         }
@@ -368,7 +384,7 @@ struct SettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.4"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.5"
     }
 }
 

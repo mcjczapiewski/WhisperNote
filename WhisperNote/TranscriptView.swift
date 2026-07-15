@@ -564,6 +564,7 @@ struct FindReplaceView: View {
 
 // MARK: - Summary Parameters View
 struct SummaryParametersView: View {
+    @EnvironmentObject private var summaryTemplateController: SummaryTemplateController
     @Binding var meetingType: String
     @Binding var audience: String
     @Binding var selectedModel: String
@@ -575,10 +576,12 @@ struct SummaryParametersView: View {
     @ObservedObject var summaryManager: SummaryManager
     let generateCustomPrompt: (String, String) -> String
 
-    @State private var promptPreview = ""
     @State private var isPromptPreviewVisible = false
-    @State private var hasEditedPrompt = false
     @State private var isEnhancingPrompt = false
+    @State private var isSavingTemplate = false
+    @State private var draftState = SummaryTemplateDraftState()
+    @State private var saveTemplateName = ""
+    @State private var templateOperationMessage: String?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -592,6 +595,20 @@ struct SummaryParametersView: View {
                 }
 
             VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Summary Template:")
+                    Spacer()
+                    SummaryTemplatePicker(
+                        controller: summaryTemplateController,
+                        selectedTemplateID: draftState.sourceTemplateID,
+                        allowsCustom: true,
+                        onSelect: selectTemplate
+                    )
+                }
+                Text("Draft: \(draftState.displayName)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 Text("Recording Type:")
                 TextField("e.g., Team Meeting, Workshop, Lecture, Interview", text: $meetingType)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -614,6 +631,7 @@ struct SummaryParametersView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity)
+                .onChange(of: selectedModel) { draftState.setModel($0) }
             }
             .padding()
 
@@ -646,15 +664,34 @@ struct SummaryParametersView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextEditor(text: Binding(
-                        get: { promptPreview },
-                        set: { newValue in
-                            promptPreview = newValue
-                            hasEditedPrompt = true
+                        get: { draftState.prompt },
+                        set: {
+                            draftState.editPrompt($0)
+                            clearTemplateFeedback()
                         }
                     ))
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 260)
                     .border(Color.secondary.opacity(0.3))
+
+                    HStack {
+                        TextField("Name for saved template", text: $saveTemplateName)
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: saveTemplateName) { _ in clearTemplateFeedback() }
+                        Button("Save as Template") {
+                            saveTemplate()
+                        }
+                        .disabled(isSavingTemplate || !canSaveTemplate)
+                        Button("Update Template") {
+                            updateTemplate()
+                        }
+                        .disabled(isSavingTemplate || !draftState.canUpdateSourceTemplate)
+                    }
+                    if let message = summaryTemplateController.errorMessage ?? templateOperationMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(summaryTemplateController.errorMessage == nil ? .secondary : .red)
+                    }
                 }
                 .padding(.horizontal)
             }
@@ -668,7 +705,8 @@ struct SummaryParametersView: View {
                 Button("Generate Summary") {
                     if let selectedTranscript = selectedTranscript {
                         showingSummaryParamsDialog = false
-                        let customPrompt = promptForGeneration()
+                        draftState.setModel(selectedModel)
+                        let snapshot = draftState.snapshot()
 
                         // Generate summary
                         Task {
@@ -676,8 +714,7 @@ struct SummaryParametersView: View {
                                 // Pass the selected model to the summary manager
                                 _ = try await summaryManager.generateSummary(
                                     for: selectedTranscript,
-                                    with: customPrompt,
-                                    model: selectedModel
+                                    snapshot: snapshot
                                 )
                             } catch {
                                 errorMessage = error.localizedDescription
@@ -693,40 +730,52 @@ struct SummaryParametersView: View {
         }
         .frame(width: 680, height: isPromptPreviewVisible ? 720 : 420)
         .padding()
+        .task {
+            await initializeDefaultWhenAvailable()
+        }
+        .onChange(of: summaryTemplateController.templates) { _ in initializePublishedDefaultIfAvailable() }
+        .onChange(of: summaryTemplateController.isLibraryRebinding) { rebinding in
+            if !rebinding { initializePublishedDefaultIfAvailable() }
+        }
+        .onDisappear { draftState.invalidateRequests() }
     }
 
     private func promptForGeneration() -> String {
-        if isPromptPreviewVisible {
-            return promptPreview
+        if draftState.isInitialized {
+            return draftState.prompt
         }
 
         return generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
     }
 
     private func showPromptPreview(overwriteExistingPrompt: Bool) {
-        if overwriteExistingPrompt || !hasEditedPrompt {
-            promptPreview = generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
-            hasEditedPrompt = false
+        if overwriteExistingPrompt || !draftState.isDirty {
+            draftState.chooseGuided(
+                prompt: generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt()),
+                model: selectedModel
+            )
         }
         isPromptPreviewVisible = true
     }
 
     private func updatePromptPreviewIfNeeded() {
-        guard isPromptPreviewVisible && !hasEditedPrompt else { return }
-        promptPreview = generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt())
+        guard isPromptPreviewVisible else { return }
+        draftState.refreshGuidedPrompt(generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt()))
     }
 
     private func enhancePrompt() {
+        guard !isEnhancingPrompt else { return }
         showPromptPreview(overwriteExistingPrompt: false)
         let promptToEnhance = promptForGeneration()
+        let context = draftState.requestContext()
         isEnhancingPrompt = true
 
         Task {
             do {
-                let enhancedPrompt = try await summaryManager.enhancePrompt(promptToEnhance, model: selectedModel)
-                promptPreview = enhancedPrompt
-                isPromptPreviewVisible = true
-                hasEditedPrompt = true
+                let enhancedPrompt = try await summaryManager.enhancePrompt(promptToEnhance, model: context.model)
+                if draftState.applyEnhancedPrompt(enhancedPrompt, ifUnchanged: context) {
+                    isPromptPreviewVisible = true
+                }
             } catch {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -744,5 +793,90 @@ struct SummaryParametersView: View {
     private func audienceForPrompt() -> String {
         let trimmed = audience.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Broad Audience" : trimmed
+    }
+
+    private var selectedSourceTemplate: SummaryTemplate? {
+        summaryTemplateController.template(matching: draftState.sourceTemplateID)
+    }
+
+    private func selectTemplate(_ selectionID: String?) {
+        clearTemplateFeedback()
+        guard let template = summaryTemplateController.template(matching: selectionID) else {
+            draftState.chooseGuided(
+                prompt: generateCustomPrompt(recordingTypeForPrompt(), audienceForPrompt()),
+                model: selectedModel
+            )
+            isPromptPreviewVisible = true
+            return
+        }
+        draftState.selectTemplate(template, model: selectedModel)
+        isPromptPreviewVisible = true
+    }
+
+    private var canSaveTemplate: Bool {
+        let name = saveTemplateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return draftState.canSaveAsTemplate
+            && !name.isEmpty
+            && name.count <= SummaryTemplateRepository.maximumNameLength
+    }
+
+    private func saveTemplate() {
+        guard !isSavingTemplate, canSaveTemplate else { return }
+        let name = saveTemplateName
+        let context = draftState.requestContext()
+        isSavingTemplate = true
+        clearTemplateFeedback()
+        Task {
+            defer { isSavingTemplate = false }
+            guard let created = await summaryTemplateController.create(name: name, prompt: context.prompt) else { return }
+            if draftState.acceptSavedTemplate(created, ifUnchanged: context) {
+                if saveTemplateName == name { saveTemplateName = "" }
+                templateOperationMessage = "Template saved."
+            } else {
+                templateOperationMessage = "Template saved, but the newer draft was kept unchanged."
+            }
+        }
+    }
+
+    private func updateTemplate() {
+        guard !isSavingTemplate, draftState.canUpdateSourceTemplate,
+              let source = selectedSourceTemplate, !source.isBuiltIn else { return }
+        let context = draftState.requestContext()
+        isSavingTemplate = true
+        clearTemplateFeedback()
+        Task {
+            defer { isSavingTemplate = false }
+            guard let updated = await summaryTemplateController.update(
+                id: source.id, name: source.name, prompt: context.prompt
+            ) else { return }
+            if draftState.acceptUpdatedSource(updated, ifUnchanged: context) {
+                templateOperationMessage = "Template updated."
+            } else {
+                templateOperationMessage = "Template updated, but the newer draft was kept unchanged."
+            }
+        }
+    }
+
+    private func clearTemplateFeedback() {
+        templateOperationMessage = nil
+        summaryTemplateController.clearError()
+    }
+
+    private func initializeDefaultWhenAvailable() async {
+        guard !summaryTemplateController.isLibraryRebinding else { return }
+        if summaryTemplateController.templates.isEmpty {
+            guard await summaryTemplateController.load() else { return }
+        }
+        initializePublishedDefaultIfAvailable()
+    }
+
+    private func initializePublishedDefaultIfAvailable() {
+        guard !summaryTemplateController.isLibraryRebinding,
+              !summaryTemplateController.templates.isEmpty else { return }
+        draftState.initializeDefaultIfPristine(
+            summaryTemplateController.defaultTemplateValue,
+            model: selectedModel.isEmpty ? defaultModel : selectedModel
+        )
+        isPromptPreviewVisible = draftState.isInitialized
     }
 }
