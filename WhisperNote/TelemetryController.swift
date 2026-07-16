@@ -54,10 +54,10 @@ final class TelemetryController: ObservableObject {
     // Baked-in delivery default so consenting users send without configuring anything.
     // This is the public Cloudflare Worker in front of n8n, never the raw n8n webhook.
     // REPLACE before release with the real Worker route.
-    static let defaultEndpoint = "https://telemetry.example.workers.dev/ingest"
+    static let defaultEndpoint = "https://whispernote-telemetry-worker.mcjczapiewski.workers.dev/ingest"
     // Low-value bot filter, NOT a secret — it ships in the binary. Real protection is the
     // Worker (rate limiting + holding the n8n URL/secret server-side). REPLACE before release.
-    static let defaultAppToken = "whispernote-public-ingest"
+    static let defaultAppToken = "8455dbd665026f7d75ce8cddd23f6b6c9a7499bc3f5dea6fc632518c51c65a84"
 
     @Published private(set) var consent = TelemetryConsentState.disabled
     @Published private(set) var queuedItemCount = 0
